@@ -2,15 +2,16 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth/session";
 
-export async function getContacts(search?: string) {
+export async function getContacts(search?: string, page = 1, limit = 50) {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
+  const offset = (page - 1) * limit;
   let query = supabase
     .from("contacts")
     .select("id, name, phone, email, instagram_handle, messenger_psid, custom_fields, owner_id, created_at")
     .eq("organization_id", organizationId)
     .order("created_at", { ascending: false })
-    .limit(200);
+    .range(offset, offset + limit - 1);
 
   if (search?.trim()) {
     const q = `%${search.trim()}%`;
@@ -43,7 +44,7 @@ export async function getStages() {
   return data ?? [];
 }
 
-export async function getOpportunities() {
+export async function getOpportunities(limit = 50) {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
   const { data } = await supabase
@@ -53,11 +54,11 @@ export async function getOpportunities() {
     )
     .eq("organization_id", organizationId)
     .order("position", { ascending: true })
-    .limit(300);
+    .limit(limit);
   return data ?? [];
 }
 
-export async function getConversations() {
+export async function getConversations(limit = 50) {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
   const { data } = await supabase
@@ -67,7 +68,7 @@ export async function getConversations() {
     )
     .eq("organization_id", organizationId)
     .order("last_message_at", { ascending: false, nullsFirst: false })
-    .limit(100);
+    .limit(limit);
   return data ?? [];
 }
 
