@@ -1,10 +1,19 @@
-export default function TemplatesPage() {
+import { getTemplates } from "@/lib/data/templates";
+import { PageHeader } from "@/components/ui/primitives";
+import { TemplatesManager } from "@/components/templates/TemplatesManager";
+
+export const dynamic = "force-dynamic";
+
+export default async function TemplatesPage() {
+  const templates = await getTemplates();
+
   return (
     <div>
-      <h1 className="text-2xl font-extrabold tracking-tight">Templates WhatsApp</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Criação, prévia e submissão à Meta (Etapa 3).
-      </p>
+      <PageHeader
+        title="Templates WhatsApp"
+        subtitle="Crie, pré-visualize e submeta modelos à aprovação da Meta"
+      />
+      <TemplatesManager templates={templates as any} />
     </div>
   );
 }
