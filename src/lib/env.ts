@@ -10,20 +10,29 @@ export const publicEnv = {
 };
 
 export function serverEnv() {
-  const required = {
-    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-  };
-  for (const [key, value] of Object.entries(required)) {
-    if (!value) throw new Error(`Variável de ambiente ausente: ${key}`);
-  }
+  const apiKey =
+    process.env.ANTHROPIC_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    "";
+
+  const baseUrl =
+    process.env.BASE_URL ||
+    process.env.ANTHROPIC_BASE_URL ||
+    process.env.OPENAI_BASE_URL ||
+    undefined;
+
+  const defaultModel =
+    process.env.ANTHROPIC_DEFAULT_MODEL ||
+    process.env.OPENAI_MODEL ||
+    "my-combo";
+
   return {
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY!,
-    anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL || undefined,
-    defaultModel: process.env.ANTHROPIC_DEFAULT_MODEL || "claude-3-5-sonnet-20241022",
+    anthropicApiKey: apiKey,
+    aiBaseUrl: baseUrl,
+    defaultModel,
     cernio: {
-      apiUrl: process.env.CERNIO_API_URL ?? "",
+      apiUrl: process.env.CERNIO_API_URL ?? "https://api.zernio.com",
       apiKey: process.env.CERNIO_API_KEY ?? "",
       webhookSecret: process.env.CERNIO_WEBHOOK_SECRET ?? "",
     },
