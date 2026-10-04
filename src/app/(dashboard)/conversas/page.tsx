@@ -4,11 +4,11 @@ import { getConversations } from "@/lib/data/queries";
 import { PageHeader } from "@/components/ui/primitives";
 import { Inbox } from "@/components/conversas/Inbox";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 10;
 
 export default async function ConversasPage() {
   const { organizationId } = await requireProfile();
-  const conversations = await getConversations();
+  const conversations = await getConversations(50);
   const supabase = createClient();
 
   const firstId = conversations[0]?.id;
@@ -20,6 +20,7 @@ export default async function ConversasPage() {
           .eq("organization_id", organizationId)
           .eq("conversation_id", firstId)
           .order("created_at")
+          .limit(100)
       : Promise.resolve({ data: [] }),
     firstId
       ? supabase
@@ -28,6 +29,7 @@ export default async function ConversasPage() {
           .eq("organization_id", organizationId)
           .eq("conversation_id", firstId)
           .order("created_at", { ascending: false })
+          .limit(50)
       : Promise.resolve({ data: [] }),
   ]);
 
