@@ -137,7 +137,10 @@ export function AgentWorkbench({
 
       {/* Coluna: playground */}
       <div className="lg:col-span-4">
-        <Playground agentId={selectedId} />
+        <Playground
+          agentId={selectedId}
+          activeAgent={agents.find((a) => a.id === selectedId)}
+        />
       </div>
 
       {creating && <NewAgentModal onClose={() => setCreating(false)} />}
@@ -450,7 +453,13 @@ function ToggleRow({
 
 /* ────────────────────────── Playground ────────────────────────── */
 
-function Playground({ agentId }: { agentId: string | null }) {
+function Playground({
+  agentId,
+  activeAgent,
+}: {
+  agentId: string | null;
+  activeAgent?: Agent;
+}) {
   const [version, setVersion] = useState<"draft" | "published">("published");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -495,8 +504,24 @@ function Playground({ agentId }: { agentId: string | null }) {
 
   return (
     <Card className="flex h-full flex-col">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-bold">Playground</h3>
+      <div className="mb-2 flex items-center justify-between border-b pb-2">
+        <div>
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-sm font-bold">Playground</h3>
+            {activeAgent && (
+              <Badge className="bg-primary text-primary-foreground text-[10px]">
+                {activeAgent.role === "vendedor" && "💼 "}
+                {activeAgent.role === "atendente" && "🎧 "}
+                {activeAgent.role === "suporte" && "🛠️ "}
+                {activeAgent.role === "agendador" && "📅 "}
+                {AGENT_ROLE_LABEL[activeAgent.role]}
+              </Badge>
+            )}
+          </div>
+          {activeAgent && (
+            <p className="text-[10px] text-muted-foreground">{activeAgent.name}</p>
+          )}
+        </div>
         <select
           value={version}
           onChange={(e) => setVersion(e.target.value as any)}
