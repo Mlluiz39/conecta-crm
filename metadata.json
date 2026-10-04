@@ -1,6 +1,0 @@
-{
-  "name": "ConectaCRM - CRM Multicanal com Agentes de IA",
-  "description": "CRM multicanal com inteligência artificial para WhatsApp, Instagram e Messenger, pipeline visual, agendamentos e analytics para empresas brasileiras.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
