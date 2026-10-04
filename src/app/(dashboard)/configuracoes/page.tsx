@@ -1,10 +1,37 @@
-export default function ConfiguracoesPage() {
+import { requireProfile } from "@/lib/auth/session";
+import {
+  getBusinessPresets,
+  getCustomFields,
+  getOrganization,
+  getTeam,
+} from "@/lib/data/presets";
+import { PageHeader } from "@/components/ui/primitives";
+import { SettingsPanel } from "@/components/settings/SettingsPanel";
+
+export const dynamic = "force-dynamic";
+
+export default async function ConfiguracoesPage() {
+  const { role } = await requireProfile();
+  const [org, presets, fields, team] = await Promise.all([
+    getOrganization(),
+    getBusinessPresets(),
+    getCustomFields(),
+    getTeam(),
+  ]);
+
   return (
     <div>
-      <h1 className="text-2xl font-extrabold tracking-tight">Configurações</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Tipo de negócio, campos, equipe e regras de atendimento (Etapa 4).
-      </p>
+      <PageHeader
+        title="Configurações"
+        subtitle="Tipo de negócio, campos personalizados, equipe e regras de atendimento"
+      />
+      <SettingsPanel
+        org={(org as any) ?? { name: "", business_type: "outro", settings: {} }}
+        presets={presets as any}
+        fields={fields as any}
+        team={team as any}
+        myRole={role}
+      />
     </div>
   );
 }

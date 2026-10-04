@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { Sparkles } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import {
   saveDraft,
   publishDraft,
@@ -151,6 +153,40 @@ function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Age
   const [text, setText] = useState(draft?.prompt ?? published?.prompt ?? "");
   const [saving, startSaving] = useTransition();
   const [note, setNote] = useState("");
+  const [improving, setImproving] = useState(false);
+  const [templates, setTemplates] = useState<{ id: string; name: string; prompt: string }[]>([]);
+
+  // Modelos iniciais por função/nicho (agent_templates globais + da org).
+  useEffect(() => {
+    const supabase = createClient();
+    void supabase
+      .from("agent_templates")
+      .select("id, name, prompt")
+      .eq("role", agent.role)
+      .order("name")
+      .then(({ data }) => setTemplates((data ?? []) as any));
+  }, [agent.role]);
+
+  async function improve() {
+    if (!text.trim() || improving) return;
+    setImproving(true);
+    setNote("");
+    try {
+      const res = await fetch("/api/ai/improve-prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "erro");
+      setText(data.improved);
+      setNote("Prompt melhorado pela IA");
+    } catch (e) {
+      setNote(`Erro: ${(e as Error).message}`);
+    } finally {
+      setImproving(false);
+    }
+  }
 
   return (
     <div className="space-y-3">
@@ -169,6 +205,22 @@ function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Age
           </Badge>
         )}
       </div>
+
+      {templates.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => {
+            const t = templates.find((x) => x.id === e.target.value);
+            if (t) setText(t.prompt);
+          }}
+          className="w-full rounded-xl border bg-background px-3 py-2 text-xs"
+        >
+          <option value="">Carregar modelo inicial ({agent.role})...</option>
+          {templates.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+      )}
 
       <div className="flex flex-wrap items-center gap-1 text-[10px]">
         <span className="text-muted-foreground">Variáveis:</span>
@@ -194,7 +246,15 @@ function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Age
         {note && <span className="text-emerald-600">{note}</span>}
       </div>
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          onClick={() => void improve()}
+          disabled={improving}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-accent disabled:opacity-60"
+        >
+          <Sparkles size={13} /> {improving ? "Melhorando..." : "Melhorar prompt com IA"}
+        </button>
+        <div className="flex items-center gap-2">
         <button
           onClick={() => {
             setNote("");
@@ -222,6 +282,7 @@ function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Age
         >
           Publicar versão
         </button>
+        </div>
       </div>
 
       {versions.length > 1 && (
