@@ -513,7 +513,7 @@ create policy organizations_update on organizations for update to authenticated
 
 alter table organization_members enable row level security;
 create policy members_select on organization_members for select to authenticated
-  using (public.is_org_member(organization_id));
+  using (user_id = auth.uid() or public.is_org_member(organization_id));
 create policy members_manage on organization_members for all to authenticated
   using (public.has_org_role(organization_id, array['admin']::user_role[]))
   with check (public.has_org_role(organization_id, array['admin']::user_role[]));

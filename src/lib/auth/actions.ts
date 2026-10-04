@@ -9,10 +9,15 @@ export async function login(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  console.log(`[login] Tentando login para: ${email}`);
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
   if (error) {
-    redirect(`/login?erro=${encodeURIComponent("Credenciais inválidas")}`);
+    console.error("[login erro]", error.status, error.name, error.message);
+    redirect(`/login?erro=${encodeURIComponent(error.message)}`);
   }
+
+  console.log(`[login sucesso] Usuário ID: ${data.user?.id}`);
   revalidatePath("/", "layout");
   redirect("/dashboard");
 }
