@@ -12,6 +12,7 @@ import {
   toggleRule,
   toggleAgentActive,
   createAgent,
+  updateAgentRole,
 } from "@/lib/data/actions";
 import { Badge, Card } from "@/components/ui/primitives";
 import { AGENT_ROLE_LABEL, AGENT_TONE_LABEL, CHANNEL_LABEL, HANDOFF_RULE_LABEL, TOOL_LABEL } from "@/types/domain";
@@ -190,6 +191,51 @@ function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Age
 
   return (
     <div className="space-y-3">
+      {/* Seletor de Função/Papel do Agente com 1 clique */}
+      <div className="rounded-xl border bg-muted/20 p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="block text-xs font-bold uppercase tracking-wide text-muted-foreground">
+            Função Ativa do Agente
+          </label>
+          <Badge className="bg-primary text-primary-foreground text-[10px]">
+            {AGENT_ROLE_LABEL[agent.role]}
+          </Badge>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs font-semibold">
+          {(["vendedor", "atendente", "suporte", "agendador"] as const).map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => {
+                startSaving(async () => {
+                  await updateAgentRole(agentId, r);
+                  // Atualiza o texto do prompt com o template do novo papel se o usuário quiser
+                  const t = templates.find((x) => x.name.toLowerCase().includes(r));
+                  if (t) setText(t.prompt);
+                });
+              }}
+              className={`rounded-lg py-2 px-2 text-center transition-all ${
+                agent.role === r
+                  ? "bg-primary text-primary-foreground font-bold shadow-sm"
+                  : "bg-background border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {r === "vendedor" && "💼 "}
+              {r === "atendente" && "🎧 "}
+              {r === "suporte" && "🛠️ "}
+              {r === "agendador" && "📅 "}
+              {AGENT_ROLE_LABEL[r]}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted-foreground italic">
+          {agent.role === "vendedor" && "💼 Vendedor: Acolhe, faz perguntas de qualificação e vende valor antes de agendar."}
+          {agent.role === "atendente" && "🎧 Atendente: Foco em recepção, SAC e respostas diretas sem tentar vender."}
+          {agent.role === "suporte" && "🛠️ Suporte: Foco em resolver dúvidas e problemas técnicos."}
+          {agent.role === "agendador" && "📅 Agendador: Foco direto em horários, confirmações e organização da agenda."}
+        </p>
+      </div>
+
       <div className="flex items-center gap-2 text-xs">
         <span className="text-muted-foreground">Versão:</span>
         {draft ? (
