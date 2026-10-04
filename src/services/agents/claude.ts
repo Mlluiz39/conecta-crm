@@ -28,8 +28,101 @@ export type AgentLoopResult = {
 const MAX_ITERATIONS = 5;
 
 /**
- * Executa o loop do agente com suporte dual e higienização anti-vazamento de JSON:
- * 1. 9router / OpenAI format: suporte a tool_calls nativos E tool calls embutidos no content
+ * Trata respostas de gateways OpenAI / 9router que podem retornar JSON simples
+ * ou stream SSE ("data: { ... }").
+ */
+function parseOpenAiResponse(rawText: string): any {
+  const trimmed = rawText.trim();
+
+  // 1. Se for JSON direto
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      // continua para tentativa de parsing SSE
+    }
+  }
+
+  // 2. Se o gateway retornou Server-Sent Events (SSE / streaming com prefixo "data: ")
+  if (trimmed.includes("data:")) {
+    let fullContent = "";
+    const toolCallsMap = new Map<number, any>();
+    let finishReason = "stop";
+    let promptTokens = 0;
+    let completionTokens = 0;
+
+    const lines = trimmed.split("\n");
+    for (const line of lines) {
+      const lineTrim = line.trim();
+      if (!lineTrim.startsWith("data:") || lineTrim === "data: [DONE]") continue;
+
+      const jsonStr = lineTrim.slice(5).trim();
+      try {
+        const chunk = JSON.parse(jsonStr);
+        const choice = chunk.choices?.[0];
+
+        if (choice?.delta?.content) {
+          fullContent += choice.delta.content;
+        } else if (choice?.message?.content) {
+          fullContent += choice.message.content;
+        }
+
+        if (choice?.finish_reason) {
+          finishReason = choice.finish_reason;
+        }
+
+        if (chunk.usage) {
+          promptTokens = chunk.usage.prompt_tokens ?? promptTokens;
+          completionTokens = chunk.usage.completion_tokens ?? completionTokens;
+        }
+
+        // Se houver chamada de ferramenta no chunk
+        if (choice?.delta?.tool_calls) {
+          for (const tc of choice.delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            if (!toolCallsMap.has(idx)) {
+              toolCallsMap.set(idx, {
+                id: tc.id || `call_${idx}`,
+                type: "function",
+                function: { name: tc.function?.name || "", arguments: "" },
+              });
+            }
+            const existing = toolCallsMap.get(idx);
+            if (tc.function?.name) existing.function.name = tc.function.name;
+            if (tc.function?.arguments) existing.function.arguments += tc.function.arguments;
+          }
+        }
+      } catch {
+        // ignora chunk corrompido
+      }
+    }
+
+    const toolCalls = Array.from(toolCallsMap.values());
+
+    return {
+      choices: [
+        {
+          finish_reason: finishReason,
+          message: {
+            role: "assistant",
+            content: fullContent,
+            tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+          },
+        },
+      ],
+      usage: {
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+      },
+    };
+  }
+
+  return JSON.parse(trimmed);
+}
+
+/**
+ * Executa o loop do agente com suporte dual:
+ * 1. 9router / OpenAI format: suporte a tool_calls nativos, stream SSE e tool calls embutidos no content
  * 2. Anthropic SDK nativo
  */
 export async function runAgentLoop(params: {
@@ -78,6 +171,7 @@ export async function runAgentLoop(params: {
         const payload: any = {
           model: params.model || env.defaultModel,
           messages: openAiMessages,
+          stream: false, // Força não-streaming para evitar SSE
         };
 
         if (openAiTools.length > 0) {
@@ -93,12 +187,12 @@ export async function runAgentLoop(params: {
           body: JSON.stringify(payload),
         });
 
+        const rawText = await res.text();
         if (!res.ok) {
-          const errText = await res.text();
-          throw new Error(`9router HTTP ${res.status}: ${errText}`);
+          throw new Error(`9router HTTP ${res.status}: ${rawText}`);
         }
 
-        const data = await res.json();
+        const data = parseOpenAiResponse(rawText);
         const choice = data.choices?.[0];
         const message = choice?.message;
 
@@ -328,14 +422,16 @@ export async function generateText(prompt: string, systemPrompt?: string): Promi
       body: JSON.stringify({
         model: env.defaultModel,
         messages,
+        stream: false,
       }),
     });
 
+    const rawText = await res.text();
     if (!res.ok) {
-      throw new Error(`9router HTTP ${res.status}: ${await res.text()}`);
+      throw new Error(`9router HTTP ${res.status}: ${rawText}`);
     }
 
-    const data = await res.json();
+    const data = parseOpenAiResponse(rawText);
     return sanitizeAiReply((data.choices?.[0]?.message?.content || "").trim());
   }
 
