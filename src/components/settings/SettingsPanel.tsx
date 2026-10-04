@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation";
 import { applyPreset, createCustomField, deleteCustomField, inviteUser, setUserRole } from "@/lib/data/presets";
 import { Badge, Card } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
-import type { BusinessType } from "@/types/domain";
+import type { BusinessType, UserRole } from "@/types/domain";
 
-type Preset = { business_type: BusinessType; name: string; description: string; icon: string };
-type Field = { id: string; key: string; name: string; type: string };
-type Member = { id: string; full_name: string; email: string; role: string; is_active: boolean };
+type Preset = { business_type: BusinessType; name: string; custom_fields: any[]; pipeline_stages: any[] };
+type Field = { id: string; key: string; label: string; type: string };
+type Member = { id: string; full_name: string; email: string; role: UserRole; is_active: boolean };
 
 const ROLE_LABEL: Record<string, string> = { admin: "Administrador", gerente: "Gerente", atendente: "Atendente" };
 
@@ -20,7 +20,7 @@ export function SettingsPanel({
   team,
   myRole,
 }: {
-  org: { name: string; business_type: BusinessType; settings: any };
+  org: { name: string; business_type: BusinessType; timezone?: string; out_of_hours_message?: string };
   presets: Preset[];
   fields: Field[];
   team: Member[];
@@ -63,7 +63,9 @@ export function SettingsPanel({
                   <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">Atual</Badge>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground">{p.description}</p>
+              <p className="text-xs text-muted-foreground">
+                Configura automaticamente funil de vendas, campos customizados e etiquetas para {p.name}.
+              </p>
               <button
                 onClick={async () => {
                   await applyPreset(p.business_type);
@@ -71,7 +73,7 @@ export function SettingsPanel({
                 }}
                 className="w-full rounded-xl bg-primary px-3 py-2 text-xs font-bold text-primary-foreground hover:opacity-90"
               >
-                {org.business_type === p.business_type ? "Reaplicar campos/etapas" : "Aplicar preset"}
+                {org.business_type === p.business_type ? "Reaplicar configuração do nicho" : `Mudar para ${p.name}`}
               </button>
             </Card>
           ))}
@@ -81,7 +83,7 @@ export function SettingsPanel({
       {tab === "campos" && (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           <Card>
-            <h3 className="mb-3 text-sm font-bold">Campos atuais</h3>
+            <h3 className="mb-3 text-sm font-bold">Campos personalizados atuais</h3>
             {fields.length === 0 ? (
               <p className="text-sm text-muted-foreground">Nenhum campo personalizado.</p>
             ) : (
@@ -89,7 +91,7 @@ export function SettingsPanel({
                 {fields.map((f) => (
                   <div key={f.id} className="flex items-center justify-between rounded-xl border p-2.5 text-sm">
                     <div>
-                      <span className="font-semibold">{f.name}</span>
+                      <span className="font-semibold">{f.label}</span>
                       <span className="ml-2 font-mono text-[10px] text-muted-foreground">{f.key} · {f.type}</span>
                     </div>
                     <button
@@ -110,14 +112,14 @@ export function SettingsPanel({
               action={async (fd) => { await createCustomField(fd); router.refresh(); }}
               className="space-y-3"
             >
-              <input name="name" required placeholder="Nome exibido (ex: Bairro)" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
-              <input name="key" required placeholder="chave (ex: bairro)" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
+              <input name="name" required placeholder="Rótulo visível (ex: Bairro de interesse)" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
+              <input name="key" required placeholder="chave_sem_espaco (ex: bairro_interesse)" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
               <select name="type" className="w-full rounded-xl border bg-background px-3 py-2 text-sm">
                 {["text", "number", "date", "select", "currency"].map((t) => (
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>
-              <input name="options" placeholder="Opções p/ select, separadas por vírgula" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
+              <input name="options" placeholder="Opções para select, separadas por vírgula" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
               <button type="submit" className="w-full rounded-xl bg-primary px-3 py-2 text-sm font-bold text-primary-foreground">
                 Adicionar campo
               </button>
@@ -156,10 +158,10 @@ export function SettingsPanel({
 
           {myRole === "admin" && (
             <Card>
-              <h3 className="mb-3 text-sm font-bold">Convidar usuário</h3>
+              <h3 className="mb-3 text-sm font-bold">Convidar atendente / gerente</h3>
               <form action={async (fd) => { await inviteUser(fd); router.refresh(); }} className="space-y-3">
-                <input name="full_name" placeholder="Nome" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
-                <input name="email" type="email" required placeholder="e-mail" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
+                <input name="full_name" placeholder="Nome completo" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
+                <input name="email" type="email" required placeholder="E-mail" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
                 <select name="role" className="w-full rounded-xl border bg-background px-3 py-2 text-sm">
                   <option value="atendente">Atendente</option>
                   <option value="gerente">Gerente</option>
@@ -168,7 +170,7 @@ export function SettingsPanel({
                   Enviar convite
                 </button>
                 <p className="text-[11px] text-muted-foreground">
-                  O usuário recebe um e-mail para definir a senha e já entra na organização.
+                  O usuário recebe um link para definir sua senha de acesso.
                 </p>
               </form>
             </Card>
@@ -178,26 +180,23 @@ export function SettingsPanel({
 
       {tab === "atendimento" && (
         <Card className="space-y-3">
-          <h3 className="text-sm font-bold">Horário e distribuição</h3>
+          <h3 className="text-sm font-bold">Horário de funcionamento e regras</h3>
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <ReadField label="Horário de atendimento" value={org.settings?.horario_atendimento ?? "—"} />
-            <ReadField label="Fuso horário" value={org.settings?.timezone ?? "America/Sao_Paulo"} />
+            <div className="rounded-xl border p-3">
+              <p className="text-xs text-muted-foreground">Fuso horário</p>
+              <p className="font-semibold">{org.timezone ?? "America/Sao_Paulo"}</p>
+            </div>
+            <div className="rounded-xl border p-3">
+              <p className="text-xs text-muted-foreground">Horário padrão</p>
+              <p className="font-semibold">Segunda a Sexta, 09:00 às 18:00</p>
+            </div>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Regras de distribuição entre atendentes e mensagem fora do horário são configuradas por agente
-            (aba Handoff) e nas regras de lembrete do Calendário.
-          </p>
+          <div className="rounded-xl border p-3">
+            <p className="text-xs text-muted-foreground">Mensagem fora do expediente</p>
+            <p className="text-sm">{org.out_of_hours_message || "Estamos fora do horário de atendimento. Retornaremos em breve."}</p>
+          </div>
         </Card>
       )}
-    </div>
-  );
-}
-
-function ReadField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="font-semibold">{value}</p>
     </div>
   );
 }

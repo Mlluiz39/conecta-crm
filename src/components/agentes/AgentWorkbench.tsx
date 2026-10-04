@@ -14,15 +14,15 @@ import {
   createAgent,
 } from "@/lib/data/actions";
 import { Badge, Card } from "@/components/ui/primitives";
-import { AGENT_ROLE_LABEL, CHANNEL_LABEL, HANDOFF_RULE_LABEL, TOOL_LABEL } from "@/types/domain";
-import type { AgentRole, AgentToolKey, ChannelType, HandoffRuleKey } from "@/types/domain";
+import { AGENT_ROLE_LABEL, AGENT_TONE_LABEL, CHANNEL_LABEL, HANDOFF_RULE_LABEL, TOOL_LABEL } from "@/types/domain";
+import type { AgentRole, AgentTone, AgentToolKey, ChannelType, HandoffRuleKey } from "@/types/domain";
 
 type Agent = {
   id: string;
   name: string;
   role: AgentRole;
+  tone: AgentTone;
   is_active: boolean;
-  settings: { model?: string } | null;
 };
 type Version = { id: string; version: number; prompt: string; status: string; created_at: string };
 type Channel = { channel: ChannelType; is_active: boolean };
@@ -40,7 +40,7 @@ const ALL_TOOLS: AgentToolKey[] = [
 const ALL_RULES: HandoffRuleKey[] = [
   "cliente_pede_humano",
   "sentimento_negativo",
-  "3_falhas_seguidas",
+  "falhas_seguidas",
   "fora_do_horario",
 ];
 const VARS = ["{{nome_empresa}}", "{{nome_contato}}", "{{horario_atendimento}}", "{{canal}}", "{{nome_agente}}"];
@@ -87,7 +87,7 @@ export function AgentWorkbench({
             </div>
             <div className="mt-1 flex items-center gap-2">
               <Badge className="bg-primary/10 text-primary">{AGENT_ROLE_LABEL[a.role]}</Badge>
-              <span className="text-[10px] text-muted-foreground">{a.settings?.model ?? "modelo padrão"}</span>
+              <span className="text-[10px] text-muted-foreground">{AGENT_TONE_LABEL[a.tone] ?? a.tone}</span>
             </div>
           </a>
         ))}

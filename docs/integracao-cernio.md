@@ -49,8 +49,8 @@ O adapter aceita `{ "messages": [...] }`, `{ "message": {...} }` ou um objeto
 }
 ```
 
-- **`account_id`** precisa bater com `agent_channels.external_account_id`
-  (cadastrado ao vincular um agente a um canal). Sem isso o evento é ignorado.
+- **`account_id`** mapeia para o canal da Cernio registrado na tabela `channels`
+  (`cernio_channel_id`), resolvendo a organização e o agente responsável.
 - **Assinatura**: HMAC-SHA256 do corpo cru com `CERNIO_WEBHOOK_SECRET`, no
   header `x-cernio-signature` (aceita prefixo `sha256=`). Ajuste em
   `verifySignature` se o formato real for diferente.
@@ -61,15 +61,14 @@ O adapter aceita `{ "messages": [...] }`, `{ "message": {...} }` ou um objeto
 POST /api/webhooks/cernio
   → verifySignature
   → insert webhook_events (unique provider+event_id)  → duplicata = 200, sem reprocesso
-  → resolve organização por account_id
+  → resolve organização pelo canal (channels.cernio_channel_id)
   → upsert contato (por telefone) + conversa
-  → insert mensagem (unique external_message_id)
-  → runAgentForConversation  (handoff? → não chama IA, notifica atendente)
-  → insert message_outbox (resposta do agente)
+  → insert mensagem (unique external_id)
+  → trigger trg_message_insert atualiza conversa (last_message_at, unread_count)
+  → runAgentForConversation (handoff? → desativa bot e notifica)
+  → executa ferramentas e grava em agent_tool_calls
+  → se gerou resposta, envia pelo provider e grava mensagem out
   → 200 imediato
-
-GET /api/cron/outbox  (a cada 5 min, vercel.json)
-  → envia pendentes pelo provider, marca sent, retry com backoff (5 tentativas)
 ```
 
 A IA **nunca** roda dentro do request do webhook de forma bloqueante para o

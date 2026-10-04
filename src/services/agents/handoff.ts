@@ -12,21 +12,13 @@ const HUMAN_KEYWORDS = [
   "supervisor",
 ];
 
-/**
- * Avalia as regras de handoff habilitadas do agente contra a mensagem e o
- * contexto. Retorna a primeira regra acionada, ou null.
- *
- * ponytail: sentimento_negativo fica como gancho (necessita classificador);
- * upgrade = chamada Haiku de análise de sentimento antes do loop principal.
- */
 export function evaluateHandoff(params: {
   enabledRules: HandoffRuleKey[];
   message: string;
   consecutiveFailures: number;
   withinBusinessHours: boolean;
 }): HandoffRuleKey | null {
-  const { enabledRules, message, consecutiveFailures, withinBusinessHours } =
-    params;
+  const { enabledRules, message, consecutiveFailures, withinBusinessHours } = params;
   const lower = message.toLowerCase();
 
   if (
@@ -36,18 +28,12 @@ export function evaluateHandoff(params: {
     return "cliente_pede_humano";
   }
 
-  if (
-    enabledRules.includes("fora_do_horario") &&
-    !withinBusinessHours
-  ) {
+  if (enabledRules.includes("fora_do_horario") && !withinBusinessHours) {
     return "fora_do_horario";
   }
 
-  if (
-    enabledRules.includes("3_falhas_seguidas") &&
-    consecutiveFailures >= 3
-  ) {
-    return "3_falhas_seguidas";
+  if (enabledRules.includes("falhas_seguidas") && consecutiveFailures >= 3) {
+    return "falhas_seguidas";
   }
 
   return null;

@@ -6,7 +6,7 @@ import { Card, Badge, EmptyState } from "@/components/ui/primitives";
 import { formatBRL, formatDateTime } from "@/lib/utils";
 import { CHANNEL_LABEL, type ChannelType } from "@/types/domain";
 
-type FieldDef = { key: string; name: string; type: string };
+type FieldDef = { key: string; label: string; type: string; options?: string[] };
 type Tab = "dados" | "conversas" | "oportunidades" | "agendamentos" | "historico";
 
 export function ContactTabs({
@@ -14,14 +14,14 @@ export function ContactTabs({
   customFields,
   opportunities,
   appointments,
-  activities,
+  notes,
   conversations,
 }: {
   contact: any;
   customFields: FieldDef[];
   opportunities: any[];
   appointments: any[];
-  activities: any[];
+  notes: any[];
   conversations: any[];
 }) {
   const [tab, setTab] = useState<Tab>("dados");
@@ -32,8 +32,10 @@ export function ContactTabs({
     { id: "conversas", label: "Conversas", count: conversations.length },
     { id: "oportunidades", label: "Oportunidades", count: opportunities.length },
     { id: "agendamentos", label: "Agendamentos", count: appointments.length },
-    { id: "historico", label: "Histórico", count: activities.length },
+    { id: "historico", label: "Anotações", count: notes.length },
   ];
+
+  const custom = contact.custom_fields || {};
 
   return (
     <div>
@@ -74,9 +76,10 @@ export function ContactTabs({
               <Input name="name" label="Nome" defaultValue={contact.name} required />
               <Input name="phone" label="Telefone" defaultValue={contact.phone ?? ""} />
               <Input name="email" label="E-mail" defaultValue={contact.email ?? ""} />
-              <Input name="company" label="Empresa" defaultValue={contact.company ?? ""} />
-              <Input name="city" label="Cidade" defaultValue={contact.city ?? ""} />
-              <Input name="state" label="UF" defaultValue={contact.state ?? ""} />
+              <Input name="instagram_handle" label="Instagram (@)" defaultValue={contact.instagram_handle ?? ""} />
+              <Input name="company" label="Empresa" defaultValue={custom.empresa ?? ""} />
+              <Input name="city" label="Cidade" defaultValue={custom.cidade ?? ""} />
+              <Input name="state" label="UF" defaultValue={custom.estado ?? ""} />
             </div>
 
             {customFields.length > 0 && (
@@ -111,7 +114,7 @@ export function ContactTabs({
               <Card key={c.id} className="flex items-center justify-between">
                 <div>
                   <Badge className="bg-accent text-accent-foreground">
-                    {CHANNEL_LABEL[c.channel as ChannelType] ?? c.channel}
+                    {CHANNEL_LABEL[c.channel_type as ChannelType] ?? c.channel_type}
                   </Badge>
                   <span className="ml-3 text-sm text-muted-foreground">
                     {c.last_message_at ? formatDateTime(c.last_message_at) : "—"}
@@ -130,10 +133,7 @@ export function ContactTabs({
             {opportunities.map((o) => (
               <Card key={o.id} className="flex items-center justify-between">
                 <span className="font-semibold">{o.title ?? "Oportunidade"}</span>
-                <div className="flex items-center gap-3">
-                  <span className="font-bold text-emerald-600">{formatBRL(Number(o.value))}</span>
-                  <Badge className="bg-muted text-muted-foreground">{o.status}</Badge>
-                </div>
+                <span className="font-bold text-emerald-600">{formatBRL(Number(o.value))}</span>
               </Card>
             ))}
           </div>
@@ -157,15 +157,12 @@ export function ContactTabs({
       )}
 
       {tab === "historico" && (
-        activities.length === 0 ? <EmptyState label="Nenhuma interação registrada." /> : (
+        notes.length === 0 ? <EmptyState label="Nenhuma anotação registrada." /> : (
           <div className="space-y-2">
-            {activities.map((a) => (
-              <Card key={a.id}>
-                <div className="flex items-center gap-2">
-                  <Badge className="bg-accent text-accent-foreground">{a.type}</Badge>
-                  <span className="text-xs text-muted-foreground">{formatDateTime(a.occurred_at)}</span>
-                </div>
-                <p className="mt-1.5 text-sm">{a.title ?? a.body}</p>
+            {notes.map((n) => (
+              <Card key={n.id}>
+                <span className="text-xs text-muted-foreground">{formatDateTime(n.created_at)}</span>
+                <p className="mt-1 text-sm">{n.content}</p>
               </Card>
             ))}
           </div>
@@ -189,7 +186,6 @@ function Input({ name, label, defaultValue, required }: { name: string; label: s
   );
 }
 
-/** Editor de campos JSONB — serializa o conjunto num único input oculto. */
 function CustomFieldsEditor({ defs, initial }: { defs: FieldDef[]; initial: Record<string, unknown> }) {
   const [values, setValues] = useState<Record<string, string>>(() => {
     const out: Record<string, string> = {};
@@ -203,7 +199,7 @@ function CustomFieldsEditor({ defs, initial }: { defs: FieldDef[]; initial: Reco
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {defs.map((d) => (
           <div key={d.key}>
-            <label className="mb-1 block text-xs font-semibold text-muted-foreground">{d.name}</label>
+            <label className="mb-1 block text-xs font-semibold text-muted-foreground">{d.label}</label>
             <input
               value={values[d.key] ?? ""}
               onChange={(e) => setValues((v) => ({ ...v, [d.key]: e.target.value }))}

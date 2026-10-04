@@ -12,7 +12,7 @@ import {
 import { formatBRL } from "@/lib/utils";
 
 type Stage = { id: string; name: string; color: string };
-type Opportunity = { pipeline_stage_id: string; value: number };
+type Opportunity = { stage_id: string; value: number };
 
 export function PipelineMiniChart({
   opportunities,
@@ -22,7 +22,7 @@ export function PipelineMiniChart({
   stages: Stage[];
 }) {
   const data = stages.map((stage) => {
-    const items = opportunities.filter((o) => o.pipeline_stage_id === stage.id);
+    const items = opportunities.filter((o) => o.stage_id === stage.id);
     return {
       name: stage.name,
       total: items.reduce((s, o) => s + Number(o.value), 0),

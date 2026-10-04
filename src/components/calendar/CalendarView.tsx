@@ -5,18 +5,17 @@ import { ChevronLeft, ChevronRight, CalendarPlus, CheckCircle2 } from "lucide-re
 import { updateAppointmentStatus } from "@/lib/data/calendar-actions";
 import { Badge, Card, EmptyState } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
+import type { AppointmentStatus } from "@/types/domain";
+import { APPOINTMENT_STATUS_LABEL } from "@/types/domain";
 
 type Appt = {
   id: string;
   title: string;
-  type: string;
-  channel: string;
   location: string | null;
-  meet_link: string | null;
   starts_at: string;
   ends_at: string;
-  status: string;
-  sync_status: string;
+  status: AppointmentStatus;
+  google_event_id: string | null;
   contact: { id: string; name: string; phone: string | null } | null;
 };
 
@@ -130,11 +129,6 @@ export function CalendarView({
           Google Calendar conectado com sucesso. Novos agendamentos serão sincronizados.
         </p>
       )}
-      {flash === "erro" && (
-        <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Não foi possível conectar o Google Calendar. Tente novamente.
-        </p>
-      )}
 
       {view === "mes" && (
         <Card className="p-0">
@@ -228,19 +222,21 @@ function DayList({ day, items, organizationName }: { day: string; items: Appt[];
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-bold">{hhmm(a.starts_at)}–{hhmm(a.ends_at)}</span>
                   <span className="text-sm font-semibold">{a.title}</span>
-                  {a.sync_status === "synced" && (
+                  {a.google_event_id && (
                     <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">Google</Badge>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {a.contact?.name ?? "Sem contato"} · {[a.location, a.meet_link].filter(Boolean).join(" · ") || a.channel}
+                  {a.contact?.name ?? "Sem contato"} · {a.location || "Presencial"}
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <Badge className="bg-muted text-muted-foreground">{a.status}</Badge>
-                {a.status !== "confirmada" && a.status !== "concluida" && (
+                <Badge className="bg-muted text-muted-foreground">
+                  {APPOINTMENT_STATUS_LABEL[a.status] ?? a.status}
+                </Badge>
+                {a.status !== "confirmado" && a.status !== "realizado" && (
                   <button
-                    onClick={() => void updateAppointmentStatus(a.id, "confirmada")}
+                    onClick={() => void updateAppointmentStatus(a.id, "confirmado")}
                     className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2 py-1 text-[11px] font-bold text-white"
                   >
                     <CheckCircle2 size={12} /> Confirmar
@@ -280,20 +276,9 @@ function AppointmentModal({ onClose }: { onClose: () => void }) {
             <input name="starts_at" type="datetime-local" required className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
             <input name="duration" type="number" defaultValue={30} min={15} step={15} className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <select name="type" className="w-full rounded-xl border bg-background px-3 py-2 text-sm">
-              {["demo", "presencial", "followup", "onboarding", "fechamento", "consulta"].map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-            <select name="channel" className="w-full rounded-xl border bg-background px-3 py-2 text-sm">
-              {["presencial", "meet", "whatsapp", "phone"].map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-          <input name="location" placeholder="Local (opcional)" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
-          <input name="meet_link" placeholder="Link de reunião (opcional)" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
+          <input name="location" placeholder="Local ou Link do Google Meet" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
+          <textarea name="description" rows={2} placeholder="Observações (opcional)" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
+
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-semibold text-muted-foreground hover:bg-accent">
               Cancelar
@@ -308,7 +293,6 @@ function AppointmentModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-/* ── helpers de grade ── */
 function monthGrid(cursor: Date): Date[] {
   const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
   const start = startOfWeek(first);

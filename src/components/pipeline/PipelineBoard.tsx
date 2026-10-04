@@ -20,9 +20,9 @@ type Opp = {
   id: string;
   title: string | null;
   value: number;
-  status: string;
-  pipeline_stage_id: string;
-  contact?: { name: string; company: string | null } | null;
+  stage_id: string;
+  lost_reason?: string | null;
+  contact?: { name: string; phone: string | null } | null;
 };
 
 export function PipelineBoard({
@@ -51,12 +51,12 @@ export function PipelineBoard({
     setActiveId(null);
     const oppId = String(e.active.id);
     const overId = e.over?.id ? String(e.over.id) : null;
-    if (!overId || overId === items.find((o) => o.id === oppId)?.pipeline_stage_id) return;
+    if (!overId || overId === items.find((o) => o.id === oppId)?.stage_id) return;
 
     const target = stages.find((s) => s.id === overId);
     if (!target) return;
 
-    // Perdido exige motivo.
+    // Perdido exige motivo
     if (target.is_lost && lossReasons.length > 0) {
       setPendingLoss({ oppId, stageId: target.id });
       return;
@@ -65,12 +65,12 @@ export function PipelineBoard({
     applyMove(oppId, target.id, null);
   }
 
-  function applyMove(oppId: string, stageId: string, lostReasonId: string | null) {
+  function applyMove(oppId: string, stageId: string, lostReason: string | null) {
     setItems((prev) =>
-      prev.map((o) => (o.id === oppId ? { ...o, pipeline_stage_id: stageId } : o)),
+      prev.map((o) => (o.id === oppId ? { ...o, stage_id: stageId, lost_reason: lostReason } : o)),
     );
     startTransition(() => {
-      void moveOpportunity(oppId, stageId, lostReasonId);
+      void moveOpportunity(oppId, stageId, lostReason);
     });
   }
 
@@ -79,7 +79,7 @@ export function PipelineBoard({
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4">
           {stages.map((stage) => {
-            const col = items.filter((o) => o.pipeline_stage_id === stage.id);
+            const col = items.filter((o) => o.stage_id === stage.id);
             const total = col.reduce((s, o) => s + Number(o.value), 0);
             return (
               <DroppableColumn key={stage.id} stage={stage} total={total} count={col.length}>
@@ -92,7 +92,7 @@ export function PipelineBoard({
         </div>
 
         <DragOverlay>
-          {activeOpp ? <CardView opp={activeOpp} color="#6366f1" dragging /> : null}
+          {activeOpp ? <CardView opp={activeOpp} color="#6366F1" dragging /> : null}
         </DragOverlay>
       </DndContext>
 
@@ -100,8 +100,8 @@ export function PipelineBoard({
         <LossReasonModal
           reasons={lossReasons}
           onCancel={() => setPendingLoss(null)}
-          onConfirm={(reasonId) => {
-            applyMove(pendingLoss.oppId, pendingLoss.stageId, reasonId);
+          onConfirm={(reasonName) => {
+            applyMove(pendingLoss.oppId, pendingLoss.stageId, reasonName);
             setPendingLoss(null);
           }}
         />
@@ -168,9 +168,7 @@ function CardView({ opp, color, dragging }: { opp: Opp; color: string; dragging?
     >
       <div className="mb-1 h-1 w-8 rounded-full" style={{ background: color }} />
       <p className="text-sm font-semibold leading-tight">{opp.contact?.name ?? "Sem contato"}</p>
-      {opp.contact?.company && (
-        <p className="text-xs text-muted-foreground">{opp.contact.company}</p>
-      )}
+      {opp.title && <p className="text-xs text-muted-foreground">{opp.title}</p>}
       <p className="mt-1.5 text-sm font-bold text-emerald-600">{formatBRL(Number(opp.value))}</p>
     </div>
   );
@@ -183,15 +181,15 @@ function LossReasonModal({
 }: {
   reasons: { id: string; name: string }[];
   onCancel: () => void;
-  onConfirm: (reasonId: string | null) => void;
+  onConfirm: (reasonName: string) => void;
 }) {
-  const [reason, setReason] = useState<string>(reasons[0]?.id ?? "");
+  const [reason, setReason] = useState<string>(reasons[0]?.name ?? "Preço");
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-sm rounded-2xl border bg-card p-6 shadow-xl">
         <h3 className="text-base font-bold">Motivo da perda</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Informe por que esta oportunidade foi perdida.
+          Informe o motivo do cancelamento/perda da oportunidade.
         </p>
         <select
           value={reason}
@@ -199,7 +197,7 @@ function LossReasonModal({
           className="mt-4 w-full rounded-xl border bg-background px-3 py-2 text-sm"
         >
           {reasons.map((r) => (
-            <option key={r.id} value={r.id}>{r.name}</option>
+            <option key={r.id} value={r.name}>{r.name}</option>
           ))}
         </select>
         <div className="mt-4 flex justify-end gap-2">
@@ -210,7 +208,7 @@ function LossReasonModal({
             onClick={() => onConfirm(reason)}
             className="rounded-xl bg-destructive px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
           >
-            Marcar como perdido
+            Confirmar perda
           </button>
         </div>
       </div>

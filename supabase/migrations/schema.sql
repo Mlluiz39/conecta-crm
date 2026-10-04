@@ -547,7 +547,7 @@ declare v agent_prompt_versions;
 begin
   select * into v from agent_prompt_versions where id = p_version_id;
   if v.id is null then raise exception 'versão não encontrada'; end if;
-  if not has_org_role(v.organization_id, array['admin','gerente']::user_role[]) then
+  if auth.uid() is not null and not has_org_role(v.organization_id, array['admin','gerente']::user_role[]) then
     raise exception 'sem permissão';
   end if;
   update agent_prompt_versions set status = 'archived'
@@ -567,7 +567,7 @@ declare
   v_tool    text;
   v_rule    text;
 begin
-  if not has_org_role(p_org, array['admin']::user_role[]) then
+  if auth.uid() is not null and not has_org_role(p_org, array['admin']::user_role[]) then
     raise exception 'sem permissão';
   end if;
 
@@ -666,7 +666,11 @@ select m.organization_id,
 -- ---------------------------------------------------------------------
 -- 15. REALTIME
 -- ---------------------------------------------------------------------
-alter publication supabase_realtime add table public.conversations, public.messages;
+do $$
+begin
+  alter publication supabase_realtime add table public.conversations, public.messages;
+exception when duplicate_object then null;
+end $$;
 
 -- ---------------------------------------------------------------------
 -- 16. SEEDS: PRESETS POR TIPO DE NEGÓCIO
@@ -813,3 +817,54 @@ REGRAS
 - Trate dados de saúde com discrição e não peça dados de pagamento pelo chat.
 - Atendimento humano: {{horario_atendimento}}.
 - Use derivar_para_atendente quando o cliente pedir uma pessoa, reclamar, tratar de cobrança ou convênio específico ou após três tentativas sem resolver.$p$);
+
+-- ---------------------------------------------------------------------
+-- 18. USUÁRIO ADMIN E ORGANIZAÇÃO INICIAL (LOGIN IMEDIATO)
+-- E-mail: admin@conectacrm.com.br / Senha: TROCAR-ESTA-SENHA
+-- ---------------------------------------------------------------------
+do $$
+declare
+  v_user_id uuid := gen_random_uuid();
+  v_org_id  uuid := '00000000-0000-0000-0000-000000000001';
+  v_email   text := 'admin@conectacrm.com.br';
+  v_senha   text := 'TROCAR-ESTA-SENHA';
+  v_nome    text := 'Administrador';
+  v_tipo    business_type := 'agencia';
+  v_empresa text := 'Minha Empresa';
+begin
+  -- 1. Cria usuário no Supabase Auth se ainda não existir
+  if not exists (select 1 from auth.users where email = v_email) then
+    insert into auth.users (
+      id, instance_id, aud, role, email, encrypted_password,
+      email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+      created_at, updated_at
+    ) values (
+      v_user_id,
+      '00000000-0000-0000-0000-000000000000',
+      'authenticated',
+      'authenticated',
+      v_email,
+      crypt(v_senha, gen_salt('bf')),
+      now(),
+      '{"provider":"email","providers":["email"]}',
+      jsonb_build_object('full_name', v_nome),
+      now(),
+      now()
+    );
+  else
+    select id into v_user_id from auth.users where email = v_email;
+  end if;
+
+  -- 2. Cria organização inicial
+  insert into organizations (id, name, business_type)
+  values (v_org_id, v_empresa, v_tipo)
+  on conflict (id) do update set business_type = v_tipo;
+
+  -- 3. Vincula o usuário como admin da organização
+  insert into organization_members (organization_id, user_id, role, full_name, is_active)
+  values (v_org_id, v_user_id, 'admin', v_nome, true)
+  on conflict (organization_id, user_id) do update set role = 'admin', is_active = true;
+
+  -- 4. Aplica preset de negócio (etapas do funil, tags, campos e agentes)
+  perform apply_business_profile(v_org_id);
+end $$;

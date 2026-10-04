@@ -8,30 +8,31 @@ import {
   addInternalNote,
   sendHumanMessage,
 } from "@/lib/data/actions";
-import { Badge, EmptyState } from "@/components/ui/primitives";
+import { Badge } from "@/components/ui/primitives";
 import { formatDateTime } from "@/lib/utils";
 import { CHANNEL_LABEL, type ChannelType } from "@/types/domain";
 
 type Conv = {
   id: string;
-  channel: ChannelType;
+  channel_type: ChannelType;
   status: string;
   bot_active: boolean;
   unread_count: number;
   last_message_at: string | null;
   agent: { name: string } | null;
-  contact: { id: string; name: string; phone: string | null; company: string | null } | null;
+  contact: { id: string; name: string; phone: string | null } | null;
 };
+
 type Msg = {
   id: string;
-  direction: string;
-  sender_type: string;
-  body: string | null;
+  direction: "in" | "out";
+  sender_type: "contact" | "agent_ai" | "user" | "system";
+  content: string | null;
   created_at: string;
-  ai_generated: boolean;
   status: string;
 };
-type Note = { id: string; title: string | null; created_at: string };
+
+type Note = { id: string; content: string; created_at: string };
 
 const CHANNEL_DOT: Record<string, string> = {
   whatsapp: "bg-emerald-500",
@@ -62,7 +63,7 @@ export function Inbox({
   const active = conversations.find((c) => c.id === activeId) ?? null;
   const activeMessages = activeId ? messages[activeId] ?? [] : [];
 
-  // Realtime: novas mensagens e mudanças de conversa da organização.
+  // Supabase Realtime
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase
@@ -96,7 +97,7 @@ export function Inbox({
   const filtered = useMemo(
     () =>
       conversations.filter((c) => {
-        if (channelFilter !== "all" && c.channel !== channelFilter) return false;
+        if (channelFilter !== "all" && c.channel_type !== channelFilter) return false;
         if (statusFilter === "bot" && !c.bot_active) return false;
         if (statusFilter === "humano" && c.bot_active) return false;
         return true;
@@ -109,11 +110,11 @@ export function Inbox({
     const text = input.trim();
     setInput("");
     if (mode === "note") {
-      await addInternalNote(active.id, active.contact?.id ?? "", text);
+      await addInternalNote(active.id, text);
       setNotes((prev) => ({
         ...prev,
         [active.id]: [
-          { id: `tmp_${Date.now()}`, title: text, created_at: new Date().toISOString() },
+          { id: `tmp_${Date.now()}`, content: text, created_at: new Date().toISOString() },
           ...(prev[active.id] ?? []),
         ],
       }));
@@ -125,12 +126,11 @@ export function Inbox({
           ...(prev[active.id] ?? []),
           {
             id: `tmp_${Date.now()}`,
-            direction: "outbound",
+            direction: "out",
             sender_type: "user",
-            body: text,
+            content: text,
             created_at: new Date().toISOString(),
-            ai_generated: false,
-            status: "queued",
+            status: "enviada",
           },
         ],
       }));
@@ -185,7 +185,7 @@ export function Inbox({
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold">{c.contact?.name ?? "Contato"}</span>
                   <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                    <span className={`h-2 w-2 rounded-full ${CHANNEL_DOT[c.channel] ?? "bg-slate-400"}`} />
+                    <span className={`h-2 w-2 rounded-full ${CHANNEL_DOT[c.channel_type] ?? "bg-slate-400"}`} />
                     {c.last_message_at ? formatDateTime(c.last_message_at) : ""}
                   </span>
                 </div>
@@ -214,7 +214,7 @@ export function Inbox({
             <div>
               <p className="text-sm font-bold">{active.contact?.name ?? "Contato"}</p>
               <p className="text-xs text-muted-foreground">
-                {CHANNEL_LABEL[active.channel]} · {active.contact?.phone ?? ""}
+                {CHANNEL_LABEL[active.channel_type]} · {active.contact?.phone ?? ""}
               </p>
             </div>
             {active.bot_active ? (
@@ -239,7 +239,8 @@ export function Inbox({
               <p className="text-center text-xs text-muted-foreground">Sem mensagens.</p>
             )}
             {activeMessages.map((m) => {
-              const inbound = m.direction === "inbound";
+              const inbound = m.direction === "in";
+              const isAi = m.sender_type === "agent_ai";
               return (
                 <div key={m.id} className={`flex ${inbound ? "justify-start" : "justify-end"}`}>
                   <div className={`max-w-[75%] ${inbound ? "text-left" : "text-right"}`}>
@@ -247,15 +248,15 @@ export function Inbox({
                       className={`rounded-2xl px-3.5 py-2 text-sm ${
                         inbound
                           ? "bg-card border"
-                          : m.ai_generated
+                          : isAi
                             ? "bg-primary text-primary-foreground"
                             : "bg-emerald-600 text-white"
                       }`}
                     >
-                      {m.body}
+                      {m.content}
                     </div>
                     <p className="mt-0.5 text-[10px] text-muted-foreground">
-                      {m.ai_generated ? "🤖 IA · " : m.sender_type === "user" ? "👤 Atendente · " : ""}
+                      {isAi ? "🤖 IA · " : m.sender_type === "user" ? "👤 Atendente · " : ""}
                       {formatDateTime(m.created_at)}
                     </p>
                   </div>
@@ -317,8 +318,7 @@ export function Inbox({
             <p className="text-sm font-bold">Dados do contato</p>
             <div className="mt-2 space-y-1 text-sm">
               <p className="font-semibold">{active.contact?.name}</p>
-              <p className="text-muted-foreground">{active.contact?.company ?? "—"}</p>
-              <p className="font-mono text-xs">{active.contact?.phone ?? "—"}</p>
+              <p className="font-mono text-xs text-muted-foreground">{active.contact?.phone ?? "Sem telefone"}</p>
             </div>
           </div>
 
@@ -327,13 +327,13 @@ export function Inbox({
               Notas internas
             </p>
             {(notes[active.id] ?? []).length === 0 ? (
-              <p className="text-xs italic text-muted-foreground">Nenhuma nota.</p>
+              <p className="text-xs italic text-muted-foreground">Nenhuma nota registrada.</p>
             ) : (
               <div className="space-y-2">
                 {(notes[active.id] ?? []).map((n) => (
                   <div key={n.id} className="rounded-xl border bg-muted/30 p-2.5 text-xs">
                     <p className="text-[10px] text-muted-foreground">{formatDateTime(n.created_at)}</p>
-                    <p>{n.title}</p>
+                    <p>{n.content}</p>
                   </div>
                 ))}
               </div>

@@ -7,15 +7,14 @@ export async function getContacts(search?: string) {
   const supabase = createClient();
   let query = supabase
     .from("contacts")
-    .select("id, name, phone, email, company, city, state, custom_fields, last_interaction_at, owner_id, created_at")
+    .select("id, name, phone, email, instagram_handle, messenger_psid, custom_fields, owner_id, created_at")
     .eq("organization_id", organizationId)
-    .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(200);
 
   if (search?.trim()) {
     const q = `%${search.trim()}%`;
-    query = query.or(`name.ilike.${q},email.ilike.${q},phone.ilike.${q},company.ilike.${q}`);
+    query = query.or(`name.ilike.${q},email.ilike.${q},phone.ilike.${q}`);
   }
   const { data } = await query;
   return data ?? [];
@@ -49,10 +48,11 @@ export async function getOpportunities() {
   const supabase = createClient();
   const { data } = await supabase
     .from("opportunities")
-    .select("id, title, value, status, priority, owner_id, pipeline_stage_id, last_activity_at, contact:contacts(id, name, company)")
+    .select(
+      "id, title, value, stage_id, position, lost_reason, closed_at, custom_fields, created_at, contact:contacts(id, name, phone)",
+    )
     .eq("organization_id", organizationId)
-    .is("deleted_at", null)
-    .order("last_activity_at", { ascending: false })
+    .order("position", { ascending: true })
     .limit(300);
   return data ?? [];
 }
@@ -63,7 +63,7 @@ export async function getConversations() {
   const { data } = await supabase
     .from("conversations")
     .select(
-      "id, channel, status, bot_active, unread_count, last_message_at, agent_id, assigned_to, contact:contacts(id, name, phone, company), agent:agents(id, name)",
+      "id, channel_id, channel_type, status, bot_active, unread_count, last_message_at, agent_id, assigned_to, contact:contacts(id, name, phone), agent:agents(id, name)",
     )
     .eq("organization_id", organizationId)
     .order("last_message_at", { ascending: false, nullsFirst: false })
@@ -76,7 +76,7 @@ export async function getMessages(conversationId: string) {
   const supabase = createClient();
   const { data } = await supabase
     .from("messages")
-    .select("id, direction, sender_type, kind, body, created_at, status, ai_generated")
+    .select("id, direction, sender_type, content, media, status, created_at")
     .eq("organization_id", organizationId)
     .eq("conversation_id", conversationId)
     .order("created_at")
@@ -88,11 +88,10 @@ export async function getInternalNotes(conversationId: string) {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
   const { data } = await supabase
-    .from("activities")
-    .select("id, title, body, created_at, actor_id")
+    .from("conversation_notes")
+    .select("id, content, created_at, author_id")
     .eq("organization_id", organizationId)
     .eq("conversation_id", conversationId)
-    .eq("type", "note")
     .order("created_at", { ascending: false });
   return data ?? [];
 }
@@ -102,7 +101,7 @@ export async function getAgents() {
   const supabase = createClient();
   const { data } = await supabase
     .from("agents")
-    .select("id, name, role, tone, is_active, settings, color, avatar_icon")
+    .select("id, name, role, tone, is_active, created_at")
     .eq("organization_id", organizationId)
     .order("created_at");
   return data ?? [];
@@ -130,17 +129,22 @@ export async function getAgentDetail(agentId: string) {
 export async function getDashboardKpis() {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
-  const [contacts, opps, convs, appts] = await Promise.all([
-    supabase.from("contacts").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).is("deleted_at", null),
-    supabase.from("opportunities").select("value, status").eq("organization_id", organizationId).is("deleted_at", null),
+  const [contacts, opps, convs, appts, stages] = await Promise.all([
+    supabase.from("contacts").select("id", { count: "exact", head: true }).eq("organization_id", organizationId),
+    supabase.from("opportunities").select("value, stage_id").eq("organization_id", organizationId),
     supabase.from("conversations").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).neq("status", "resolvida"),
     supabase.from("appointments").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).gte("starts_at", new Date().toISOString()),
+    supabase.from("pipeline_stages").select("id, is_won, is_lost").eq("organization_id", organizationId),
   ]);
 
-  const open = (opps.data ?? []).filter((o: any) => o.status === "open");
-  const won = (opps.data ?? []).filter((o: any) => o.status === "won");
+  const wonStageIds = new Set((stages.data ?? []).filter((s: any) => s.is_won).map((s: any) => s.id));
+  const lostStageIds = new Set((stages.data ?? []).filter((s: any) => s.is_lost).map((s: any) => s.id));
+
+  const allOpps = opps.data ?? [];
+  const won = allOpps.filter((o: any) => wonStageIds.has(o.stage_id));
+  const open = allOpps.filter((o: any) => !wonStageIds.has(o.stage_id) && !lostStageIds.has(o.stage_id));
   const total = open.reduce((s: number, o: any) => s + Number(o.value), 0);
-  const conversion = opps.data?.length ? (won.length / opps.data.length) * 100 : 0;
+  const conversion = allOpps.length ? (won.length / allOpps.length) * 100 : 0;
 
   return {
     contacts: contacts.count ?? 0,

@@ -11,30 +11,29 @@ import {
 } from "@/lib/data/templates";
 import { Badge, Card } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
+import type { TemplateCategory, TemplateStatus } from "@/types/domain";
 
 type Template = {
   id: string;
   name: string;
-  category: string;
+  category: TemplateCategory;
   language: string;
-  header_type: string;
-  header_text: string | null;
+  header: string | null;
   body: string;
   footer: string | null;
   buttons: { type: string; text: string; value?: string }[];
-  status: string;
+  status: TemplateStatus;
   rejection_reason: string | null;
 };
 
 const STATUS_STYLE: Record<string, string> = {
-  APROVADO: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
-  PENDENTE: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  REJEITADO: "bg-destructive/10 text-destructive",
-  PAUSADO: "bg-muted text-muted-foreground",
-  DESABILITADO: "bg-muted text-muted-foreground",
+  aprovado: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+  pendente: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+  rejeitado: "bg-destructive/10 text-destructive",
+  rascunho: "bg-muted text-muted-foreground",
 };
 
-const CATEGORIES = ["MARKETING", "UTILIDADE", "AUTENTICACAO"];
+const CATEGORIES: TemplateCategory[] = ["marketing", "utilidade", "autenticacao"];
 
 export function TemplatesManager({ templates }: { templates: Template[] }) {
   const router = useRouter();
@@ -62,7 +61,7 @@ export function TemplatesManager({ templates }: { templates: Template[] }) {
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-sm font-bold">{t.name}</span>
                   <Badge className={STATUS_STYLE[t.status] ?? "bg-muted text-muted-foreground"}>{t.status}</Badge>
-                  <Badge className="bg-muted text-muted-foreground">{t.category}</Badge>
+                  <Badge className="bg-muted text-muted-foreground capitalize">{t.category}</Badge>
                   <span className="text-[11px] text-muted-foreground">{t.language}</span>
                 </div>
                 <div className="flex items-center gap-1">
@@ -92,18 +91,16 @@ export function TemplatesManager({ templates }: { templates: Template[] }) {
         )}
       </div>
 
-      {/* Prévia na lateral demonstrando o formato de bolha */}
       <Card className="h-fit">
         <p className="mb-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">
           Prévia WhatsApp
         </p>
         <WhatsAppBubble
           template={{
-            header_type: "text",
-            header_text: "Olá!",
-            body: "Seu pedido {{1}} saiu para entrega e chega até {{2}}.",
+            header: "Confirmação de Agendamento",
+            body: "Olá, {{1}}! Seu compromisso está marcado para {{2}}. Podemos confirmar?",
             footer: "ConectaCRM",
-            buttons: [{ type: "quick_reply", text: "Confirmar" }],
+            buttons: [{ type: "quick_reply", text: "Sim, confirmado" }],
           }}
         />
       </Card>
@@ -113,20 +110,15 @@ export function TemplatesManager({ templates }: { templates: Template[] }) {
   );
 }
 
-function WhatsAppBubble({ template }: { template: Pick<Template, "header_type" | "header_text" | "body" | "footer" | "buttons"> }) {
+function WhatsAppBubble({ template }: { template: { header?: string | null; body: string; footer?: string | null; buttons?: { text: string }[] } }) {
   return (
     <div className="max-w-sm rounded-2xl rounded-tl-sm border bg-card p-3 shadow-sm">
-      {template.header_type === "text" && template.header_text && (
-        <p className="mb-1.5 text-sm font-bold">{template.header_text}</p>
-      )}
-      {template.header_type !== "none" && template.header_type !== "text" && (
-        <div className="mb-1.5 flex h-24 items-center justify-center rounded-lg bg-muted text-xs text-muted-foreground">
-          [{template.header_type}]
-        </div>
+      {template.header && (
+        <p className="mb-1.5 text-sm font-bold">{template.header}</p>
       )}
       <p className="whitespace-pre-wrap text-sm leading-relaxed">{template.body}</p>
       {template.footer && <p className="mt-1.5 text-[11px] text-muted-foreground">{template.footer}</p>}
-      {template.buttons?.length > 0 && (
+      {template.buttons && template.buttons.length > 0 && (
         <div className="mt-2 space-y-1 border-t pt-2">
           {template.buttons.map((b, i) => (
             <p key={i} className="text-center text-xs font-semibold text-primary">
@@ -165,9 +157,9 @@ function TemplateModal({ onClose }: { onClose: () => void }) {
           }}
           className="space-y-3"
         >
-          <input name="name" required placeholder="nome_do_template" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
+          <input name="name" required placeholder="nome_do_template (apenas minúsculas e _)" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
           <div className="grid grid-cols-2 gap-3">
-            <select name="category" className="w-full rounded-xl border bg-background px-3 py-2 text-sm">
+            <select name="category" className="w-full rounded-xl border bg-background px-3 py-2 text-sm capitalize">
               {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
             <select name="language" className="w-full rounded-xl border bg-background px-3 py-2 text-sm">
@@ -176,19 +168,14 @@ function TemplateModal({ onClose }: { onClose: () => void }) {
               <option value="es_ES">es_ES</option>
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <select name="header_type" className="w-full rounded-xl border bg-background px-3 py-2 text-sm">
-              {["none", "text", "image", "document", "video"].map((h) => <option key={h} value={h}>{h}</option>)}
-            </select>
-            <input name="header_text" placeholder="Texto do cabeçalho" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
-          </div>
+          <input name="header_text" placeholder="Texto do cabeçalho (opcional)" className="w-full rounded-xl border bg-background px-3 py-2 text-sm" />
           <textarea
             name="body"
             required
             rows={5}
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            placeholder="Corpo com variáveis {{1}}, {{2}}..."
+            placeholder="Mensagem com variáveis {{1}}, {{2}}..."
             className="w-full rounded-xl border bg-background px-3 py-2 text-sm"
           />
           <p className="text-[11px] text-muted-foreground">
@@ -201,7 +188,7 @@ function TemplateModal({ onClose }: { onClose: () => void }) {
               Cancelar
             </button>
             <button type="submit" disabled={busy} className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-50">
-              {busy ? "Salvando..." : "Criar"}
+              {busy ? "Salvando..." : "Criar template"}
             </button>
           </div>
         </form>

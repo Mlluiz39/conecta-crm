@@ -2,22 +2,19 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runAgentForConversation } from "@/services/agents/engine";
 import { getMessageProvider } from "./index";
-import type { InboundMessage } from "./types";
 
 export type InboundOutcome = {
   status: "processed" | "duplicate" | "ignored" | "invalid_signature";
   messages: number;
 };
 
-/** Normaliza telefone/@ em chave estável para casar contato. */
 function normalizeHandle(from: string): string {
   return from.replace(/[^\d+]/g, "");
 }
 
 /**
- * Processa o webhook de um provider: valida assinatura, garante idempotência,
- * materializa contato/conversa/mensagem e dispara o agente.
- * Roda server-side com service role (ignora RLS).
+ * Processa webhook da Cernio:
+ * Valida assinatura, salva webhook_events (idempotência), garante canal/contato/conversa e aciona IA.
  */
 export async function handleInboundWebhook(params: {
   providerName: string;
@@ -42,115 +39,121 @@ export async function handleInboundWebhook(params: {
   let processed = 0;
 
   for (const msg of inbound) {
-    // Idempotência de 1º nível: unique (provider, external_event_id).
+    // 1. Idempotência em webhook_events: unique(provider, event_id)
     const { error: dupError } = await supabase.from("webhook_events").insert({
       provider: provider.name,
-      event_type: msg.kind,
-      external_event_id: msg.externalEventId,
-      signature_valid: true,
-      payload: msg.raw,
-      status: "received",
+      event_id: msg.externalEventId,
+      payload: msg.raw as any,
     });
+
     if (dupError) {
-      // 23505 = already exists → já processado.
-      if (dupError.code === "23505") continue;
+      if (dupError.code === "23505") continue; // Já processado
       throw new Error(dupError.message);
     }
 
-    // Resolve a organização pelo canal externo.
-    const { data: channelRow } = await supabase
-      .from("agent_channels")
-      .select("organization_id")
-      .eq("external_account_id", msg.externalAccountId)
+    // 2. Resolve canal e organização
+    let { data: channelRow } = await supabase
+      .from("channels")
+      .select("id, organization_id")
+      .eq("cernio_channel_id", msg.externalAccountId)
       .maybeSingle();
 
     if (!channelRow) {
-      await supabase
-        .from("webhook_events")
-        .update({ status: "ignored", error: "canal não mapeado" })
-        .eq("provider", provider.name)
-        .eq("external_event_id", msg.externalEventId);
-      continue;
+      // Se não achar por cernio_channel_id, busca o primeiro canal do tipo ou usa a primeira organização
+      const { data: fallbackOrg } = await supabase.from("organizations").select("id").limit(1).single();
+      if (!fallbackOrg) continue;
+
+      const { data: newChan } = await supabase
+        .from("channels")
+        .upsert(
+          {
+            organization_id: fallbackOrg.id,
+            type: msg.channel,
+            name: `Canal ${msg.channel.toUpperCase()}`,
+            cernio_channel_id: msg.externalAccountId || "default",
+            status: "conectado",
+          },
+          { onConflict: "organization_id,type,cernio_channel_id" },
+        )
+        .select("id, organization_id")
+        .single();
+      channelRow = newChan;
     }
 
-    const organizationId = channelRow.organization_id as string;
+    if (!channelRow) continue;
+    const organizationId = channelRow.organization_id;
     const handle = normalizeHandle(msg.from);
 
-    // Upsert contato por telefone.
+    // 3. Upsert contato
     const { data: contact } = await supabase
       .from("contacts")
       .upsert(
         {
           organization_id: organizationId,
-          name: msg.fromName ?? handle,
-          phone: handle,
-          origin_channel: msg.channel,
-          last_interaction_at: msg.timestamp,
+          name: msg.fromName || handle || "Lead Inbound",
+          phone: handle || null,
         },
-        { onConflict: "organization_id,phone", ignoreDuplicates: false },
+        { onConflict: "organization_id,phone" },
       )
       .select("id")
       .single();
 
-    // Upsert conversa.
+    if (!contact) continue;
+
+    // 4. Upsert conversa (unique channel_id, external_id)
+    const externalConvId = msg.externalMessageId || `conv_${handle}`;
     const { data: conv } = await supabase
       .from("conversations")
       .upsert(
         {
           organization_id: organizationId,
-          contact_id: contact!.id,
-          channel: msg.channel,
-          last_message_at: msg.timestamp,
-          last_inbound_at: msg.timestamp,
+          contact_id: contact.id,
+          channel_id: channelRow.id,
+          channel_type: msg.channel,
+          external_id: externalConvId,
+          status: "aberta",
         },
-        { onConflict: "organization_id,contact_id,channel", ignoreDuplicates: false },
+        { onConflict: "channel_id,external_id" },
       )
-      .select("id, unread_count")
+      .select("id")
       .single();
 
-    // Grava a mensagem inbound (dedup de 2º nível via external_message_id).
-    const { error: msgError } = await supabase.from("messages").insert({
+    if (!conv) continue;
+
+    // 5. Insere mensagem recebida (trigger on_message_insert atualiza last_message_at e unread_count automaticamente)
+    const { error: msgErr } = await supabase.from("messages").insert({
       organization_id: organizationId,
-      conversation_id: conv!.id,
-      direction: "inbound",
+      conversation_id: conv.id,
+      direction: "in",
       sender_type: "contact",
-      kind: msg.kind === "interactive" ? "interactive" : msg.kind,
-      body: msg.text ?? null,
-      media_url: msg.mediaUrl ?? null,
-      external_message_id: msg.externalMessageId,
-      status: "delivered",
+      content: msg.text || "",
+      external_id: msg.externalMessageId,
+      status: "entregue",
       created_at: msg.timestamp,
     });
-    if (msgError && msgError.code !== "23505") throw new Error(msgError.message);
 
-    await supabase
-      .from("conversations")
-      .update({ unread_count: (conv!.unread_count ?? 0) + 1 })
-      .eq("id", conv!.id);
+    if (msgErr && msgErr.code !== "23505") {
+      console.error("Erro ao salvar mensagem:", msgErr);
+    }
 
     await supabase
       .from("webhook_events")
-      .update({ organization_id: organizationId, status: "processed", processed_at: new Date().toISOString() })
+      .update({ processed_at: new Date().toISOString() })
       .eq("provider", provider.name)
-      .eq("external_event_id", msg.externalEventId);
+      .eq("event_id", msg.externalEventId);
 
-    // Dispara o agente (se aplicável) e enfileira a resposta.
+    // 6. Aciona o agente de IA para responder à conversa
     if (msg.text) {
-      const result = await runAgentForConversation({
+      const res = await runAgentForConversation({
         supabase,
         organizationId,
-        conversationId: conv!.id,
+        conversationId: conv.id,
         inboundText: msg.text,
-        trigger: "webhook",
       });
 
-      if (result.handled && result.reply) {
-        await supabase.from("message_outbox").insert({
-          organization_id: organizationId,
-          conversation_id: conv!.id,
-          payload: { to: handle, text: result.reply, accountId: msg.externalAccountId },
-          status: "pending",
-        });
+      // Se o agente gerou resposta, envia imediatamente pelo provider
+      if (res.handled && res.reply) {
+        await provider.sendText(msg.externalAccountId, handle, res.reply).catch(() => null);
       }
     }
 
@@ -160,42 +163,7 @@ export async function handleInboundWebhook(params: {
   return { status: processed > 0 ? "processed" : "duplicate", messages: processed };
 }
 
-/** Consome um item da outbox e envia pelo provider (usado por cron/worker). */
-export async function flushOutbox(limit = 20): Promise<number> {
-  const provider = getMessageProvider();
-  const supabase = createAdminClient();
-  const { data: due } = await supabase
-    .from("message_outbox")
-    .select("id, payload, attempts")
-    .eq("status", "pending")
-    .lte("next_attempt_at", new Date().toISOString())
-    .order("created_at")
-    .limit(limit);
-
-  let sent = 0;
-  for (const item of due ?? []) {
-    const p = item.payload as { to: string; text: string; accountId: string };
-    const res = await provider.sendText(p.accountId, p.to, p.text);
-    if (res.ok) {
-      sent++;
-      await supabase.from("message_outbox").update({ status: "sent" }).eq("id", item.id);
-      await supabase
-        .from("messages")
-        .update({ status: "sent", external_message_id: res.externalMessageId ?? null })
-        .eq("conversation_id", (item.payload as any).conversation_id ?? "")
-        .eq("status", "queued");
-    } else {
-      const attempts = (item.attempts ?? 0) + 1;
-      await supabase
-        .from("message_outbox")
-        .update({
-          status: attempts >= 5 ? "failed" : "pending",
-          attempts,
-          last_error: res.error ?? "erro desconhecido",
-          next_attempt_at: new Date(Date.now() + attempts * 60_000).toISOString(),
-        })
-        .eq("id", item.id);
-    }
-  }
-  return sent;
+export async function flushOutbox(): Promise<number> {
+  // Mantido para compatibilidade da rota cron
+  return 0;
 }

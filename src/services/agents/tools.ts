@@ -35,10 +35,10 @@ const registry: Record<AgentToolKey, ToolDef> = {
     },
     async handler(ctx, input) {
       const { data } = await ctx.supabase
-        .from("kb_documents")
+        .from("knowledge_base_items")
         .select("title, content")
         .eq("organization_id", ctx.organizationId)
-        .textSearch("fts", String(input.consulta), {
+        .textSearch("search", String(input.consulta), {
           config: "portuguese",
           type: "websearch",
         })
@@ -57,18 +57,14 @@ const registry: Record<AgentToolKey, ToolDef> = {
     schema: {
       name: "agendar_visita",
       description:
-        "Agenda uma visita/reunião para o contato. Informe título, início (ISO 8601) e duração em minutos.",
+        "Agenda uma visita/reunião/consulta para o contato. Informe título, início (ISO 8601) e duração em minutos.",
       input_schema: {
         type: "object",
         properties: {
           titulo: { type: "string" },
           inicio: { type: "string", description: "Data/hora ISO 8601." },
           duracao_minutos: { type: "integer", default: 30 },
-          tipo: {
-            type: "string",
-            enum: ["demo", "presencial", "followup", "onboarding", "fechamento", "consulta"],
-            default: "demo",
-          },
+          local: { type: "string", description: "Local ou link de reunião." },
         },
         required: ["titulo", "inicio"],
       },
@@ -86,11 +82,10 @@ const registry: Record<AgentToolKey, ToolDef> = {
           contact_id: ctx.contactId,
           opportunity_id: ctx.opportunityId ?? null,
           title: String(input.titulo),
-          type: input.tipo ?? "demo",
-          channel: "presencial",
+          location: input.local ? String(input.local) : null,
           starts_at: starts.toISOString(),
           ends_at: ends.toISOString(),
-          status: "pendente",
+          status: "agendado",
         })
         .select("id, starts_at")
         .single();
@@ -99,7 +94,7 @@ const registry: Record<AgentToolKey, ToolDef> = {
         confirmado: true,
         agendamento_id: data.id,
         inicio: data.starts_at,
-        mensagem: "Visita agendada e pendente de confirmação.",
+        mensagem: "Compromisso agendado com sucesso.",
       };
     },
   },
@@ -109,7 +104,7 @@ const registry: Record<AgentToolKey, ToolDef> = {
     schema: {
       name: "derivar_para_atendente",
       description:
-        "Transfere a conversa para um atendente humano e desliga a resposta automática.",
+        "Transfere a conversa para um atendente humano e desativa o robô de IA.",
       input_schema: {
         type: "object",
         properties: {
@@ -122,23 +117,21 @@ const registry: Record<AgentToolKey, ToolDef> = {
         .from("conversations")
         .update({
           bot_active: false,
-          handoff_at: new Date().toISOString(),
           handoff_reason: "cliente_pede_humano",
-          status: "pendente",
+          bot_disabled_at: new Date().toISOString(),
         })
         .eq("id", ctx.conversationId)
         .eq("organization_id", ctx.organizationId);
       if (error) throw new Error(error.message);
 
-      await ctx.supabase.from("activities").insert({
-        organization_id: ctx.organizationId,
-        contact_id: ctx.contactId,
-        conversation_id: ctx.conversationId,
-        type: "system",
-        title: "Handoff para atendente",
-        body: input?.motivo ?? null,
-        actor_type: "system",
-      });
+      if (input?.motivo) {
+        await ctx.supabase.from("conversation_notes").insert({
+          organization_id: ctx.organizationId,
+          conversation_id: ctx.conversationId,
+          content: `Transbordo para humano: ${input.motivo}`,
+        });
+      }
+
       return { transferido: true, motivo: input?.motivo ?? null };
     },
   },
@@ -148,26 +141,27 @@ const registry: Record<AgentToolKey, ToolDef> = {
     schema: {
       name: "atualizar_contato",
       description:
-        "Atualiza dados do contato (nome, e-mail, empresa, campos personalizados como bairro, quartos, convênio).",
+        "Atualiza dados cadastrais do contato ou preferências do tipo de negócio (ex: bairro, quartos, orçamento, convênio).",
       input_schema: {
         type: "object",
         properties: {
           nome: { type: "string" },
           email: { type: "string" },
-          empresa: { type: "string" },
+          telefone: { type: "string" },
           campos_personalizados: {
             type: "object",
-            description: "Chave→valor dos campos customizados do tipo de negócio.",
+            description: "Chave e valor dos campos customizados (ex: bairro, tipo_imovel, orcamento).",
           },
         },
       },
     },
     async handler(ctx, input) {
-      // Whitelist explícita — a IA nunca escreve colunas arbitrárias.
-      const patch: Record<string, unknown> = {};
+      const patch: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
       if (input?.nome) patch.name = String(input.nome);
       if (input?.email) patch.email = String(input.email);
-      if (input?.empresa) patch.company = String(input.empresa);
+      if (input?.telefone) patch.phone = String(input.telefone);
 
       const custom = input?.campos_personalizados;
       if (custom && typeof custom === "object") {
@@ -179,7 +173,6 @@ const registry: Record<AgentToolKey, ToolDef> = {
         patch.custom_fields = { ...(current?.custom_fields ?? {}), ...custom };
       }
 
-      if (Object.keys(patch).length === 0) return { atualizado: false };
       const { error } = await ctx.supabase
         .from("contacts")
         .update(patch)
@@ -195,11 +188,11 @@ const registry: Record<AgentToolKey, ToolDef> = {
     schema: {
       name: "mover_etapa_funil",
       description:
-        "Move a oportunidade do contato para uma etapa do funil pelo nome. Ao mover para Perdido, informe o motivo.",
+        "Avança a oportunidade do contato para uma etapa do funil pelo nome. Se a etapa for de perda, informe o motivo.",
       input_schema: {
         type: "object",
         properties: {
-          etapa: { type: "string", description: "Nome da etapa de destino." },
+          etapa: { type: "string", description: "Nome da etapa do funil." },
           motivo_perda: { type: "string" },
         },
         required: ["etapa"],
@@ -216,24 +209,18 @@ const registry: Record<AgentToolKey, ToolDef> = {
         .maybeSingle();
       if (!stage) return { movido: false, motivo: "Etapa não encontrada" };
 
-      let lostReasonId: string | null = null;
-      if (stage.is_lost && input?.motivo_perda) {
-        const { data: reason } = await ctx.supabase
-          .from("loss_reasons")
-          .select("id")
-          .eq("organization_id", ctx.organizationId)
-          .ilike("name", String(input.motivo_perda))
-          .maybeSingle();
-        lostReasonId = reason?.id ?? null;
-      }
-
+      const now = new Date().toISOString();
       const patch: Record<string, unknown> = {
-        pipeline_stage_id: stage.id,
-        last_activity_at: new Date().toISOString(),
+        stage_id: stage.id,
+        updated_at: now,
       };
-      if (stage.is_won) { patch.status = "won"; patch.won_at = new Date().toISOString(); }
-      else if (stage.is_lost) { patch.status = "lost"; patch.lost_at = new Date().toISOString(); patch.lost_reason_id = lostReasonId; }
-      else { patch.status = "open"; }
+      if (stage.is_won || stage.is_lost) {
+        patch.closed_at = now;
+        if (stage.is_lost) patch.lost_reason = input?.motivo_perda ?? "Perdido";
+      } else {
+        patch.closed_at = null;
+        patch.lost_reason = null;
+      }
 
       const { error } = await ctx.supabase
         .from("opportunities")
@@ -253,7 +240,7 @@ export function toolsForClaude(enabled: AgentToolKey[]): ToolSchema[] {
     .map((k) => registry[k].schema);
 }
 
-/** Executa uma ferramenta habilitada por nome (nunca uma desabilitada). */
+/** Executa uma ferramenta habilitada por nome. */
 export async function executeTool(
   ctx: AgentToolContext,
   enabled: AgentToolKey[],

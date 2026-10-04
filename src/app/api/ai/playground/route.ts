@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   const supabase = createAdminClient();
   const { data: agent } = await supabase
     .from("agents")
-    .select("id, name, role, settings")
+    .select("id, name, role, tone")
     .eq("id", agentId)
     .eq("organization_id", profile.organizationId)
     .single();
@@ -49,14 +49,14 @@ export async function POST(request: NextRequest) {
 
   const [{ data: toolRows }, { data: org }] = await Promise.all([
     supabase.from("agent_tools").select("tool_key").eq("agent_id", agentId).eq("enabled", true),
-    supabase.from("organizations").select("name, settings").eq("id", profile.organizationId).single(),
+    supabase.from("organizations").select("name, business_hours, timezone").eq("id", profile.organizationId).single(),
   ]);
   const enabledTools = (toolRows ?? []).map((r: any) => r.tool_key as AgentToolKey);
 
   const system = renderPrompt(promptVersion.prompt, {
     nome_empresa: org?.name ?? "",
     nome_contato: "Lead Simulado",
-    horario_atendimento: String(org?.settings?.horario_atendimento ?? "Seg a Sex, 9h às 18h"),
+    horario_atendimento: "Seg a Sex, 09:00 às 18:00",
     canal: "WhatsApp",
     nome_agente: agent.name,
     funcao_agente: AGENT_ROLE_LABEL[agent.role as AgentRole] ?? agent.role,
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
   ];
 
   const result = await runAgentLoop({
-    model: agent.settings?.model ?? serverEnv().defaultModel,
+    model: serverEnv().defaultModel,
     system,
     messages,
     tools: toolsForClaude(enabledTools),

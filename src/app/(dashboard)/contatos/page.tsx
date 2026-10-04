@@ -57,13 +57,15 @@ export default async function ContatosPage({
                       <div>{c.phone ?? "—"}</div>
                       <div className="text-xs">{c.email ?? ""}</div>
                     </td>
-                    <td className="px-4 py-3">{c.company ?? "—"}</td>
+                    <td className="px-4 py-3">{((c.custom_fields as any)?.empresa) ?? "—"}</td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {c.city ? `${c.city}${c.state ? `, ${c.state}` : ""}` : "—"}
+                      {((c.custom_fields as any)?.cidade)
+                        ? `${(c.custom_fields as any).cidade}${((c.custom_fields as any).estado) ? `, ${(c.custom_fields as any).estado}` : ""}`
+                        : "—"}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {c.last_interaction_at ? (
-                        formatDateTime(c.last_interaction_at)
+                      {c.created_at ? (
+                        formatDateTime(c.created_at)
                       ) : (
                         <Badge className="bg-muted text-muted-foreground">Novo</Badge>
                       )}

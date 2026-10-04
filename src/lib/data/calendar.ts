@@ -8,7 +8,7 @@ export async function getAppointments(rangeStartISO: string, rangeEndISO: string
   const { data } = await supabase
     .from("appointments")
     .select(
-      "id, title, description, type, channel, location, meet_link, starts_at, ends_at, status, sync_status, contact:contacts(id, name, phone)",
+      "id, title, description, location, starts_at, ends_at, status, google_event_id, contact:contacts(id, name, phone)",
     )
     .eq("organization_id", organizationId)
     .gte("starts_at", rangeStartISO)
@@ -20,22 +20,23 @@ export async function getAppointments(rangeStartISO: string, rangeEndISO: string
 export async function getReminderRules() {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
+  // Busca templates associados ou regras padrão
   const { data } = await supabase
-    .from("reminder_rules")
-    .select("id, name, offset_minutes, channel, is_active")
+    .from("whatsapp_templates")
+    .select("id, name, category, status")
     .eq("organization_id", organizationId)
-    .order("offset_minutes");
+    .eq("category", "utilidade");
   return data ?? [];
 }
 
 export async function getGoogleIntegration() {
-  const { organizationId } = await requireProfile();
+  const { organizationId, id: userId } = await requireProfile();
   const supabase = createClient();
   const { data } = await supabase
-    .from("integrations")
-    .select("status, expires_at")
+    .from("google_calendar_connections")
+    .select("id, google_email, calendar_id, created_at")
     .eq("organization_id", organizationId)
-    .eq("provider", "google_calendar")
+    .eq("user_id", userId)
     .maybeSingle();
-  return data;
+  return data ? { status: "connected", email: data.google_email } : null;
 }

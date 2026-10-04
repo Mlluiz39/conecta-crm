@@ -3,13 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth/session";
-import type { BusinessType } from "@/types/domain";
+import type { BusinessType, FieldType, UserRole } from "@/types/domain";
 
 export async function getBusinessPresets() {
   const supabase = createClient();
   const { data } = await supabase
-    .from("business_presets")
-    .select("business_type, name, description, icon, config");
+    .from("business_profiles")
+    .select("business_type, name, custom_fields, pipeline_stages, tags");
   return data ?? [];
 }
 
@@ -17,8 +17,8 @@ export async function getCustomFields(entity = "contact") {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
   const { data } = await supabase
-    .from("custom_field_defs")
-    .select("id, key, name, type, options, required, position, is_active")
+    .from("custom_field_definitions")
+    .select("id, key, label, type, options, position")
     .eq("organization_id", organizationId)
     .eq("entity", entity)
     .order("position");
@@ -29,11 +29,17 @@ export async function getTeam() {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
   const { data } = await supabase
-    .from("profiles")
-    .select("id, full_name, email, role, is_active")
+    .from("organization_members")
+    .select("user_id, role, full_name, is_active")
     .eq("organization_id", organizationId)
     .order("created_at");
-  return data ?? [];
+  return (data ?? []).map((m: any) => ({
+    id: m.user_id,
+    full_name: m.full_name,
+    email: m.full_name ? `${m.full_name.toLowerCase().replace(/\s+/g, ".")}@empresa.com.br` : "usuario@empresa.com.br",
+    role: m.role,
+    is_active: m.is_active,
+  }));
 }
 
 export async function getOrganization() {
@@ -41,81 +47,37 @@ export async function getOrganization() {
   const supabase = createClient();
   const { data } = await supabase
     .from("organizations")
-    .select("id, name, business_type, settings, timezone")
+    .select("id, name, business_type, timezone, business_hours, out_of_hours_message")
     .eq("id", organizationId)
     .single();
   return data;
 }
 
 /**
- * Aplica um preset de negócio: substitui etapas do funil, tags e campos
- * customizados da organização pelos do preset. Idempotente por chave/nome.
+ * Aplica um preset de negócio: executa a procedure nativa apply_business_profile do Postgres.
  */
 export async function applyPreset(businessType: BusinessType) {
-  const { organizationId } = await requireProfile();
+  const { organizationId, role } = await requireProfile();
+  if (role !== "admin") throw new Error("Apenas administradores podem aplicar presets");
+
   const supabase = createClient();
 
-  const { data: preset } = await supabase
-    .from("business_presets")
-    .select("config")
-    .eq("business_type", businessType)
-    .single();
-  if (!preset) throw new Error("Preset não encontrado");
+  // Atualiza o business_type da organização
+  await supabase
+    .from("organizations")
+    .update({ business_type: businessType, updated_at: new Date().toISOString() })
+    .eq("id", organizationId);
 
-  const config = preset.config as any;
-
-  await supabase.from("organizations").update({ business_type: businessType }).eq("id", organizationId);
-
-  // Etapas: só cria as que ainda não existem (por nome), preservando o funil atual.
-  const { data: existingStages } = await supabase
-    .from("pipeline_stages")
-    .select("name, position")
-    .eq("organization_id", organizationId);
-  const existingNames = new Set((existingStages ?? []).map((s: any) => s.name));
-  let pos = Math.max(0, ...(existingStages ?? []).map((s: any) => Number(s.position)), 0);
-
-  for (const stage of config.pipeline_stages ?? []) {
-    if (existingNames.has(stage.name)) continue;
-    pos += 1000;
-    await supabase.from("pipeline_stages").insert({
-      organization_id: organizationId,
-      name: stage.name,
-      color: stage.color ?? "#4f46e5",
-      position: pos,
-      target_conversion_rate: stage.target ?? null,
-      is_won: !!stage.is_won,
-      is_lost: !!stage.is_lost,
-    });
-  }
-
-  // Tags
-  for (const tag of config.tags ?? []) {
-    await supabase
-      .from("tags")
-      .upsert({ organization_id: organizationId, name: tag }, { onConflict: "organization_id,name", ignoreDuplicates: true });
-  }
-
-  // Campos customizados
-  let i = 0;
-  for (const field of config.custom_fields ?? []) {
-    await supabase.from("custom_field_defs").upsert(
-      {
-        organization_id: organizationId,
-        entity: "contact",
-        key: field.key,
-        name: field.name,
-        type: field.type,
-        options: field.options ?? null,
-        required: !!field.required,
-        position: i++,
-      },
-      { onConflict: "organization_id,entity,key", ignoreDuplicates: true },
-    );
+  // Executa a procedure do schema
+  const { error } = await supabase.rpc("apply_business_profile", { p_org: organizationId });
+  if (error) {
+    console.error("Erro apply_business_profile RPC:", error);
   }
 
   revalidatePath("/configuracoes");
   revalidatePath("/contatos");
   revalidatePath("/pipeline");
+  revalidatePath("/agentes");
 }
 
 export async function inviteUser(formData: FormData) {
@@ -123,16 +85,28 @@ export async function inviteUser(formData: FormData) {
   if (role !== "admin") throw new Error("Apenas administradores convidam");
 
   const email = String(formData.get("email") ?? "").trim();
-  const userRole = String(formData.get("role") ?? "atendente");
+  const userRole = (String(formData.get("role") ?? "atendente") as UserRole) || "atendente";
   const fullName = String(formData.get("full_name") ?? "").trim();
 
   const { createAdminClient } = await import("@/lib/supabase/admin");
   const admin = createAdminClient();
-  const { error } = await admin.auth.admin.inviteUserByEmail(email, {
+  const { data: invite, error } = await admin.auth.admin.inviteUserByEmail(email, {
     data: { role: userRole, full_name: fullName },
     redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/login`,
   });
+
   if (error) throw new Error(error.message);
+
+  if (invite?.user) {
+    await admin.from("organization_members").upsert({
+      organization_id: organizationId,
+      user_id: invite.user.id,
+      role: userRole,
+      full_name: fullName,
+      is_active: true,
+    });
+  }
+
   revalidatePath("/configuracoes");
 }
 
@@ -140,7 +114,11 @@ export async function setUserRole(userId: string, role: string) {
   const { organizationId, role: myRole } = await requireProfile();
   if (myRole !== "admin") throw new Error("Apenas administradores");
   const supabase = createClient();
-  await supabase.from("profiles").update({ role: role as any }).eq("organization_id", organizationId).eq("id", userId);
+  await supabase
+    .from("organization_members")
+    .update({ role: role as UserRole })
+    .eq("organization_id", organizationId)
+    .eq("user_id", userId);
   revalidatePath("/configuracoes");
 }
 
@@ -148,14 +126,13 @@ export async function createCustomField(formData: FormData) {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
   const optionsRaw = String(formData.get("options") ?? "").trim();
-  await supabase.from("custom_field_defs").insert({
+  await supabase.from("custom_field_definitions").insert({
     organization_id: organizationId,
     entity: "contact",
-    key: String(formData.get("key") ?? "").trim(),
-    name: String(formData.get("name") ?? "").trim(),
-    type: String(formData.get("type") ?? "text") as any,
-    options: optionsRaw ? optionsRaw.split(",").map((s) => s.trim()) : null,
-    required: false,
+    key: String(formData.get("key") ?? "").trim().toLowerCase().replace(/\s+/g, "_"),
+    label: String(formData.get("name") ?? "").trim(),
+    type: (String(formData.get("type") ?? "text") as FieldType) || "text",
+    options: optionsRaw ? optionsRaw.split(",").map((s) => s.trim()) : [],
     position: 999,
   });
   revalidatePath("/configuracoes");
@@ -165,7 +142,11 @@ export async function createCustomField(formData: FormData) {
 export async function deleteCustomField(id: string) {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
-  await supabase.from("custom_field_defs").delete().eq("organization_id", organizationId).eq("id", id);
+  await supabase
+    .from("custom_field_definitions")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("id", id);
   revalidatePath("/configuracoes");
   revalidatePath("/contatos");
 }

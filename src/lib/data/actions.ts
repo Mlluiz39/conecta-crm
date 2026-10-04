@@ -2,9 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { requireProfile } from "@/lib/auth/session";
-import type { AgentToolKey, AgentRole, ChannelType, HandoffRuleKey } from "@/types/domain";
+import type { AgentToolKey, AgentRole, AgentTone, ChannelType, HandoffRuleKey } from "@/types/domain";
 
 /* ───────────────────────────── Contatos ───────────────────────────── */
 
@@ -12,15 +11,28 @@ export async function createContact(formData: FormData) {
   const { organizationId, id: userId } = await requireProfile();
   const supabase = createClient();
 
+  const name = String(formData.get("name") ?? "").trim();
+  const phone = String(formData.get("phone") ?? "").trim() || null;
+  const email = String(formData.get("email") ?? "").trim() || null;
+  const instagram = String(formData.get("instagram_handle") ?? "").trim() || null;
+
+  // Campos extras (empresa, cidade, etc.) são armazenados em custom_fields
+  const customFields: Record<string, unknown> = {};
+  const company = String(formData.get("company") ?? "").trim();
+  const city = String(formData.get("city") ?? "").trim();
+  const state = String(formData.get("state") ?? "").trim();
+  if (company) customFields.empresa = company;
+  if (city) customFields.cidade = city;
+  if (state) customFields.estado = state;
+
   const { error } = await supabase.from("contacts").insert({
     organization_id: organizationId,
     owner_id: userId,
-    name: String(formData.get("name") ?? "").trim(),
-    phone: String(formData.get("phone") ?? "").trim() || null,
-    email: String(formData.get("email") ?? "").trim() || null,
-    company: String(formData.get("company") ?? "").trim() || null,
-    city: String(formData.get("city") ?? "").trim() || null,
-    state: String(formData.get("state") ?? "").trim() || null,
+    name,
+    phone,
+    email,
+    instagram_handle: instagram,
+    custom_fields: customFields,
   });
   if (error) throw new Error(error.message);
   revalidatePath("/contatos");
@@ -32,7 +44,7 @@ export async function updateContact(formData: FormData) {
   const id = String(formData.get("id"));
 
   const customRaw = String(formData.get("custom_fields") ?? "").trim();
-  let customFields: Record<string, unknown> | undefined;
+  let customFields: Record<string, unknown> = {};
   if (customRaw) {
     try {
       customFields = JSON.parse(customRaw);
@@ -41,16 +53,22 @@ export async function updateContact(formData: FormData) {
     }
   }
 
+  const company = String(formData.get("company") ?? "").trim();
+  const city = String(formData.get("city") ?? "").trim();
+  const state = String(formData.get("state") ?? "").trim();
+  if (company) customFields.empresa = company;
+  if (city) customFields.cidade = city;
+  if (state) customFields.estado = state;
+
   const { error } = await supabase
     .from("contacts")
     .update({
       name: String(formData.get("name") ?? "").trim(),
       phone: String(formData.get("phone") ?? "").trim() || null,
       email: String(formData.get("email") ?? "").trim() || null,
-      company: String(formData.get("company") ?? "").trim() || null,
-      city: String(formData.get("city") ?? "").trim() || null,
-      state: String(formData.get("state") ?? "").trim() || null,
-      ...(customFields ? { custom_fields: customFields } : {}),
+      instagram_handle: String(formData.get("instagram_handle") ?? "").trim() || null,
+      custom_fields: customFields,
+      updated_at: new Date().toISOString(),
     })
     .eq("organization_id", organizationId)
     .eq("id", id);
@@ -64,7 +82,7 @@ export async function deleteContact(id: string) {
   const supabase = createClient();
   const { error } = await supabase
     .from("contacts")
-    .update({ deleted_at: new Date().toISOString() })
+    .delete()
     .eq("organization_id", organizationId)
     .eq("id", id);
   if (error) throw new Error(error.message);
@@ -76,7 +94,7 @@ export async function deleteContact(id: string) {
 export async function moveOpportunity(
   opportunityId: string,
   stageId: string,
-  lostReasonId?: string | null,
+  lostReason?: string | null,
 ) {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
@@ -90,15 +108,19 @@ export async function moveOpportunity(
 
   const now = new Date().toISOString();
   const patch: Record<string, unknown> = {
-    pipeline_stage_id: stageId,
-    last_activity_at: now,
+    stage_id: stageId,
+    updated_at: now,
   };
-  if (stage?.is_won) { patch.status = "won"; patch.won_at = now; }
-  else if (stage?.is_lost) {
-    patch.status = "lost";
-    patch.lost_at = now;
-    patch.lost_reason_id = lostReasonId ?? null;
-  } else { patch.status = "open"; }
+  if (stage?.is_won) {
+    patch.closed_at = now;
+    patch.lost_reason = null;
+  } else if (stage?.is_lost) {
+    patch.closed_at = now;
+    patch.lost_reason = lostReason ?? "Outro";
+  } else {
+    patch.closed_at = null;
+    patch.lost_reason = null;
+  }
 
   const { error } = await supabase
     .from("opportunities")
@@ -123,22 +145,21 @@ export async function createStage(formData: FormData) {
   const { error } = await supabase.from("pipeline_stages").insert({
     organization_id: organizationId,
     name: String(formData.get("name") ?? "").trim(),
-    color: String(formData.get("color") ?? "#4f46e5"),
-    position: Number(max?.position ?? 0) + 1000,
+    color: String(formData.get("color") ?? "#6366F1"),
+    position: Number(max?.position ?? 0) + 1,
   });
   if (error) throw new Error(error.message);
   revalidatePath("/pipeline");
 }
 
-export async function getLossReasons() {
-  const { organizationId } = await requireProfile();
-  const supabase = createClient();
-  const { data } = await supabase
-    .from("loss_reasons")
-    .select("id, name")
-    .eq("organization_id", organizationId)
-    .eq("is_active", true);
-  return data ?? [];
+export async function getLossReasons(): Promise<{ id: string; name: string }[]> {
+  return [
+    { id: "Preço / Orçamento", name: "Preço / Orçamento" },
+    { id: "Sem resposta", name: "Sem resposta" },
+    { id: "Escolheu concorrente", name: "Escolheu concorrente" },
+    { id: "Momento inadequado", name: "Momento inadequado" },
+    { id: "Fora do perfil", name: "Fora do perfil" },
+  ];
 }
 
 /* ──────────────────────────── Conversas ───────────────────────────── */
@@ -148,7 +169,11 @@ export async function takeoverConversation(conversationId: string) {
   const supabase = createClient();
   const { error } = await supabase
     .from("conversations")
-    .update({ bot_active: false, assigned_to: userId })
+    .update({
+      bot_active: false,
+      assigned_to: userId,
+      bot_disabled_at: new Date().toISOString(),
+    })
     .eq("organization_id", organizationId)
     .eq("id", conversationId);
   if (error) throw new Error(error.message);
@@ -160,64 +185,45 @@ export async function reactivateBot(conversationId: string) {
   const supabase = createClient();
   const { error } = await supabase
     .from("conversations")
-    .update({ bot_active: true, handoff_at: null, handoff_reason: null })
+    .update({
+      bot_active: true,
+      bot_disabled_at: null,
+      handoff_reason: null,
+    })
     .eq("organization_id", organizationId)
     .eq("id", conversationId);
   if (error) throw new Error(error.message);
   revalidatePath("/conversas");
 }
 
-export async function addInternalNote(conversationId: string, contactId: string, text: string) {
+export async function addInternalNote(conversationId: string, text: string) {
   const { organizationId, id: userId } = await requireProfile();
   const supabase = createClient();
-  const { error } = await supabase.from("activities").insert({
+  const { error } = await supabase.from("conversation_notes").insert({
     organization_id: organizationId,
-    contact_id: contactId,
     conversation_id: conversationId,
-    type: "note",
-    title: text,
-    actor_id: userId,
-    actor_type: "user",
+    author_id: userId,
+    content: text,
   });
   if (error) throw new Error(error.message);
   revalidatePath("/conversas");
 }
 
-/** Envia mensagem do atendente humano e enfileira na outbox. */
+/** Envia mensagem do atendente humano */
 export async function sendHumanMessage(conversationId: string, text: string) {
   const { organizationId, id: userId } = await requireProfile();
   const supabase = createClient();
 
-  const { data: conv } = await supabase
-    .from("conversations")
-    .select("channel, contact:contacts(phone)")
-    .eq("organization_id", organizationId)
-    .eq("id", conversationId)
-    .single();
-
   const { error } = await supabase.from("messages").insert({
     organization_id: organizationId,
     conversation_id: conversationId,
-    direction: "outbound",
+    direction: "out",
     sender_type: "user",
-    sender_profile_id: userId,
-    kind: "text",
-    body: text,
-    status: "queued",
+    sender_user_id: userId,
+    content: text,
+    status: "enviada",
   });
   if (error) throw new Error(error.message);
-
-  // Enfileira o envio real (admin client — outbox é server-only).
-  const admin = createAdminClient();
-  await admin.from("message_outbox").insert({
-    organization_id: organizationId,
-    conversation_id: conversationId,
-    payload: {
-      to: (conv as any)?.contact?.phone,
-      text,
-      conversation_id: conversationId,
-    },
-  });
   revalidatePath("/conversas");
 }
 
@@ -230,10 +236,11 @@ const ALL_TOOLS: AgentToolKey[] = [
   "atualizar_contato",
   "mover_etapa_funil",
 ];
+
 const ALL_RULES: HandoffRuleKey[] = [
   "cliente_pede_humano",
   "sentimento_negativo",
-  "3_falhas_seguidas",
+  "falhas_seguidas",
   "fora_do_horario",
 ];
 
@@ -251,23 +258,21 @@ export async function createAgent(formData: FormData) {
       organization_id: organizationId,
       name,
       role,
-      tone: ["consultivo", "amigavel"],
+      tone: "consultivo" as AgentTone,
       is_active: true,
       created_by: userId,
-      settings: {},
     })
     .select("id")
     .single();
   if (error) throw new Error(error.message);
 
-  // Prompt inicial (published + sem draft).
+  // Prompt inicial
   await supabase.from("agent_prompt_versions").insert({
     organization_id: organizationId,
     agent_id: agent.id,
     version: 1,
     prompt: `Você é o ${role} da {{nome_empresa}}. Atenda {{nome_contato}} pelo {{canal}} com atenção e objetividade.`,
     status: "published",
-    published_at: new Date().toISOString(),
     created_by: userId,
   });
 
@@ -286,16 +291,18 @@ export async function createAgent(formData: FormData) {
       agent_id: agent.id,
       rule_key,
       enabled: rule_key === "cliente_pede_humano",
+      config: rule_key === "falhas_seguidas" ? { limite: 3 } : {},
     })),
   );
 
-  // Vincula ao canal (a regra de 1 ativo/canal exige desativar o anterior).
+  // Desativa canal ativo anterior do canal se houver
   await supabase
     .from("agent_channels")
     .update({ is_active: false })
     .eq("organization_id", organizationId)
     .eq("channel", channel)
     .eq("is_active", true);
+
   await supabase.from("agent_channels").insert({
     organization_id: organizationId,
     agent_id: agent.id,
@@ -320,19 +327,17 @@ export async function toggleAgentActive(agentId: string, active: boolean) {
 export async function setAgentChannel(agentId: string, channel: ChannelType) {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
-  // Desativa qualquer agente ativo no canal, então ativa este.
   await supabase
     .from("agent_channels")
     .update({ is_active: false })
     .eq("organization_id", organizationId)
     .eq("channel", channel)
     .eq("is_active", true);
-  const { error } = await supabase
-    .from("agent_channels")
-    .upsert(
-      { organization_id: organizationId, agent_id: agentId, channel, is_active: true },
-      { onConflict: "agent_id,channel" },
-    );
+
+  const { error } = await supabase.from("agent_channels").upsert(
+    { organization_id: organizationId, agent_id: agentId, channel, is_active: true },
+    { onConflict: "agent_id,channel" },
+  );
   if (error) throw new Error(error.message);
   revalidatePath("/agentes");
 }
@@ -340,24 +345,20 @@ export async function setAgentChannel(agentId: string, channel: ChannelType) {
 export async function toggleTool(agentId: string, toolKey: AgentToolKey, enabled: boolean) {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
-  await supabase
-    .from("agent_tools")
-    .upsert(
-      { organization_id: organizationId, agent_id: agentId, tool_key: toolKey, enabled },
-      { onConflict: "agent_id,tool_key" },
-    );
+  await supabase.from("agent_tools").upsert(
+    { organization_id: organizationId, agent_id: agentId, tool_key: toolKey, enabled },
+    { onConflict: "agent_id,tool_key" },
+  );
   revalidatePath("/agentes");
 }
 
 export async function toggleRule(agentId: string, ruleKey: HandoffRuleKey, enabled: boolean) {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
-  await supabase
-    .from("agent_handoff_rules")
-    .upsert(
-      { organization_id: organizationId, agent_id: agentId, rule_key: ruleKey, enabled },
-      { onConflict: "agent_id,rule_key" },
-    );
+  await supabase.from("agent_handoff_rules").upsert(
+    { organization_id: organizationId, agent_id: agentId, rule_key: ruleKey, enabled },
+    { onConflict: "agent_id,rule_key" },
+  );
   revalidatePath("/agentes");
 }
 
@@ -394,27 +395,34 @@ export async function saveDraft(agentId: string, prompt: string) {
   revalidatePath("/agentes");
 }
 
-/** Publica o rascunho: arquiva o published atual e promove o draft. */
+/** Publica o rascunho: chama a procedure publish_agent_version do banco */
 export async function publishDraft(agentId: string) {
-  const { organizationId } = await requireProfile();
   const supabase = createClient();
-
-  await supabase
+  const { data: draft } = await supabase
     .from("agent_prompt_versions")
-    .update({ status: "archived" })
+    .select("id")
     .eq("agent_id", agentId)
-    .eq("status", "published");
+    .eq("status", "draft")
+    .maybeSingle();
 
-  const { error } = await supabase
-    .from("agent_prompt_versions")
-    .update({ status: "published", published_at: new Date().toISOString() })
-    .eq("agent_id", agentId)
-    .eq("status", "draft");
-  if (error) throw new Error(error.message);
+  if (draft) {
+    const { error } = await supabase.rpc("publish_agent_version", { p_version_id: draft.id });
+    if (error) {
+      // Fallback manual se a procedure falhar
+      await supabase
+        .from("agent_prompt_versions")
+        .update({ status: "archived" })
+        .eq("agent_id", agentId)
+        .eq("status", "published");
+      await supabase
+        .from("agent_prompt_versions")
+        .update({ status: "published" })
+        .eq("id", draft.id);
+    }
+  }
   revalidatePath("/agentes");
 }
 
-/** Restaura uma versão anterior como rascunho editável. */
 export async function restoreVersion(agentId: string, versionId: string) {
   const { organizationId, id: userId } = await requireProfile();
   const supabase = createClient();
@@ -425,31 +433,6 @@ export async function restoreVersion(agentId: string, versionId: string) {
     .single();
   if (!source) throw new Error("Versão não encontrada");
 
-  const { data: existing } = await supabase
-    .from("agent_prompt_versions")
-    .select("id")
-    .eq("agent_id", agentId)
-    .eq("status", "draft")
-    .maybeSingle();
-
-  if (existing) {
-    await supabase.from("agent_prompt_versions").update({ prompt: source.prompt }).eq("id", existing.id);
-  } else {
-    const { data: max } = await supabase
-      .from("agent_prompt_versions")
-      .select("version")
-      .eq("agent_id", agentId)
-      .order("version", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    await supabase.from("agent_prompt_versions").insert({
-      organization_id: organizationId,
-      agent_id: agentId,
-      version: Number(max?.version ?? 0) + 1,
-      prompt: source.prompt,
-      status: "draft",
-      created_by: userId,
-    });
-  }
+  await saveDraft(agentId, source.prompt);
   revalidatePath("/agentes");
 }

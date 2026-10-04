@@ -16,18 +16,17 @@ export default async function ConversasPage() {
     firstId
       ? supabase
           .from("messages")
-          .select("id, direction, sender_type, kind, body, created_at, status, ai_generated")
+          .select("id, direction, sender_type, content, created_at, status")
           .eq("organization_id", organizationId)
           .eq("conversation_id", firstId)
           .order("created_at")
       : Promise.resolve({ data: [] }),
     firstId
       ? supabase
-          .from("activities")
-          .select("id, title, created_at")
+          .from("conversation_notes")
+          .select("id, content, created_at")
           .eq("organization_id", organizationId)
           .eq("conversation_id", firstId)
-          .eq("type", "note")
           .order("created_at", { ascending: false })
       : Promise.resolve({ data: [] }),
   ]);

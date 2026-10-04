@@ -40,71 +40,33 @@ export async function exchangeCode(code: string, redirectUri: string) {
   };
 }
 
-async function refreshAccessToken(refreshToken: string): Promise<string> {
-  const res = await fetch(GOOGLE_TOKEN, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID ?? "",
-      client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-      refresh_token: refreshToken,
-      grant_type: "refresh_token",
-    }),
-  });
-  if (!res.ok) throw new Error(`Google refresh: HTTP ${res.status}`);
-  const data = (await res.json()) as { access_token: string };
-  return data.access_token;
-}
-
-async function getValidAccessToken(organizationId: string): Promise<string | null> {
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("integrations")
-    .select("credentials, expires_at")
-    .eq("organization_id", organizationId)
-    .eq("provider", "google_calendar")
-    .maybeSingle();
-  if (!data?.credentials?.refresh_token) return null;
-
-  const expired = data.expires_at && new Date(data.expires_at) < new Date();
-  if (!expired && data.credentials.access_token) return data.credentials.access_token;
-
-  const token = await refreshAccessToken(data.credentials.refresh_token);
-  await admin
-    .from("integrations")
-    .update({
-      credentials: { ...data.credentials, access_token: token },
-      expires_at: new Date(Date.now() + 3500_000).toISOString(),
-    })
-    .eq("organization_id", organizationId)
-    .eq("provider", "google_calendar");
-  return token;
-}
-
 /** Cria/atualiza o evento do agendamento no Google Calendar (best-effort). */
 export async function syncEventToGoogle(organizationId: string, appointmentId: string) {
   const admin = createAdminClient();
   const { data: appt } = await admin
     .from("appointments")
-    .select("id, title, description, starts_at, ends_at, timezone, location, google_event_id, contact:contacts(name)")
+    .select("id, title, description, starts_at, ends_at, location, google_event_id, contact:contacts(name)")
     .eq("id", appointmentId)
     .eq("organization_id", organizationId)
     .single();
   if (!appt) return;
 
-  const token = await getValidAccessToken(organizationId);
-  if (!token) {
-    await admin.from("appointments").update({ sync_status: "not_applicable" }).eq("id", appointmentId);
-    return;
-  }
+  const { data: conn } = await admin
+    .from("google_calendar_connections")
+    .select("sync_token")
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  // Se houver token configurado em sync_token
+  const token = conn?.sync_token;
+  if (!token) return;
 
   const body = {
     summary: appt.title,
     description: appt.description ?? undefined,
     location: appt.location ?? undefined,
-    start: { dateTime: appt.starts_at, timeZone: appt.timezone },
-    end: { dateTime: appt.ends_at, timeZone: appt.timezone },
-    attendees: (appt as any).contact?.name ? undefined : undefined,
+    start: { dateTime: appt.starts_at, timeZone: "America/Sao_Paulo" },
+    end: { dateTime: appt.ends_at, timeZone: "America/Sao_Paulo" },
   };
 
   const url = appt.google_event_id
@@ -115,13 +77,11 @@ export async function syncEventToGoogle(organizationId: string, appointmentId: s
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    await admin.from("appointments").update({ sync_status: "failed" }).eq("id", appointmentId);
-    return;
-  }
+  if (!res.ok) return;
+
   const event = (await res.json()) as { id: string };
   await admin
     .from("appointments")
-    .update({ google_event_id: event.id, sync_status: "synced" })
+    .update({ google_event_id: event.id, updated_at: new Date().toISOString() })
     .eq("id", appointmentId);
 }

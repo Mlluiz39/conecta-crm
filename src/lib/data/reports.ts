@@ -26,103 +26,85 @@ export type ReportData = {
 
 const MONTHS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
-export async function getReportData(monthsBack = 6): Promise<ReportData> {
+export async function getReportData(): Promise<ReportData> {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
-  const since = new Date();
-  since.setMonth(since.getMonth() - (monthsBack - 1));
-  since.setDate(1);
-  since.setHours(0, 0, 0, 0);
 
-  const [contactsRes, oppsRes, convsRes, msgsRes, agentsRes, profilesRes] = await Promise.all([
-    supabase.from("contacts").select("id, origin_channel, created_at").eq("organization_id", organizationId).is("deleted_at", null).gte("created_at", since.toISOString()),
-    supabase.from("opportunities").select("id, value, status, origin_channel, owner_id, created_at, won_at").eq("organization_id", organizationId).is("deleted_at", null),
-    supabase.from("conversations").select("id, agent_id, assigned_to, channel").eq("organization_id", organizationId),
-    supabase.from("messages").select("id, conversation_id, direction, created_at").eq("organization_id", organizationId).gte("created_at", since.toISOString()),
+  const [metricsRes, perfRes, contactsRes, convsRes, msgsRes, agentsRes] = await Promise.all([
+    supabase.from("v_monthly_metrics").select("*").eq("organization_id", organizationId).order("mes", { ascending: true }),
+    supabase.from("v_agent_performance").select("*").eq("organization_id", organizationId),
+    supabase.from("contacts").select("id, created_at").eq("organization_id", organizationId),
+    supabase.from("conversations").select("id, channel_type, agent_id").eq("organization_id", organizationId),
+    supabase.from("messages").select("id, conversation_id, direction, created_at").eq("organization_id", organizationId).limit(500),
     supabase.from("agents").select("id, name").eq("organization_id", organizationId),
-    supabase.from("profiles").select("id, full_name").eq("organization_id", organizationId),
   ]);
 
-  const contacts = contactsRes.data ?? [];
-  const opps = oppsRes.data ?? [];
-  const convs = convsRes.data ?? [];
-  const msgs = msgsRes.data ?? [];
-  const agents = agentsRes.data ?? [];
-  const profiles = profilesRes.data ?? [];
-
-  const won = opps.filter((o: any) => o.status === "won");
-  const receita = won.reduce((s: number, o: any) => s + Number(o.value), 0);
-  const leadsNovos = contacts.length;
-  const taxaConversao = opps.length ? (won.length / opps.length) * 100 : 0;
-  const ticketMedio = won.length ? receita / won.length : 0;
-
-  // TMR: primeira resposta outbound após cada inbound, por conversa.
-  const tmrMinutos = computeTMR(msgs as any[]);
-
-  // Série mensal.
-  const monthly: MonthPoint[] = [];
-  for (let i = 0; i < monthsBack; i++) {
-    const d = new Date(since);
-    d.setMonth(since.getMonth() + i);
-    const y = d.getFullYear();
-    const m = d.getMonth();
-    const inMonth = (iso: string | null) => {
-      if (!iso) return false;
-      const x = new Date(iso);
-      return x.getFullYear() === y && x.getMonth() === m;
+  const monthlyRows = metricsRes.data ?? [];
+  const monthly: MonthPoint[] = monthlyRows.map((r: any) => {
+    const d = new Date(r.mes);
+    return {
+      mes: `${MONTHS[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`,
+      receita: Number(r.receita ?? 0),
+      leads: Number(r.leads_novos ?? 0),
+      ganhos: Number(r.ganhos ?? 0),
     };
-    monthly.push({
-      mes: `${MONTHS[m]}/${String(y).slice(2)}`,
-      receita: won.filter((o: any) => inMonth(o.won_at ?? o.created_at)).reduce((s: number, o: any) => s + Number(o.value), 0),
-      leads: contacts.filter((c: any) => inMonth(c.created_at)).length,
-      ganhos: won.filter((o: any) => inMonth(o.won_at ?? o.created_at)).length,
-    });
-  }
+  });
 
-  // Leads por canal.
+  const totalReceita = monthly.reduce((s, m) => s + m.receita, 0);
+  const totalLeads = (contactsRes.data ?? []).length;
+  const totalGanhos = monthly.reduce((s, m) => s + m.ganhos, 0);
+  const taxaConversao = totalLeads > 0 ? (totalGanhos / totalLeads) * 100 : 0;
+  const ticketMedio = totalGanhos > 0 ? totalReceita / totalGanhos : 0;
+
+  // Leads por canal
   const channelMap = new Map<string, number>();
-  for (const c of contacts as any[]) {
-    const ch = c.origin_channel ?? "manual";
+  for (const c of convsRes.data ?? []) {
+    const ch = (c as any).channel_type ?? "whatsapp";
     channelMap.set(ch, (channelMap.get(ch) ?? 0) + 1);
   }
-  const byChannel = [...channelMap.entries()].map(([canal, leads]) => ({ canal, leads }));
+  const byChannel: ChannelPoint[] = [...channelMap.entries()].map(([canal, leads]) => ({ canal, leads }));
+  if (byChannel.length === 0) {
+    byChannel.push({ canal: "whatsapp", leads: totalLeads });
+  }
 
-  // Performance por atendente (humanos e IA).
-  const agentNameById = new Map(agents.map((a: any) => [a.id, a.name]));
-  const profileNameById = new Map(profiles.map((p: any) => [p.id, p.full_name]));
-  const byAgent: AgentPoint[] = [];
+  // Desempenho por atendente (humanos da view + robôs de IA)
+  const byAgent: AgentPoint[] = (perfRes.data ?? []).map((m: any) => ({
+    nome: m.full_name || "Atendente",
+    tipo: "Humano",
+    conversas: Number(m.conversas_atendidas ?? 0),
+    convertidos: Number(m.leads_convertidos ?? 0),
+    receita: Number(m.receita_gerada ?? 0),
+  }));
 
-  for (const [agentId, name] of agentNameById) {
-    const convIds = convs.filter((c: any) => c.agent_id === agentId).map((c: any) => c.id);
+  // Adiciona robôs de IA
+  for (const ag of agentsRes.data ?? []) {
+    const convCount = (convsRes.data ?? []).filter((c: any) => c.agent_id === ag.id).length;
     byAgent.push({
-      nome: name as string,
+      nome: ag.name,
       tipo: "IA",
-      conversas: convIds.length,
-      convertidos: won.filter((o: any) => convIds.includes(o.id)).length,
-      receita: won.filter((o: any) => convIds.includes(o.id)).reduce((s: number, o: any) => s + Number(o.value), 0),
+      conversas: convCount,
+      convertidos: 0,
+      receita: 0,
     });
   }
-  for (const [profileId, name] of profileNameById) {
-    const convIds = convs.filter((c: any) => c.assigned_to === profileId).map((c: any) => c.id);
-    const myOpps = won.filter((o: any) => o.owner_id === profileId);
-    byAgent.push({
-      nome: (name as string) || "Atendente",
-      tipo: "Humano",
-      conversas: convIds.length,
-      convertidos: myOpps.length,
-      receita: myOpps.reduce((s: number, o: any) => s + Number(o.value), 0),
-    });
-  }
+
+  // TMR
+  const tmrMinutos = computeTMR((msgsRes.data ?? []) as any[]);
 
   return {
-    kpis: { receita, leadsNovos, taxaConversao, tmrMinutos, ticketMedio },
+    kpis: {
+      receita: totalReceita,
+      leadsNovos: totalLeads,
+      taxaConversao,
+      tmrMinutos,
+      ticketMedio,
+    },
     monthly,
     byChannel,
     byAgent: byAgent.filter((a) => a.conversas > 0 || a.receita > 0),
   };
 }
 
-/** Tempo médio de primeira resposta (min), pareado por conversa. */
 function computeTMR(msgs: { conversation_id: string; direction: string; created_at: string }[]): number | null {
   const byConv = new Map<string, { direction: string; created_at: string }[]>();
   for (const m of msgs) {
@@ -132,8 +114,8 @@ function computeTMR(msgs: { conversation_id: string; direction: string; created_
   for (const list of byConv.values()) {
     list.sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at));
     for (let i = 0; i < list.length; i++) {
-      if (list[i].direction !== "inbound") continue;
-      const reply = list.slice(i + 1).find((m) => m.direction === "outbound");
+      if (list[i].direction !== "in") continue;
+      const reply = list.slice(i + 1).find((m) => m.direction === "out");
       if (reply) {
         deltas.push((+new Date(reply.created_at) - +new Date(list[i].created_at)) / 60000);
         break;
@@ -144,11 +126,6 @@ function computeTMR(msgs: { conversation_id: string; direction: string; created_
   return deltas.reduce((s, d) => s + d, 0) / deltas.length;
 }
 
-/**
- * Gera o CSV (ou "XLSX" no formato CSV) dos dados de relatório.
- * ponytail: XLSX real (planilha binária) exigiria lib; CSV abre no Excel.
- * Upgrade = trocar por `xlsx`/exceljs quando o cliente pedir .xlsx nativo.
- */
 export async function exportReportCsv(): Promise<string> {
   const data = await getReportData();
   const lines: string[] = [];

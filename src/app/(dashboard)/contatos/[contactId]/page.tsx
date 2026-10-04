@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getContactById } from "@/lib/data/queries";
 import { requireProfile } from "@/lib/auth/session";
-import { PageHeader, Card, Badge, EmptyState } from "@/components/ui/primitives";
+import { PageHeader, Badge } from "@/components/ui/primitives";
 import { ContactTabs } from "@/components/contacts/ContactTabs";
 
 export const dynamic = "force-dynamic";
@@ -17,23 +17,33 @@ export default async function ContactDetailPage({
   if (!contact) notFound();
 
   const supabase = createClient();
-  const [opportunities, appointments, activities, conversations, fields] = await Promise.all([
-    supabase.from("opportunities").select("id, title, value, status, pipeline_stage_id").eq("organization_id", organizationId).eq("contact_id", contact.id).is("deleted_at", null),
-    supabase.from("appointments").select("id, title, starts_at, status, type").eq("organization_id", organizationId).eq("contact_id", contact.id).order("starts_at", { ascending: false }),
-    supabase.from("activities").select("id, type, title, body, occurred_at").eq("organization_id", organizationId).eq("contact_id", contact.id).order("occurred_at", { ascending: false }).limit(30),
-    supabase.from("conversations").select("id, channel, status, last_message_at").eq("organization_id", organizationId).eq("contact_id", contact.id),
-    supabase.from("custom_field_defs").select("key, name, type").eq("organization_id", organizationId).eq("entity", "contact").eq("is_active", true).order("position"),
+  const [opportunities, appointments, notes, conversations, fields] = await Promise.all([
+    supabase.from("opportunities").select("id, title, value, stage_id").eq("organization_id", organizationId).eq("contact_id", contact.id),
+    supabase.from("appointments").select("id, title, starts_at, status").eq("organization_id", organizationId).eq("contact_id", contact.id).order("starts_at", { ascending: false }),
+    supabase.from("conversation_notes").select("id, content, created_at").eq("organization_id", organizationId),
+    supabase.from("conversations").select("id, channel_type, status, last_message_at").eq("organization_id", organizationId).eq("contact_id", contact.id),
+    supabase.from("custom_field_definitions").select("key, label, type, options").eq("organization_id", organizationId).eq("entity", "contact").order("position"),
   ]);
+
+  const custom = (contact.custom_fields ?? {}) as Record<string, any>;
 
   return (
     <div>
       <PageHeader
         title={contact.name}
-        subtitle={[contact.company, contact.phone, contact.email].filter(Boolean).join(" · ")}
+        subtitle={[custom.empresa, contact.phone, contact.email].filter(Boolean).join(" · ")}
         action={
           <div className="flex gap-2">
-            {contact.city && <Badge className="bg-accent text-accent-foreground">{contact.city}{contact.state ? `, ${contact.state}` : ""}</Badge>}
-            <Badge className="bg-primary/10 text-primary">{contact.origin_channel ?? "manual"}</Badge>
+            {contact.instagram_handle && (
+              <Badge className="bg-pink-100 text-pink-700 dark:bg-pink-950 dark:text-pink-300">
+                @{contact.instagram_handle}
+              </Badge>
+            )}
+            {custom.cidade && (
+              <Badge className="bg-accent text-accent-foreground">
+                {custom.cidade}{custom.estado ? `, ${custom.estado}` : ""}
+              </Badge>
+            )}
           </div>
         }
       />
@@ -44,15 +54,13 @@ export default async function ContactDetailPage({
           name: contact.name,
           phone: contact.phone,
           email: contact.email,
-          company: contact.company,
-          city: contact.city,
-          state: contact.state,
-          custom_fields: contact.custom_fields ?? {},
+          instagram_handle: contact.instagram_handle,
+          custom_fields: custom,
         }}
         customFields={fields.data ?? []}
         opportunities={opportunities.data ?? []}
         appointments={appointments.data ?? []}
-        activities={activities.data ?? []}
+        notes={notes.data ?? []}
         conversations={conversations.data ?? []}
       />
     </div>
