@@ -78,7 +78,12 @@ Estimativa inicial de operação: **< US$30/mês** até tração.
 ## Roadmap
 
 - **Etapa 0 — Fundação** ✅ scaffold, schema+RLS, auth, layout
-- **Etapa 1 — MVP**: Inbox + Contatos + Pipeline + Agente IA end-to-end
-- **Etapa 2** — Calendário/Google + Relatórios
-- **Etapa 3** — Templates WhatsApp
-- **Etapa 4** — Presets multi-nicho + playground/"melhorar prompt" + preparação multi-org
+- **Etapa 1 — MVP** ✅ Inbox + Contatos + Pipeline + Agente IA end-to-end
+- **Etapa 2** ✅ Calendário/Google + Relatórios
+- **Etapa 3** ✅ Templates WhatsApp
+- **Etapa 4** ✅ Presets multi-nicho + playground/"melhorar prompt" + preparação multi-org
+
+## Documentação
+
+- [Guia de integração — Cernio](docs/integracao-cernio.md)
+- [Manual do cliente final](docs/manual-do-cliente.md)
