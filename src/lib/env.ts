@@ -20,8 +20,8 @@ export function serverEnv() {
   return {
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY!,
-    defaultModel:
-      process.env.ANTHROPIC_DEFAULT_MODEL ?? "claude-opus-5-5",
+    anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL || undefined,
+    defaultModel: process.env.ANTHROPIC_DEFAULT_MODEL || "claude-3-5-sonnet-20241022",
     cernio: {
       apiUrl: process.env.CERNIO_API_URL ?? "",
       apiKey: process.env.CERNIO_API_KEY ?? "",
