@@ -1,10 +1,46 @@
-export default function ConversasPage() {
+import { createClient } from "@/lib/supabase/server";
+import { requireProfile } from "@/lib/auth/session";
+import { getConversations } from "@/lib/data/queries";
+import { PageHeader } from "@/components/ui/primitives";
+import { Inbox } from "@/components/conversas/Inbox";
+
+export const dynamic = "force-dynamic";
+
+export default async function ConversasPage() {
+  const { organizationId } = await requireProfile();
+  const conversations = await getConversations();
+  const supabase = createClient();
+
+  const firstId = conversations[0]?.id;
+  const [messagesRes, notesRes] = await Promise.all([
+    firstId
+      ? supabase
+          .from("messages")
+          .select("id, direction, sender_type, kind, body, created_at, status, ai_generated")
+          .eq("organization_id", organizationId)
+          .eq("conversation_id", firstId)
+          .order("created_at")
+      : Promise.resolve({ data: [] }),
+    firstId
+      ? supabase
+          .from("activities")
+          .select("id, title, created_at")
+          .eq("organization_id", organizationId)
+          .eq("conversation_id", firstId)
+          .eq("type", "note")
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
+  ]);
+
   return (
     <div>
-      <h1 className="text-2xl font-extrabold tracking-tight">Conversas</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Inbox unificado WhatsApp, Instagram e Messenger (Etapa 1).
-      </p>
+      <PageHeader title="Conversas" subtitle="Caixa de entrada unificada — WhatsApp, Instagram e Messenger" />
+      <Inbox
+        organizationId={organizationId}
+        initialConversations={conversations as any}
+        initialMessages={firstId ? { [firstId]: (messagesRes.data ?? []) as any } : {}}
+        initialNotes={firstId ? { [firstId]: (notesRes.data ?? []) as any } : {}}
+      />
     </div>
   );
 }

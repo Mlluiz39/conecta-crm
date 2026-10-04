@@ -1,10 +1,29 @@
-export default function AgentesPage() {
+import { getAgents, getAgentDetail } from "@/lib/data/queries";
+import { PageHeader } from "@/components/ui/primitives";
+import { AgentWorkbench } from "@/components/agentes/AgentWorkbench";
+
+export const dynamic = "force-dynamic";
+
+export default async function AgentesPage({
+  searchParams,
+}: {
+  searchParams: { agent?: string };
+}) {
+  const agents = await getAgents();
+  const selectedId = searchParams.agent ?? agents[0]?.id ?? null;
+  const detail = selectedId ? await getAgentDetail(selectedId) : null;
+
   return (
     <div>
-      <h1 className="text-2xl font-extrabold tracking-tight">Agentes de IA</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Configuração, prompt, canais, ferramentas e playground (Etapa 1).
-      </p>
+      <PageHeader
+        title="Agentes de IA"
+        subtitle="Prompt, canais, ferramentas, handoff e playground de teste"
+      />
+      <AgentWorkbench
+        agents={agents as any}
+        selectedId={selectedId}
+        detail={detail ? (detail as any) : null}
+      />
     </div>
   );
 }
