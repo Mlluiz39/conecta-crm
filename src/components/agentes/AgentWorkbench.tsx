@@ -430,12 +430,12 @@ function Playground({ agentId }: { agentId: string | null }) {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "erro");
+      if (!res.ok) throw new Error(data.error ?? "Erro ao chamar agente");
       setLog((l) => [
         ...l,
         {
           role: "agent",
-          text: data.reply || "(sem resposta)",
+          text: data.reply || (data.error ? `⚠️ ${data.error}` : "(sem resposta)"),
           toolCalls: data.toolCalls,
           meta: `${data.tokensIn}+${data.tokensOut} tokens · ${data.latencyMs}ms`,
         },
