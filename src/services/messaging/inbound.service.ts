@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runAgentForConversation } from "@/services/agents/engine";
 import { getMessageProvider } from "./index";
+import { createCernioProvider } from "./cernio.adapter";
 
 export type InboundOutcome = {
   status: "processed" | "duplicate" | "ignored" | "invalid_signature";
@@ -13,7 +14,7 @@ function normalizeHandle(from: string): string {
 }
 
 /**
- * Processa webhook da Cernio:
+ * Processa webhook da Zernio (ou Cernio):
  * Valida assinatura, salva webhook_events (idempotência), garante canal/contato/conversa e aciona IA.
  */
 export async function handleInboundWebhook(params: {
@@ -59,7 +60,7 @@ export async function handleInboundWebhook(params: {
       .maybeSingle();
 
     if (!channelRow) {
-      // Se não achar por cernio_channel_id, busca o primeiro canal do tipo ou usa a primeira organização
+      // Se não achar por cernio_channel_id, busca a primeira organização
       const { data: fallbackOrg } = await supabase.from("organizations").select("id").limit(1).single();
       if (!fallbackOrg) continue;
 
@@ -151,9 +152,25 @@ export async function handleInboundWebhook(params: {
         inboundText: msg.text,
       });
 
-      // Se o agente gerou resposta, envia imediatamente pelo provider
+      // Se o agente gerou resposta, envia imediatamente pelo provider Zernio
       if (res.handled && res.reply) {
-        await provider.sendText(msg.externalAccountId, handle, res.reply).catch(() => null);
+        // Checa se a organização tem API Key configurada na tela de Conexões
+        const { data: orgData } = await supabase
+          .from("organizations")
+          .select("settings")
+          .eq("id", organizationId)
+          .single();
+
+        const zernioConfig = (orgData?.settings as any)?.connections?.zernio;
+        const activeProvider = zernioConfig?.apiKey
+          ? createCernioProvider({
+              apiUrl: zernioConfig.apiUrl || "https://api.zernio.com",
+              apiKey: zernioConfig.apiKey,
+              webhookSecret: zernioConfig.webhookSecret || "",
+            })
+          : provider;
+
+        await activeProvider.sendText(msg.externalAccountId || "default", handle, res.reply).catch(() => null);
       }
     }
 
@@ -164,6 +181,5 @@ export async function handleInboundWebhook(params: {
 }
 
 export async function flushOutbox(): Promise<number> {
-  // Mantido para compatibilidade da rota cron
   return 0;
 }

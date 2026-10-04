@@ -21,6 +21,7 @@ organiza suas vendas em um só lugar.
 - **Relatórios** — números do seu desempenho.
 - **Agentes de IA** — os atendentes virtuais.
 - **Templates** — modelos de mensagem do WhatsApp.
+- **Conexões** — integrações com Zernio (WhatsApp), Apify, AISA e Google.
 - **Configurações** — tipo de negócio, campos, equipe.
 
 ## 3. Conversas
@@ -107,7 +108,25 @@ janela de 24h (como lembretes).
 - **Submeter** envia para aprovação da Meta. O status aparece no card
   (**Aprovado / Pendente / Rejeitado**) com o motivo, quando houver.
 
-## 10. Configurações
+## 10. Conexões & Integrações
+
+No menu **Conexões**, você vincula os canais de atendimento e automações:
+
+- **Zernio (WhatsApp, Instagram e Messenger)**:
+  - Insira sua **API Key / Bearer Token** da Zernio.
+  - Copie a **URL do Webhook** gerada na tela (`https://seu-dominio/api/webhooks/zernio`)
+    e cole nas configurações de Webhook do seu painel da Zernio.
+  - Cadastre seus números de WhatsApp e canais em **Canais Cadastrados** informando
+    o ID da instância ou telefone.
+- **Apify**:
+  - Insira seu **API Token** da Apify para extração de leads, enriquecimento de contatos
+    e automações externas.
+- **AISA**:
+  - Conecte sua chave da AISA para serviços complementares de inteligência artificial.
+- **Google Calendar**:
+  - Clique em **Conectar Conta Google** para sincronização direta da agenda.
+
+## 11. Configurações
 
 - **Tipo de negócio** — aplique um preset pronto (Imobiliária, E-commerce,
   Clínica ou Agência). Ele configura as etapas do funil, etiquetas e campos
@@ -118,7 +137,7 @@ janela de 24h (como lembretes).
   **Administrador** (tudo), **Gerente** (tudo, menos equipe/organização) e
   **Atendente** (conversas, contatos e vendas).
 
-## 11. Perguntas frequentes
+## 12. Perguntas frequentes
 
 **O robô respondeu algo errado. E agora?**
 Abra a conversa, clique em **Assumir conversa** e ajuste o **prompt** do agente.

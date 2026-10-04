@@ -6,9 +6,8 @@ CRM multicanal com agentes de IA para PMEs brasileiras. Atende WhatsApp, Instagr
 
 - **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind CSS, Recharts, dnd-kit
 - **Backend/Dados**: Next.js Route Handlers + Supabase (PostgreSQL, Auth, Realtime, RLS)
-- **Mensageria**: camada abstrata `MessageProvider` + adapter Cernio (stub até credenciais)
+- **Mensageria & Integrações**: Zernio API (WhatsApp, Instagram, Messenger), Apify API (scraping e automação), AISA API, Google Calendar API (OAuth 2.0)
 - **IA**: Claude API (`@anthropic-ai/sdk`) com tool use; modelo configurável por agente
-- **Calendário**: Google Calendar API (OAuth 2.0) — fase 2
 - **Deploy**: Vercel
 
 ## Estrutura

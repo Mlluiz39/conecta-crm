@@ -5,13 +5,14 @@ import type { MessageProvider } from "./types";
 
 export type { InboundMessage, MessageProvider, SendResult } from "./types";
 
-/** Registry de providers. Adicionar Meta Cloud API = registrar aqui. */
+/** Registry de providers. Suporta 'zernio' e 'cernio'. */
 const registry: Record<string, () => MessageProvider> = {
+  zernio: () => createCernioProvider(serverEnv().cernio),
   cernio: () => createCernioProvider(serverEnv().cernio),
 };
 
-/** Resolve o provider de mensageria ativo. Default: cernio. */
-export function getMessageProvider(name = "cernio"): MessageProvider {
-  const factory = registry[name] ?? registry.cernio;
+/** Resolve o provider de mensageria ativo. Default: zernio. */
+export function getMessageProvider(name = "zernio"): MessageProvider {
+  const factory = registry[name.toLowerCase()] ?? registry.zernio;
   return factory();
 }

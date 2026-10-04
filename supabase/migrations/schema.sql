@@ -35,6 +35,7 @@ create table organizations (
   business_hours       jsonb not null default '{"seg-sex":{"inicio":"09:00","fim":"18:00"}}',
   out_of_hours_message text default 'Estamos fora do horário de atendimento. Retornaremos assim que possível.',
   distribution_rule    text not null default 'manual' check (distribution_rule in ('manual', 'round_robin')),
+  settings             jsonb not null default '{}',
   created_at           timestamptz not null default now(),
   updated_at           timestamptz not null default now()
 );

@@ -12,6 +12,7 @@ import {
   BarChart3,
   Bot,
   FileText,
+  Cable,
   Settings,
   ChevronsLeft,
   ChevronsRight,
@@ -27,6 +28,7 @@ const NAV = [
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { href: "/agentes", label: "Agentes de IA", icon: Bot },
   { href: "/templates", label: "Templates", icon: FileText },
+  { href: "/conexoes", label: "Conexões", icon: Cable },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 

@@ -209,7 +209,7 @@ export async function addInternalNote(conversationId: string, text: string) {
   revalidatePath("/conversas");
 }
 
-/** Envia mensagem do atendente humano */
+/** Envia mensagem do atendente humano e despacha via Zernio */
 export async function sendHumanMessage(conversationId: string, text: string) {
   const { organizationId, id: userId } = await requireProfile();
   const supabase = createClient();
@@ -224,6 +224,33 @@ export async function sendHumanMessage(conversationId: string, text: string) {
     status: "enviada",
   });
   if (error) throw new Error(error.message);
+
+  // Despacha no WhatsApp/Instagram/Messenger via Zernio
+  try {
+    const { data: conv } = await supabase
+      .from("conversations")
+      .select("channel_id, contact:contacts(phone)")
+      .eq("id", conversationId)
+      .single();
+
+    const phone = (conv as any)?.contact?.phone;
+    if (phone) {
+      const { data: org } = await supabase.from("organizations").select("settings").eq("id", organizationId).single();
+      const zernioCfg = (org?.settings as any)?.connections?.zernio;
+
+      const { createCernioProvider } = await import("@/services/messaging/cernio.adapter");
+      const provider = createCernioProvider({
+        apiUrl: zernioCfg?.apiUrl || "https://api.zernio.com",
+        apiKey: zernioCfg?.apiKey || "",
+        webhookSecret: zernioCfg?.webhookSecret || "",
+      });
+
+      await provider.sendText(conv?.channel_id || "default", phone, text).catch(() => null);
+    }
+  } catch (e) {
+    console.error("[sendHumanMessage] Erro ao despachar no provider:", e);
+  }
+
   revalidatePath("/conversas");
 }
 
