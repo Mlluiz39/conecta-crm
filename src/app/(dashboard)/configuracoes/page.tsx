@@ -8,7 +8,7 @@ import {
 import { PageHeader } from "@/components/ui/primitives";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 export default async function ConfiguracoesPage() {
   const { role } = await requireProfile();

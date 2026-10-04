@@ -4,7 +4,7 @@ import { getAppointments, getGoogleIntegration, getReminderRules } from "@/lib/d
 import { PageHeader, Card, Badge } from "@/components/ui/primitives";
 import { CalendarView } from "@/components/calendar/CalendarView";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 15;
 
 export default async function CalendarioPage({
   searchParams,
@@ -38,7 +38,7 @@ export default async function CalendarioPage({
       />
 
       <Card>
-        <h2 className="mb-3 text-sm font-bold">Lembretes automáticos</h2>
+        <h2 className="mb-3 text-sm font-bold">Lembretes automáticos via WhatsApp</h2>
         {rules.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nenhuma regra configurada.</p>
         ) : (
@@ -48,7 +48,7 @@ export default async function CalendarioPage({
                 <span className="font-semibold">{r.name}</span>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">
-                    {r.offset_minutes < 0 ? `${Math.abs(r.offset_minutes) / 60}h antes` : `${r.offset_minutes / 60}h depois`} · WhatsApp
+                    {r.offset_minutes >= 60 ? `${r.offset_minutes / 60}h antes` : `${r.offset_minutes}min antes`} · WhatsApp
                   </span>
                   <Badge className={r.is_active ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" : "bg-muted text-muted-foreground"}>
                     {r.is_active ? "ativo" : "inativo"}
@@ -59,7 +59,7 @@ export default async function CalendarioPage({
           </div>
         )}
         <p className="mt-3 text-xs text-muted-foreground">
-          Os lembretes são disparados por cron a cada 10 minutos (ver <code>vercel.json</code>).
+          Os lembretes são disparados automaticamente por cron a cada 10 minutos conforme agendado em <code>appointment_reminders</code>.
         </p>
       </Card>
     </div>

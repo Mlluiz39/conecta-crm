@@ -18,15 +18,22 @@ export async function getAppointments(rangeStartISO: string, rangeEndISO: string
 }
 
 export async function getReminderRules() {
-  const { organizationId } = await requireProfile();
-  const supabase = createClient();
-  // Busca templates associados ou regras padrão
-  const { data } = await supabase
-    .from("whatsapp_templates")
-    .select("id, name, category, status")
-    .eq("organization_id", organizationId)
-    .eq("category", "utilidade");
-  return data ?? [];
+  return [
+    {
+      id: "rem_24h",
+      name: "Lembrete 24h antes da Visita / Consulta",
+      offset_minutes: 1440,
+      channel: "whatsapp",
+      is_active: true,
+    },
+    {
+      id: "rem_1h",
+      name: "Confirmação de Presença 1h antes",
+      offset_minutes: 60,
+      channel: "whatsapp",
+      is_active: true,
+    },
+  ];
 }
 
 export async function getGoogleIntegration() {

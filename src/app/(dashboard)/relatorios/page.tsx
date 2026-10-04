@@ -1,10 +1,15 @@
 import { Download } from "lucide-react";
 import { getReportData } from "@/lib/data/reports";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui/primitives";
-import { ReportsCharts } from "@/components/reports/ReportsCharts";
 import { formatBRL } from "@/lib/utils";
+import dynamic from "next/dynamic";
 
-export const dynamic = "force-dynamic";
+const ReportsCharts = dynamic(
+  () => import("@/components/reports/ReportsCharts").then((m) => ({ default: m.ReportsCharts })),
+  { ssr: false, loading: () => <div className="grid grid-cols-1 gap-4 lg:grid-cols-2"><div className="h-72 animate-pulse rounded-2xl bg-muted" /><div className="h-72 animate-pulse rounded-2xl bg-muted" /></div> },
+);
+
+export const revalidate = 60;
 
 export default async function RelatoriosPage() {
   const data = await getReportData(6);

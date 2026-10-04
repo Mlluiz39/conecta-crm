@@ -110,7 +110,16 @@ export function TemplatesManager({ templates }: { templates: Template[] }) {
   );
 }
 
-function WhatsAppBubble({ template }: { template: { header?: string | null; body: string; footer?: string | null; buttons?: { text: string }[] } }) {
+function WhatsAppBubble({
+  template,
+}: {
+  template: {
+    header?: string | null;
+    body: string;
+    footer?: string | null;
+    buttons?: { text: string; type?: string; value?: string }[];
+  };
+}) {
   return (
     <div className="max-w-sm rounded-2xl rounded-tl-sm border bg-card p-3 shadow-sm">
       {template.header && (

@@ -2,7 +2,7 @@ import { getTemplates } from "@/lib/data/templates";
 import { PageHeader } from "@/components/ui/primitives";
 import { TemplatesManager } from "@/components/templates/TemplatesManager";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 30;
 
 export default async function TemplatesPage() {
   const templates = await getTemplates();

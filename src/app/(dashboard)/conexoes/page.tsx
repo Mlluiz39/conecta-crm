@@ -1,7 +1,12 @@
 import { getConnections } from "@/lib/data/connections";
-import { ConnectionsManager } from "@/components/connections/ConnectionsManager";
+import dynamic from "next/dynamic";
 
-export const dynamic = "force-dynamic";
+const ConnectionsManager = dynamic(
+  () => import("@/components/connections/ConnectionsManager").then((m) => ({ default: m.ConnectionsManager })),
+  { ssr: false, loading: () => <div className="h-96 animate-pulse rounded-2xl bg-muted" /> },
+);
+
+export const revalidate = 60;
 
 export default async function ConexoesPage() {
   const { config, channels, appUrl } = await getConnections();

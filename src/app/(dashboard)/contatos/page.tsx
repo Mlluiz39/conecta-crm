@@ -4,7 +4,7 @@ import { PageHeader, Card, EmptyState, Badge } from "@/components/ui/primitives"
 import { NewContactButton } from "@/components/contacts/NewContactButton";
 import { formatDateTime } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 15;
 
 export default async function ContatosPage({
   searchParams,

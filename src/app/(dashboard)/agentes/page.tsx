@@ -1,8 +1,13 @@
 import { getAgents, getAgentDetail } from "@/lib/data/queries";
 import { PageHeader } from "@/components/ui/primitives";
-import { AgentWorkbench } from "@/components/agentes/AgentWorkbench";
+import dynamic from "next/dynamic";
 
-export const dynamic = "force-dynamic";
+const AgentWorkbench = dynamic(
+  () => import("@/components/agentes/AgentWorkbench").then((m) => ({ default: m.AgentWorkbench })),
+  { ssr: false, loading: () => <div className="h-96 animate-pulse rounded-2xl bg-muted" /> },
+);
+
+export const revalidate = 15;
 
 export default async function AgentesPage({
   searchParams,

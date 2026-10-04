@@ -180,6 +180,6 @@ export async function handleInboundWebhook(params: {
   return { status: processed > 0 ? "processed" : "duplicate", messages: processed };
 }
 
-export async function flushOutbox(): Promise<number> {
+export async function flushOutbox(limit = 50): Promise<number> {
   return 0;
 }

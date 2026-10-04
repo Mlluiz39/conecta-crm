@@ -2,9 +2,14 @@ import { Users, TrendingUp, MessagesSquare, CalendarCheck } from "lucide-react";
 import { getDashboardKpis, getOpportunities, getStages } from "@/lib/data/queries";
 import { Card, PageHeader, Badge } from "@/components/ui/primitives";
 import { formatBRL } from "@/lib/utils";
-import { PipelineMiniChart } from "@/components/dashboard/PipelineMiniChart";
+import dynamic from "next/dynamic";
 
-export const dynamic = "force-dynamic";
+const PipelineMiniChart = dynamic(
+  () => import("@/components/dashboard/PipelineMiniChart").then((m) => ({ default: m.PipelineMiniChart })),
+  { ssr: false, loading: () => <div className="h-72 animate-pulse rounded-2xl bg-muted" /> },
+);
+
+export const revalidate = 15;
 
 export default async function DashboardPage() {
   const [kpis, opportunities, stages] = await Promise.all([
@@ -48,7 +53,7 @@ export default async function DashboardPage() {
             {opportunities.length} oportunidades
           </Badge>
         </div>
-        <PipelineMiniChart opportunities={opportunities} stages={stages} />
+        <PipelineMiniChart opportunities={opportunities as any} stages={stages as any} />
       </Card>
     </div>
   );

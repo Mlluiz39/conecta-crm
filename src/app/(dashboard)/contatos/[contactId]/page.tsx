@@ -5,7 +5,7 @@ import { requireProfile } from "@/lib/auth/session";
 import { PageHeader, Badge } from "@/components/ui/primitives";
 import { ContactTabs } from "@/components/contacts/ContactTabs";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 15;
 
 export default async function ContactDetailPage({
   params,

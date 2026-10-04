@@ -26,7 +26,7 @@ export type ReportData = {
 
 const MONTHS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
-export async function getReportData(): Promise<ReportData> {
+export async function getReportData(_monthsBack = 6): Promise<ReportData> {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
 

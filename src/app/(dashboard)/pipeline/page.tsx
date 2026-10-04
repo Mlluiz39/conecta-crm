@@ -1,9 +1,14 @@
 import { getStages, getOpportunities } from "@/lib/data/queries";
 import { getLossReasons } from "@/lib/data/actions";
 import { PageHeader } from "@/components/ui/primitives";
-import { PipelineBoard } from "@/components/pipeline/PipelineBoard";
+import dynamic from "next/dynamic";
 
-export const dynamic = "force-dynamic";
+const PipelineBoard = dynamic(
+  () => import("@/components/pipeline/PipelineBoard").then((m) => ({ default: m.PipelineBoard })),
+  { ssr: false, loading: () => <div className="h-96 animate-pulse rounded-2xl bg-muted" /> },
+);
+
+export const revalidate = 15;
 
 export default async function PipelinePage() {
   const [stages, opportunities, lossReasons] = await Promise.all([
