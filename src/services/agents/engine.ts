@@ -14,6 +14,7 @@ import { runAgentLoop } from "./claude";
 import { evaluateHandoff } from "./handoff";
 import { renderPrompt } from "./prompt";
 import { executeTool, toolsForClaude } from "./tools";
+import { buildAgentSystemInstruction } from "./sanitizer";
 
 const HISTORY_LIMIT = 20;
 
@@ -128,7 +129,12 @@ export async function runAgentForConversation(params: {
     nome_agente: agent.name,
     funcao_agente: AGENT_ROLE_LABEL[agent.role as AgentRole] ?? agent.role,
   };
-  const system = renderPrompt(promptVersion.prompt, variables);
+  const renderedBase = renderPrompt(promptVersion.prompt, variables);
+  const system = buildAgentSystemInstruction({
+    basePrompt: renderedBase,
+    role: agent.role,
+    agentName: agent.name,
+  });
 
   // Histórico recente em ordem cronológica
   const { data: historyRows } = await supabase

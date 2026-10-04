@@ -7,6 +7,7 @@ import type { AgentRole, AgentToolKey } from "@/types/domain";
 import { runAgentLoop } from "@/services/agents/claude";
 import { renderPrompt } from "@/services/agents/prompt";
 import { executeTool, toolsForClaude } from "@/services/agents/tools";
+import { buildAgentSystemInstruction } from "@/services/agents/sanitizer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,13 +54,19 @@ export async function POST(request: NextRequest) {
   ]);
   const enabledTools = (toolRows ?? []).map((r: any) => r.tool_key as AgentToolKey);
 
-  const system = renderPrompt(promptVersion.prompt, {
+  const renderedBase = renderPrompt(promptVersion.prompt, {
     nome_empresa: org?.name ?? "",
     nome_contato: "Lead Simulado",
     horario_atendimento: "Seg a Sex, 09:00 às 18:00",
     canal: "WhatsApp",
     nome_agente: agent.name,
     funcao_agente: AGENT_ROLE_LABEL[agent.role as AgentRole] ?? agent.role,
+  });
+
+  const system = buildAgentSystemInstruction({
+    basePrompt: renderedBase,
+    role: agent.role,
+    agentName: agent.name,
   });
 
   const messages = [

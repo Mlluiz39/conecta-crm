@@ -1,6 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { serverEnv } from "@/lib/env";
+import { sanitizeAiReply } from "./sanitizer";
 
 export type ToolSchema = {
   name: string;
@@ -27,9 +28,9 @@ export type AgentLoopResult = {
 const MAX_ITERATIONS = 5;
 
 /**
- * Executa o loop do agente com suporte dual:
- * 1. Se BASE_URL estiver configurada (ex.: 9router, OneAPI, LiteLLM): usa protocolo padrão OpenAI (/v1/chat/completions)
- * 2. Se não houver BASE_URL: usa o SDK nativo da Anthropic
+ * Executa o loop do agente com suporte dual e higienização anti-vazamento de JSON:
+ * 1. 9router / OpenAI format: suporte a tool_calls nativos E tool calls embutidos no content
+ * 2. Anthropic SDK nativo
  */
 export async function runAgentLoop(params: {
   model: string;
@@ -44,7 +45,7 @@ export async function runAgentLoop(params: {
   let tokensIn = 0;
   let tokensOut = 0;
 
-  // ── 1. PROTOCOLO OPENAI (9router, OneAPI, LiteLLM, OpenAI) ──
+  // ── 1. PROTOCOLO OPENAI (9router, OneAPI, LiteLLM) ──
   if (env.aiBaseUrl) {
     const rawUrl = env.aiBaseUrl.replace(/\/$/, "");
     const endpoint = rawUrl.endsWith("/chat/completions")
@@ -53,7 +54,7 @@ export async function runAgentLoop(params: {
         ? `${rawUrl}/chat/completions`
         : `${rawUrl}/v1/chat/completions`;
 
-    // Converte ferramentas para o formato de function calling da OpenAI
+    // Converte ferramentas para o formato function calling da OpenAI
     const openAiTools = params.tools.map((t) => ({
       type: "function",
       function: {
@@ -104,7 +105,7 @@ export async function runAgentLoop(params: {
         tokensIn += data.usage?.prompt_tokens ?? 0;
         tokensOut += data.usage?.completion_tokens ?? 0;
 
-        // Se o modelo invocou ferramentas (tool_calls)
+        // A) Modelo invocou ferramentas via tool_calls nativos da OpenAI
         if (message?.tool_calls && message.tool_calls.length > 0) {
           openAiMessages.push(message);
 
@@ -141,10 +142,49 @@ export async function runAgentLoop(params: {
           continue;
         }
 
-        // Resposta final de texto
-        const reply = (message?.content || "").trim();
+        // B) Modelo embutiu a chamada de ferramenta como JSON em content (fallback para modelos customizados)
+        if (message?.content) {
+          const rawContent = message.content.trim();
+          if (rawContent.startsWith("{") && rawContent.endsWith("}")) {
+            try {
+              const parsed = JSON.parse(rawContent);
+              const toolName = parsed.name || parsed.tool || parsed.function?.name;
+              const toolArgs =
+                parsed.arguments || parsed.parameters || parsed.input || parsed.function?.arguments || {};
+
+              if (toolName && typeof toolName === "string") {
+                const args = typeof toolArgs === "string" ? JSON.parse(toolArgs) : toolArgs;
+                let output: any;
+                try {
+                  output = await params.executeTool(toolName, args);
+                } catch (e: any) {
+                  output = { error: e.message };
+                }
+
+                toolCalls.push({
+                  tool_key: toolName,
+                  input: args,
+                  output,
+                });
+
+                openAiMessages.push(message);
+                openAiMessages.push({
+                  role: "user",
+                  content: `[Resultado da ação ${toolName}]: ${JSON.stringify(output ?? null)}. Formule agora a resposta em texto amigável e natural para o cliente, sem nenhum JSON ou código.`,
+                });
+                continue;
+              }
+            } catch {
+              // Não era JSON de ferramenta
+            }
+          }
+        }
+
+        // Resposta final higienizada (sem JSON bruto vazado)
+        const cleanReply = sanitizeAiReply(message?.content || "");
+
         return {
-          reply,
+          reply: cleanReply || (message?.content || "").trim(),
           toolCalls,
           stopReason: choice?.finish_reason || "stop",
           tokensIn,
@@ -199,14 +239,16 @@ export async function runAgentLoop(params: {
       tokensOut += res.usage.output_tokens;
 
       if (res.stop_reason !== "tool_use") {
-        const reply = res.content
+        const rawText = res.content
           .filter((b): b is Anthropic.TextBlock => b.type === "text")
           .map((b) => b.text)
           .join("\n")
           .trim();
 
+        const reply = sanitizeAiReply(rawText);
+
         return {
-          reply,
+          reply: reply || rawText,
           toolCalls,
           stopReason: res.stop_reason,
           tokensIn,
@@ -261,7 +303,7 @@ export async function runAgentLoop(params: {
   }
 }
 
-/** Função utilitária para gerar texto simples (usada no 'melhorar prompt com IA') */
+/** Função utilitária para gerar texto simples */
 export async function generateText(prompt: string, systemPrompt?: string): Promise<string> {
   const env = serverEnv();
 
@@ -294,7 +336,7 @@ export async function generateText(prompt: string, systemPrompt?: string): Promi
     }
 
     const data = await res.json();
-    return (data.choices?.[0]?.message?.content || "").trim();
+    return sanitizeAiReply((data.choices?.[0]?.message?.content || "").trim());
   }
 
   const anthropic = new Anthropic({ apiKey: env.anthropicApiKey });
@@ -305,9 +347,11 @@ export async function generateText(prompt: string, systemPrompt?: string): Promi
     messages: [{ role: "user", content: prompt }],
   });
 
-  return res.content
+  const raw = res.content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")
     .map((b) => b.text)
     .join("\n")
     .trim();
+
+  return sanitizeAiReply(raw);
 }
