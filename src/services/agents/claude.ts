@@ -5,7 +5,13 @@ import { serverEnv } from "@/lib/env";
 let client: Anthropic | null = null;
 
 export function getAnthropic(): Anthropic {
-  if (!client) client = new Anthropic({ apiKey: serverEnv().anthropicApiKey });
+  if (!client) {
+    const env = serverEnv();
+    client = new Anthropic({
+      apiKey: env.anthropicApiKey,
+      baseURL: env.anthropicBaseUrl,
+    });
+  }
   return client;
 }
 
@@ -35,8 +41,7 @@ const MAX_ITERATIONS = 5;
 
 /**
  * Loop de tool use do Claude. Executa apenas as ferramentas passadas em
- * `tools` (já filtradas por agente). `executeTool` roda server-side e devolve
- * o resultado serializável.
+ * `tools` (já filtradas por agente).
  */
 export async function runAgentLoop(params: {
   model: string;
@@ -54,22 +59,26 @@ export async function runAgentLoop(params: {
 
   try {
     for (let i = 0; i < MAX_ITERATIONS; i++) {
-      const res = await anthropic.messages.create({
+      const createPayload: any = {
         model: params.model,
         max_tokens: 2048,
-        system: [
-          { type: "text", text: params.system, cache_control: { type: "ephemeral" } },
-        ],
-        tools: params.tools,
+        system: params.system,
         messages: convo,
-      });
+      };
+
+      // Anthropic rejeita array vazio de tools (deve ser omitido se length === 0)
+      if (params.tools && params.tools.length > 0) {
+        createPayload.tools = params.tools;
+      }
+
+      const res = await anthropic.messages.create(createPayload);
 
       tokensIn += res.usage.input_tokens;
       tokensOut += res.usage.output_tokens;
 
       if (res.stop_reason === "refusal") {
         return {
-          reply: "",
+          reply: "⚠️ A solicitação foi recusada pelos filtros de segurança do modelo.",
           toolCalls,
           stopReason: "refusal",
           tokensIn,
@@ -85,6 +94,7 @@ export async function runAgentLoop(params: {
           .map((b) => b.text)
           .join("\n")
           .trim();
+
         return {
           reply,
           toolCalls,
@@ -95,7 +105,7 @@ export async function runAgentLoop(params: {
         };
       }
 
-      // Executa as tool_use e devolve TODOS os tool_result numa única mensagem.
+      // Executa as tool_use e devolve todos os tool_result numa única mensagem
       convo.push({ role: "assistant", content: res.content });
       const results: Anthropic.ToolResultBlockParam[] = [];
       for (const block of res.content) {
@@ -120,7 +130,7 @@ export async function runAgentLoop(params: {
     }
 
     return {
-      reply: "",
+      reply: "⚠️ Limite de iterações de ferramentas atingido.",
       toolCalls,
       stopReason: "max_iterations",
       tokensIn,
@@ -128,15 +138,17 @@ export async function runAgentLoop(params: {
       latencyMs: Date.now() - startedAt,
       error: "Limite de iterações de ferramentas atingido",
     };
-  } catch (err) {
+  } catch (err: any) {
+    const errorMsg = err?.message || String(err);
+    console.error("[Claude API Erro]", err);
     return {
-      reply: "",
+      reply: `⚠️ Erro da IA: ${errorMsg}`,
       toolCalls,
       stopReason: "error",
       tokensIn,
       tokensOut,
       latencyMs: Date.now() - startedAt,
-      error: (err as Error).message,
+      error: errorMsg,
     };
   }
 }
