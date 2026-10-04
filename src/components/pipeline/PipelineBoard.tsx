@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useMemo } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -74,16 +74,30 @@ export function PipelineBoard({
     });
   }
 
+  const stageColumns = useMemo(() => {
+    const map = new Map<string, { col: Opp[]; total: number }>();
+    for (const s of stages) {
+      map.set(s.id, { col: [], total: 0 });
+    }
+    for (const opp of items) {
+      const entry = map.get(opp.stage_id);
+      if (entry) {
+        entry.col.push(opp);
+        entry.total += Number(opp.value) || 0;
+      }
+    }
+    return map;
+  }, [stages, items]);
+
   return (
     <>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4">
           {stages.map((stage) => {
-            const col = items.filter((o) => o.stage_id === stage.id);
-            const total = col.reduce((s, o) => s + Number(o.value), 0);
+            const data = stageColumns.get(stage.id) ?? { col: [], total: 0 };
             return (
-              <DroppableColumn key={stage.id} stage={stage} total={total} count={col.length}>
-                {col.map((opp) => (
+              <DroppableColumn key={stage.id} stage={stage} total={data.total} count={data.col.length}>
+                {data.col.map((opp) => (
                   <DraggableCard key={opp.id} opp={opp} color={stage.color} />
                 ))}
               </DroppableColumn>

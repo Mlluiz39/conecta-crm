@@ -2,10 +2,9 @@
 const nextConfig = {
   reactStrictMode: true,
   compress: true,
-  serverExternalPackages: ["@anthropic-ai/sdk"],
-  transpilePackages: ["lucide-react"],
   experimental: {
-    optimizePackageImports: ["recharts", "date-fns", "@dnd-kit/core"],
+    serverComponentsExternalPackages: ["@anthropic-ai/sdk"],
+    optimizePackageImports: ["lucide-react", "recharts", "date-fns", "@dnd-kit/core"],
   },
   webpack: (config) => {
     config.cache = {

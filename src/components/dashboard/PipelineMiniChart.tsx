@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   Bar,
   BarChart,
@@ -21,15 +22,19 @@ export function PipelineMiniChart({
   opportunities: Opportunity[];
   stages: Stage[];
 }) {
-  const data = stages.map((stage) => {
-    const items = opportunities.filter((o) => o.stage_id === stage.id);
-    return {
-      name: stage.name,
-      total: items.reduce((s, o) => s + Number(o.value), 0),
-      qtd: items.length,
-      color: stage.color,
-    };
-  });
+  const data = useMemo(
+    () =>
+      stages.map((stage) => {
+        const items = opportunities.filter((o) => o.stage_id === stage.id);
+        return {
+          name: stage.name,
+          total: items.reduce((s, o) => s + Number(o.value), 0),
+          qtd: items.length,
+          color: stage.color,
+        };
+      }),
+    [stages, opportunities]
+  );
 
   if (data.every((d) => d.qtd === 0)) {
     return (

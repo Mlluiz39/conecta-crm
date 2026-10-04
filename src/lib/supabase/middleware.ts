@@ -47,5 +47,24 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  return response;
+  // Propaga headers do usuário para os Server Components evitarem requisições duplicadas
+  const requestHeaders = new Headers(request.headers);
+  if (user) {
+    requestHeaders.set("x-user-id", user.id);
+    requestHeaders.set("x-user-email", user.email || "");
+    const fullName = user.user_metadata?.full_name || user.email?.split("@")[0] || "";
+    requestHeaders.set("x-user-name", encodeURIComponent(fullName));
+  }
+
+  const finalResponse = NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
+
+  response.cookies.getAll().forEach((cookie) => {
+    finalResponse.cookies.set(cookie);
+  });
+
+  return finalResponse;
 }
