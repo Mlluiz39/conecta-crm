@@ -26,3 +26,16 @@ test("informa postura de vendedor consultivo no prompt", () => {
   assert.ok(res.includes("VENDEDOR CONSULTIVO"));
   assert.ok(res.includes("REGRA ABSOLUTA DE FORMATO"));
 });
+
+test("inclui personalidade humana e tom do agente", () => {
+  const res = buildAgentSystemInstruction({
+    basePrompt: "Prompt base.",
+    role: "vendedor",
+    agentName: "Lucas",
+    tone: "amigavel",
+  });
+  assert.ok(res.includes("PERSONALIDADE HUMANAMENTE PESSOAL"));
+  assert.ok(res.includes("TOM: AMIGÁVEL"));
+  // Prompt do usuário vem primeiro (fonte primária)
+  assert.ok(res.indexOf("Prompt base.") < res.indexOf("PERSONALIDADE HUMANAMENTE PESSOAL"));
+});

@@ -24,3 +24,10 @@ test("extractVariables lista chaves únicas", () => {
   const vars = extractVariables("{{a}} {{b}} {{a}}");
   assert.deepEqual(vars.sort(), ["a", "b"]);
 });
+
+test("chave desconhecida permanece intacta (exemplos do prompt sobrevivem)", () => {
+  const out = renderPrompt("Sobre {{necessidade}}, indico {{solucao}}. Canal: {{canal}}.", {
+    canal: "WhatsApp",
+  });
+  assert.equal(out, "Sobre {{necessidade}}, indico {{solucao}}. Canal: WhatsApp.");
+});

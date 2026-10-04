@@ -52,6 +52,21 @@ function isWithinBusinessHours(businessHours: any, now = new Date()): boolean {
   return hour >= 9 && hour < 18;
 }
 
+/** business_hours ({"seg-sex":{"inicio":"09:00","fim":"18:00"}}) → texto legível. */
+function formatBusinessHours(businessHours: any): string {
+  if (!businessHours || typeof businessHours !== "object") {
+    return "Seg a Sex, 09h às 18h";
+  }
+  const parts = Object.entries(businessHours)
+    .map(([days, range]) => {
+      const r = range as { inicio?: string; fim?: string };
+      if (!r?.inicio || !r?.fim) return null;
+      return `${days}, ${r.inicio.replace(":00", "h")} às ${r.fim.replace(":00", "h")}`;
+    })
+    .filter(Boolean);
+  return parts.length ? parts.join(" · ") : "Seg a Sex, 09h às 18h";
+}
+
 export async function runAgentForConversation(params: {
   supabase: SupabaseClient;
   organizationId: string;
@@ -120,11 +135,14 @@ export async function runAgentForConversation(params: {
     return { handled: false, reason: "handoff", handoffRule: rule };
   }
 
+  // Horário real de atendimento (organizations.business_hours)
+  const horario = formatBusinessHours(org?.business_hours);
+
   // Variáveis do prompt
   const variables: PromptVariables = {
     nome_empresa: org?.name ?? "",
     nome_contato: (conv as any).contact?.name ?? "",
-    horario_atendimento: "Seg a Sex, 09h às 18h",
+    horario_atendimento: horario,
     canal: CHANNEL_LABEL[conv.channel_type as ChannelType] ?? conv.channel_type,
     nome_agente: agent.name,
     funcao_agente: AGENT_ROLE_LABEL[agent.role as AgentRole] ?? agent.role,
@@ -134,6 +152,7 @@ export async function runAgentForConversation(params: {
     basePrompt: renderedBase,
     role: agent.role,
     agentName: agent.name,
+    tone: agent.tone,
   });
 
   // Histórico recente em ordem cronológica
