@@ -544,21 +544,6 @@ function Playground({
               >
                 {m.text}
               </div>
-              {m.toolCalls && m.toolCalls.length > 0 && (
-                <div className="mt-1 space-y-1">
-                  {m.toolCalls.map((tc: any, j: number) => (
-                    <details key={j} className="rounded-lg border bg-card p-2 text-[10px]">
-                      <summary className="cursor-pointer font-mono font-bold text-primary">
-                        🔧 {tc.tool_key}
-                      </summary>
-                      <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-muted-foreground">
-                        {JSON.stringify(tc.input, null, 1)}
-                      </pre>
-                    </details>
-                  ))}
-                </div>
-              )}
-              {m.meta && <p className="mt-0.5 text-[10px] text-muted-foreground">{m.meta}</p>}
             </div>
           </div>
         ))}
