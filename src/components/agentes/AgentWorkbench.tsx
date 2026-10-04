@@ -532,7 +532,7 @@ function Playground({
         </select>
       </div>
 
-      <div className="min-h-[260px] flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/30 p-3 text-xs">
+      <div className="min-h-65 flex-1 space-y-2 overflow-y-auto rounded-xl bg-muted/30 p-3 text-xs">
         {log.length === 0 && <p className="text-muted-foreground">Envie uma mensagem de teste.</p>}
         {log.map((m, i) => (
           <div key={i} className={`flex ${m.role === "user" ? "justify-start" : "justify-end"}`}>
