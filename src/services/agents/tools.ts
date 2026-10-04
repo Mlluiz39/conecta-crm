@@ -24,7 +24,7 @@ const registry: Record<AgentToolKey, ToolDef> = {
     schema: {
       name: "buscar_informacoes",
       description:
-        "Busca na base de conhecimento da empresa (preços, políticas, FAQ, catálogo). Use antes de responder dúvidas factuais.",
+        "Busca na base de conhecimento da empresa. Chame APENAS se o cliente fizer uma pergunta factual específica sobre preços, endereço ou políticas que você precise consultar.",
       input_schema: {
         type: "object",
         properties: {
@@ -57,7 +57,7 @@ const registry: Record<AgentToolKey, ToolDef> = {
     schema: {
       name: "agendar_visita",
       description:
-        "Agenda uma visita/reunião/consulta para o contato. Informe título, início (ISO 8601) e duração em minutos.",
+        "Agenda uma visita/reunião/consulta. Chame APENAS quando o cliente já tiver confirmado a especialidade/serviço, dia e horário desejados.",
       input_schema: {
         type: "object",
         properties: {
@@ -188,7 +188,7 @@ const registry: Record<AgentToolKey, ToolDef> = {
     schema: {
       name: "mover_etapa_funil",
       description:
-        "Avança a oportunidade do contato para uma etapa do funil pelo nome. Se a etapa for de perda, informe o motivo.",
+        "Avança a oportunidade para outra etapa do funil. Chame APENAS se houver avanço real e explícito no estágio da negociação (ex: proposta enviada ou ganho). NÃO chame em saudações iniciais.",
       input_schema: {
         type: "object",
         properties: {

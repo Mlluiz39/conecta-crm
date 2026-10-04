@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -14,9 +15,10 @@ export type SessionProfile = {
 
 /**
  * Sessão + membro da organização do usuário logado.
- * No novo schema, os membros ficam em `organization_members`.
+ * Memoizado com React.cache() por ciclo de requisição, evitando
+ * consultas repetidas a cada Server Component (Layout, Header, Page).
  */
-export async function requireProfile(): Promise<SessionProfile> {
+export const requireProfile = cache(async (): Promise<SessionProfile> => {
   const supabase = createClient();
   const {
     data: { user },
@@ -33,8 +35,6 @@ export async function requireProfile(): Promise<SessionProfile> {
     .limit(1)
     .maybeSingle();
 
-  // Caso o usuário ainda não pertença a nenhuma organização (novo cadastro sem convite):
-  // Se for o primeiro usuário, associa à primeira organização existente ou cria uma.
   if (!member) {
     const admin = createAdminClient();
     const { data: orgs } = await admin
@@ -45,7 +45,6 @@ export async function requireProfile(): Promise<SessionProfile> {
 
     if (orgs && orgs.length > 0) {
       const orgId = orgs[0].id;
-      // Insere como admin se for a única conta ou atendente
       const { data: totalMembers } = await admin
         .from("organization_members")
         .select("user_id", { count: "exact", head: true })
@@ -76,4 +75,4 @@ export async function requireProfile(): Promise<SessionProfile> {
     fullName: member.full_name || user.email?.split("@")[0] || "",
     email: user.email ?? null,
   };
-}
+});
