@@ -463,3 +463,20 @@ export async function restoreVersion(agentId: string, versionId: string) {
   await saveDraft(agentId, source.prompt);
   revalidatePath("/agentes");
 }
+
+export async function updateAgentRole(agentId: string, role: AgentRole, tone?: AgentTone) {
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+
+  const patch: Record<string, any> = { role };
+  if (tone) patch.tone = tone;
+
+  const { error } = await supabase
+    .from("agents")
+    .update(patch)
+    .eq("organization_id", organizationId)
+    .eq("id", agentId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/agentes");
+}
