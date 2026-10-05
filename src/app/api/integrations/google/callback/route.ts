@@ -35,7 +35,11 @@ export async function GET(request: NextRequest) {
         {
           organization_id: organizationId,
           user_id: member.user_id,
-          sync_token: tokens.access_token,
+          // Guarda o access_token no campo próprio (sync_token é do Calendar)
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token ?? null,
+          expires_at: new Date(Date.now() + (tokens.expires_in ?? 3600) * 1000).toISOString(),
+          scopes: tokens.scope ?? null,
           calendar_id: "primary",
         },
         { onConflict: "organization_id,user_id" },

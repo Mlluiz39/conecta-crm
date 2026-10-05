@@ -2,13 +2,132 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth/session";
 
+/**
+ * IDs de contatos que já receberam alguma mensagem nossa (direction='out').
+ * Usado na tela de prospecção para marcar quem já foi contatado — o agente
+ * não recontata esses leads automaticamente.
+ */
+export async function getContactedContactIds(contactIds: string[]): Promise<string[]> {
+  if (contactIds.length === 0) return [];
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+
+  const { data: convs } = await supabase
+    .from("conversations")
+    .select("id, contact_id")
+    .eq("organization_id", organizationId)
+    .in("contact_id", contactIds);
+  if (!convs || convs.length === 0) return [];
+
+  const { data: outs } = await supabase
+    .from("messages")
+    .select("conversation_id")
+    .eq("organization_id", organizationId)
+    .eq("direction", "out")
+    .in(
+      "conversation_id",
+      convs.map((c) => c.id),
+    );
+
+  const withOut = new Set((outs ?? []).map((m) => String(m.conversation_id)));
+  return convs
+    .filter((c) => c.contact_id && withOut.has(String(c.id)))
+    .map((c) => String(c.contact_id));
+}
+
+export type ProspectStats = {
+  total: number;
+  contacted: number;
+  replied: number;
+  waiting: number;
+  noPhone: number;
+};
+
+/**
+ * Números da prospecção para o topo da tela:
+ * total de leads, quantos já foram contatados, quantos responderam e
+ * quantos estão aguardando (contatados, sem resposta).
+ */
+export async function getProspectStats(): Promise<ProspectStats> {
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+
+  const { data: contacts } = await supabase
+    .from("contacts")
+    .select("id, phone, email")
+    .eq("organization_id", organizationId);
+  const all = contacts ?? [];
+
+  const { data: convs } = await supabase
+    .from("conversations")
+    .select("id, contact_id")
+    .eq("organization_id", organizationId);
+
+  const stats: ProspectStats = {
+    total: all.length,
+    contacted: 0,
+    replied: 0,
+    waiting: 0,
+    noPhone: all.filter((c) => !c.phone && c.email).length,
+  };
+  if (!convs || convs.length === 0) return stats;
+
+  const { data: msgs } = await supabase
+    .from("messages")
+    .select("conversation_id, direction")
+    .eq("organization_id", organizationId)
+    .in(
+      "conversation_id",
+      convs.map((c) => c.id),
+    );
+
+  const byConversation = new Map<string, { out: boolean; in: boolean }>();
+  for (const m of msgs ?? []) {
+    const key = String(m.conversation_id);
+    const entry = byConversation.get(key) ?? { out: false, in: false };
+    if (m.direction === "out") entry.out = true;
+    else entry.in = true;
+    byConversation.set(key, entry);
+  }
+
+  const contacted = new Set<string>();
+  const replied = new Set<string>();
+  for (const c of convs) {
+    if (!c.contact_id) continue;
+    const entry = byConversation.get(String(c.id));
+    if (!entry) continue;
+    if (entry.out) contacted.add(String(c.contact_id));
+    if (entry.out && entry.in) replied.add(String(c.contact_id));
+  }
+
+  stats.contacted = contacted.size;
+  stats.replied = replied.size;
+  stats.waiting = [...contacted].filter((id) => !replied.has(id)).length;
+  return stats;
+}
+
 export async function getContacts(search?: string, page = 1, limit = 50) {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
   const offset = (page - 1) * limit;
+
   let query = supabase
     .from("contacts")
-    .select("id, name, phone, email, instagram_handle, messenger_psid, custom_fields, owner_id, created_at")
+    .select(
+      `
+      id, name, phone, email, instagram_handle, messenger_psid, custom_fields, owner_id, created_at,
+      contact_tags (
+        tag:tags (id, name, color)
+      ),
+      opportunities (
+        id, title, value, stage_id
+      ),
+      conversations (
+        id, channel_type, last_message_at, status
+      )
+    `,
+      { count: "exact" }
+    )
     .eq("organization_id", organizationId)
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
@@ -17,8 +136,27 @@ export async function getContacts(search?: string, page = 1, limit = 50) {
     const q = `%${search.trim()}%`;
     query = query.or(`name.ilike.${q},email.ilike.${q},phone.ilike.${q}`);
   }
-  const { data } = await query;
-  return data ?? [];
+  const { data, count } = await query;
+
+  // Fetch members to map owner_id -> name
+  const { data: members } = await supabase
+    .from("organization_members")
+    .select("user_id, full_name")
+    .eq("organization_id", organizationId);
+
+  const memberMap = new Map<string, string>();
+  if (members) {
+    for (const m of members) {
+      if (m.user_id && m.full_name) memberMap.set(m.user_id, m.full_name);
+    }
+  }
+
+  const contacts = (data ?? []).map((c: any) => ({
+    ...c,
+    owner_name: c.owner_id ? memberMap.get(c.owner_id) ?? null : null,
+  }));
+
+  return { contacts, count: count ?? 0 };
 }
 
 export async function getContactById(id: string) {

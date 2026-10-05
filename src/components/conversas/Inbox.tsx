@@ -10,6 +10,7 @@ import {
 } from "@/lib/data/actions";
 import { Badge } from "@/components/ui/primitives";
 import { formatDateTime } from "@/lib/utils";
+import { useTypingConversations } from "@/components/conversas/useTyping";
 import { CHANNEL_LABEL, type ChannelType } from "@/types/domain";
 
 type Conv = {
@@ -45,20 +46,24 @@ export function Inbox({
   initialMessages,
   initialNotes,
   organizationId,
+  initialActiveId,
 }: {
   initialConversations: Conv[];
   initialMessages: Record<string, Msg[]>;
   initialNotes: Record<string, Note[]>;
   organizationId: string;
+  initialActiveId?: string;
 }) {
   const [conversations, setConversations] = useState(initialConversations);
-  const [activeId, setActiveId] = useState<string | null>(initialConversations[0]?.id ?? null);
+  const [activeId, setActiveId] = useState<string | null>(initialActiveId ?? initialConversations[0]?.id ?? null);
   const [messages, setMessages] = useState(initialMessages);
   const [notes, setNotes] = useState(initialNotes);
   const [channelFilter, setChannelFilter] = useState<"all" | ChannelType>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "bot" | "humano">("all");
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<"message" | "note">("message");
+
+  const typingMap = useTypingConversations();
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
   const activeMessages = activeId ? messages[activeId] ?? [] : [];
@@ -186,7 +191,13 @@ export function Inbox({
                   <span className="text-sm font-bold">{c.contact?.name ?? "Contato"}</span>
                   <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                     <span className={`h-2 w-2 rounded-full ${CHANNEL_DOT[c.channel_type] ?? "bg-slate-400"}`} />
-                    {c.last_message_at ? formatDateTime(c.last_message_at) : ""}
+                    {typingMap[c.id] ? (
+                      <span className="font-semibold text-emerald-600">digitando…</span>
+                    ) : c.last_message_at ? (
+                      formatDateTime(c.last_message_at)
+                    ) : (
+                      ""
+                    )}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -214,7 +225,13 @@ export function Inbox({
             <div>
               <p className="text-sm font-bold">{active.contact?.name ?? "Contato"}</p>
               <p className="text-xs text-muted-foreground">
-                {CHANNEL_LABEL[active.channel_type]} · {active.contact?.phone ?? ""}
+                {typingMap[active.id] ? (
+                  <span className="font-semibold text-emerald-600">digitando…</span>
+                ) : (
+                  <>
+                    {CHANNEL_LABEL[active.channel_type]} · {active.contact?.phone ?? ""}
+                  </>
+                )}
               </p>
             </div>
             {active.bot_active ? (

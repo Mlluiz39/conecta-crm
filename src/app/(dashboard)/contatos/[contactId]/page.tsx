@@ -20,7 +20,7 @@ export default async function ContactDetailPage({
   const [opportunities, appointments, notes, conversations, fields] = await Promise.all([
     supabase.from("opportunities").select("id, title, value, stage_id").eq("organization_id", organizationId).eq("contact_id", contact.id),
     supabase.from("appointments").select("id, title, starts_at, status").eq("organization_id", organizationId).eq("contact_id", contact.id).order("starts_at", { ascending: false }),
-    supabase.from("conversation_notes").select("id, content, created_at").eq("organization_id", organizationId),
+    supabase.from("conversation_notes").select("id, content, created_at").eq("organization_id", organizationId).eq("contact_id", contact.id),
     supabase.from("conversations").select("id, channel_type, status, last_message_at").eq("organization_id", organizationId).eq("contact_id", contact.id),
     supabase.from("custom_field_definitions").select("key, label, type, options").eq("organization_id", organizationId).eq("entity", "contact").order("position"),
   ]);

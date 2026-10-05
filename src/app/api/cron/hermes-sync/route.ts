@@ -4,6 +4,8 @@ import { syncHermesState } from "@/services/messaging/hermes-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
 /** Espelha ~/.hermes/state.db (conversas WhatsApp) no Supabase. Protegido por CRON_SECRET. */
 export async function GET(request: NextRequest) {

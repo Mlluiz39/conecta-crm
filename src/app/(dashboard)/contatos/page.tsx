@@ -2,9 +2,40 @@ import Link from "next/link";
 import { getContacts } from "@/lib/data/queries";
 import { PageHeader, Card, EmptyState, Badge } from "@/components/ui/primitives";
 import { NewContactButton } from "@/components/contacts/NewContactButton";
-import { formatDateTime } from "@/lib/utils";
+import { formatBRL, formatDateTime } from "@/lib/utils";
+import {
+  MessageCircle,
+  Eye,
+  CheckCircle2,
+  Sparkles,
+  Phone,
+  Mail,
+  MapPin,
+  Building,
+} from "lucide-react";
 
 export const revalidate = 15;
+
+function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function formatLastInteraction(dateString?: string | null) {
+  if (!dateString) return null;
+  const date = new Date(dateString);
+  const now = new Date();
+  const isToday =
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear();
+
+  if (isToday) {
+    return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  }
+  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
 
 export default async function ContatosPage({
   searchParams,
@@ -13,92 +44,253 @@ export default async function ContatosPage({
 }) {
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10));
   const limit = 30;
-  const contacts = await getContacts(searchParams.q, page, limit);
+  const { contacts, count } = await getContacts(searchParams.q, page, limit);
 
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader
         title="Contatos"
-        subtitle={`${contacts.length} contatos nesta página`}
+        subtitle={`${count} contatos cadastrados`}
         action={<NewContactButton />}
       />
 
-      <form className="mb-4 flex flex-wrap gap-2">
+      <form className="flex flex-wrap gap-2">
         <input
           name="q"
           defaultValue={searchParams.q}
           placeholder="Buscar por nome, e-mail, telefone..."
-          className="w-full rounded-xl border bg-card px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring sm:max-w-md"
+          className="w-full rounded-xl border bg-card px-3.5 py-2 text-sm outline-none focus:ring-2 focus:ring-ring sm:max-w-md"
         />
-        {searchParams.page && (
-          <input type="hidden" name="page" value="1" />
-        )}
+        {searchParams.page && <input type="hidden" name="page" value="1" />}
       </form>
 
       {contacts.length === 0 ? (
         <EmptyState label="Nenhum contato encontrado." />
       ) : (
         <>
-          <Card className="overflow-hidden p-0">
+          <Card className="overflow-hidden p-0 border border-border/60">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b bg-muted/40 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-3 font-semibold">Nome</th>
-                    <th className="px-4 py-3 font-semibold">Contato</th>
-                    <th className="px-4 py-3 font-semibold">Empresa</th>
-                    <th className="px-4 py-3 font-semibold">Local</th>
-                    <th className="px-4 py-3 font-semibold">Última interação</th>
+                    <th className="w-10 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        aria-label="Selecionar todos"
+                        className="h-4 w-4 rounded border-input text-primary accent-primary"
+                      />
+                    </th>
+                    <th className="px-4 py-3">Contato & Empresa</th>
+                    <th className="px-4 py-3">Canal & Contato</th>
+                    <th className="px-4 py-3">E-mail / Cidade</th>
+                    <th className="px-4 py-3">Etiquetas</th>
+                    <th className="px-4 py-3">Oportunidade</th>
+                    <th className="px-4 py-3">Responsável</th>
+                    <th className="px-4 py-3">Última Interação</th>
+                    <th className="px-4 py-3 text-right">Ações</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
-                  {contacts.map((c) => (
-                    <tr key={c.id} className="hover:bg-muted/30">
-                      <td className="px-4 py-3">
-                        <Link href={`/contatos/${c.id}`} className="font-semibold hover:text-primary">
-                          {c.name}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        <div>{c.phone ?? "—"}</div>
-                        <div className="text-xs">{c.email ?? ""}</div>
-                      </td>
-                      <td className="px-4 py-3">{((c.custom_fields as any)?.empresa) ?? "—"}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {((c.custom_fields as any)?.cidade)
-                          ? `${(c.custom_fields as any).cidade}${((c.custom_fields as any).estado) ? `, ${(c.custom_fields as any).estado}` : ""}`
-                          : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {c.created_at ? (
-                          formatDateTime(c.created_at)
-                        ) : (
-                          <Badge className="bg-muted text-muted-foreground">Novo</Badge>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                <tbody className="divide-y divide-border/50">
+                  {contacts.map((c: any) => {
+                    const custom = (c.custom_fields ?? {}) as Record<string, any>;
+                    const company = custom.empresa || custom.company;
+                    const role = custom.cargo || custom.role;
+                    const city = custom.cidade || custom.city;
+                    const state = custom.estado || custom.state;
+
+                    // Oportunidades: somar valores abertos
+                    const opps = (c.opportunities ?? []) as Array<{ value: number }>;
+                    const totalOppValue = opps.reduce((acc, o) => acc + (Number(o.value) || 0), 0);
+
+                    // Conversa e canal
+                    const convs = (c.conversations ?? []) as Array<{
+                      id: string;
+                      channel_type: string;
+                      last_message_at: string | null;
+                    }>;
+                    const activeConv = convs[0];
+                    const channel = activeConv?.channel_type || (c.instagram_handle ? "instagram" : "whatsapp");
+
+                    // Tags
+                    const contactTags = ((c.contact_tags ?? []) as Array<{ tag: { id: string; name: string; color: string } }>)
+                      .map((ct) => ct.tag)
+                      .filter(Boolean);
+
+                    // Última interação
+                    const lastInteractionDate = activeConv?.last_message_at || c.created_at;
+                    const formattedLastInteraction = formatLastInteraction(lastInteractionDate);
+
+                    return (
+                      <tr key={c.id} className="transition-colors hover:bg-muted/30">
+                        {/* Checkbox */}
+                        <td className="px-4 py-3.5">
+                          <input
+                            type="checkbox"
+                            aria-label={`Selecionar ${c.name}`}
+                            className="h-4 w-4 rounded border-input text-primary accent-primary"
+                          />
+                        </td>
+
+                        {/* Contato & Empresa */}
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-3">
+                            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                              {getInitials(c.name)}
+                              <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <Link
+                                  href={`/contatos/${c.id}`}
+                                  className="truncate font-semibold text-foreground hover:text-primary transition-colors"
+                                >
+                                  {c.name}
+                                </Link>
+                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+                              </div>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {[role, company].filter(Boolean).join(" • ") || "Sem empresa"}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Canal & Contato */}
+                        <td className="px-4 py-3.5">
+                          <div className="space-y-1">
+                            {channel === "whatsapp" && (
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                                <MessageCircle className="h-3 w-3" /> WhatsApp
+                              </span>
+                            )}
+                            {channel === "instagram" && (
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-pink-500/30 bg-pink-500/10 px-2.5 py-0.5 text-xs font-medium text-pink-600 dark:text-pink-400">
+                                Instagram
+                              </span>
+                            )}
+                            {channel === "messenger" && (
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400">
+                                Messenger
+                              </span>
+                            )}
+                            <div className="text-xs text-foreground font-medium">
+                              {c.phone || (c.instagram_handle ? `@${c.instagram_handle}` : "—")}
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* E-mail / Cidade */}
+                        <td className="px-4 py-3.5 text-xs">
+                          <div className="truncate font-medium text-foreground max-w-[180px]">
+                            {c.email || "—"}
+                          </div>
+                          <div className="truncate text-muted-foreground">
+                            {city ? `${city}${state ? `, ${state}` : ""}` : "—"}
+                          </div>
+                        </td>
+
+                        {/* Etiquetas */}
+                        <td className="px-4 py-3.5">
+                          <div className="flex flex-wrap gap-1 max-w-[200px]">
+                            {contactTags.length > 0 ? (
+                              contactTags.map((tag) => (
+                                <span
+                                  key={tag.id}
+                                  className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium"
+                                  style={{
+                                    backgroundColor: `${tag.color}20`,
+                                    color: tag.color,
+                                    border: `1px solid ${tag.color}40`,
+                                  }}
+                                >
+                                  {tag.name}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Oportunidade */}
+                        <td className="px-4 py-3.5">
+                          {totalOppValue > 0 ? (
+                            <span className="font-semibold text-primary">
+                              {formatBRL(totalOppValue)}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
+
+                        {/* Responsável */}
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground">
+                              {c.owner_name ? getInitials(c.owner_name) : "—"}
+                            </div>
+                            <span className="truncate text-xs font-medium text-foreground max-w-[120px]">
+                              {c.owner_name || "Não atribuído"}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Última Interação */}
+                        <td className="px-4 py-3.5">
+                          {formattedLastInteraction ? (
+                            <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                              {formattedLastInteraction}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
+
+                        {/* Ações */}
+                        <td className="px-4 py-3.5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Link
+                              href={`/contatos/${c.id}`}
+                              title="Visualizar detalhes"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Link>
+                            <Link
+                              href={`/conversas?contactId=${c.id}`}
+                              title="Abrir conversa"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                            >
+                              <MessageCircle className="h-4 w-4" />
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </Card>
 
-          {/* Controles de Paginação */}
-          <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
-            <span>Página {page}</span>
+          {/* Paginação */}
+          <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
+            <span>
+              Página {page} de {Math.max(1, Math.ceil(count / limit))} ({count} contatos no total)
+            </span>
             <div className="flex gap-2">
               {page > 1 && (
                 <Link
                   href={{ query: { ...searchParams, page: page - 1 } }}
-                  className="rounded-lg border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground"
+                  className="rounded-lg border px-3 py-1.5 font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
                 >
                   Anterior
                 </Link>
               )}
-              {contacts.length === limit && (
+              {page * limit < count && (
                 <Link
                   href={{ query: { ...searchParams, page: page + 1 } }}
-                  className="rounded-lg border px-3 py-1.5 hover:bg-accent hover:text-accent-foreground"
+                  className="rounded-lg border px-3 py-1.5 font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
                 >
                   Próxima
                 </Link>

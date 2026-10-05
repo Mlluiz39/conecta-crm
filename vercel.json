@@ -1,6 +1,8 @@
 {
   "crons": [
     { "path": "/api/cron/outbox", "schedule": "*/5 * * * *" },
-    { "path": "/api/cron/reminders", "schedule": "*/10 * * * *" }
+    { "path": "/api/cron/hermes-sync", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/reminders", "schedule": "*/10 * * * *" },
+    { "path": "/api/cron/prospect-followup?hours=24&limit=5", "schedule": "0 */6 * * *" }
   ]
 }

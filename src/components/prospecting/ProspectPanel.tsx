@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Send, Search } from "lucide-react";
-import { prospectContacts } from "@/lib/data/actions";
+import { Send, Search, Sparkles } from "lucide-react";
+import { prospectContacts, prospectWithAgent, runProspectFollowups, type AgentProspectResult } from "@/lib/data/actions";
 
 type Contact = { id: string; name: string; phone: string | null };
 
@@ -13,16 +13,29 @@ export function ProspectPanel({
   contacts,
   page,
   search,
+  contacted = [],
+  gmail,
 }: {
   contacts: Contact[];
   page: number;
   search: string;
+  contacted?: string[];
+  gmail?: { canSend: boolean; email: string | null };
 }) {
+  const contactedSet = new Set(contacted);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [text, setText] = useState("");
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Modo agente
+  const [offer, setOffer] = useState("");
+  const [goal, setGoal] = useState("agendar uma conversa rápida de 15 minutos");
+  const [notes, setNotes] = useState("");
+  const [agentPending, startAgentTransition] = useTransition();
+  const [agentResult, setAgentResult] = useState<AgentProspectResult | null>(null);
+  const [agentError, setAgentError] = useState<string | null>(null);
 
   const selectable = contacts.filter((c) => c.phone);
   const allSelected = selectable.length > 0 && selectable.every((c) => selected.has(c.id));
@@ -68,7 +81,55 @@ export function ProspectPanel({
     });
   }
 
+  // Follow-up
+  const [followupHours, setFollowupHours] = useState(24);
+  const [followupPending, startFollowupTransition] = useTransition();
+  const [followupResult, setFollowupResult] = useState<string | null>(null);
+  const [followupError, setFollowupError] = useState<string | null>(null);
+
+  function runFollowup(dryRun: boolean) {
+    setFollowupError(null);
+    setFollowupResult(null);
+    startFollowupTransition(async () => {
+      try {
+        const r = await runProspectFollowups({
+          hours: followupHours,
+          limit: 5,
+          dryRun,
+          offer,
+          goal,
+        });
+        const nomes = r.details.map((d) => d.name).join(", ");
+        setFollowupResult(
+          dryRun
+            ? `${r.candidates} lead(s) elegível(is)${nomes ? `: ${nomes}` : ""}`
+            : `${r.queued} na fila · ${r.sent} enviado(s)${nomes ? ` · ${nomes}` : ""}`,
+        );
+      } catch (e) {
+        setFollowupError((e as Error).message.replace(/^Error:\s*/, ""));
+      }
+    });
+  }
+
   const q = search ? `&search=${encodeURIComponent(search)}` : "";
+
+  function runAgent() {
+    setAgentError(null);
+    setAgentResult(null);
+    if (selected.size === 0) {
+      setAgentError("Selecione ao menos um contato");
+      return;
+    }
+    startAgentTransition(async () => {
+      try {
+        const r = await prospectWithAgent([...selected], { offer, goal, notes });
+        setAgentResult(r);
+        if (r.sent > 0) setSelected(new Set());
+      } catch (e) {
+        setAgentError((e as Error).message.replace(/^Error:\s*/, ""));
+      }
+    });
+  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr,380px]">
@@ -109,6 +170,11 @@ export function ProspectPanel({
                 className="h-4 w-4 accent-primary"
               />
               <span className="flex-1 truncate font-medium">{c.name}</span>
+              {contactedSet.has(c.id) && (
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+                  já contatado
+                </span>
+              )}
               <span className="text-xs text-muted-foreground">{c.phone ?? "sem telefone"}</span>
             </label>
           ))}
@@ -138,10 +204,148 @@ export function ProspectPanel({
         </div>
       </div>
 
-      {/* Mensagem */}
-      <div className="space-y-3 rounded-2xl border bg-card p-4">
+      {/* Agente prospecta */}
+      <div className="space-y-3 rounded-2xl border-2 border-primary/30 bg-card p-4 lg:col-start-2 lg:row-start-1">
         <div>
-          <h2 className="text-sm font-bold">Mensagem</h2>
+          <h2 className="flex items-center gap-2 text-sm font-bold">
+            <Sparkles size={15} className="text-primary" />
+            Agente prospecta por mim
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            O agente escreve uma abordagem personalizada para cada lead, envia no WhatsApp e assume a
+            conversa depois.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <label className="block text-xs font-semibold text-muted-foreground">
+            O que oferecer
+            <input
+              value={offer}
+              onChange={(e) => setOffer(e.target.value)}
+              placeholder="ex.: site institucional, landing page, sistema de agendamento"
+              className="mt-1 w-full rounded-xl border bg-background px-3 py-2 text-sm font-normal outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+
+          <label className="block text-xs font-semibold text-muted-foreground">
+            Objetivo do contato
+            <input
+              value={goal}
+              onChange={(e) => setGoal(e.target.value)}
+              placeholder="ex.: agendar call de 15 min"
+              className="mt-1 w-full rounded-xl border bg-background px-3 py-2 text-sm font-normal outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+
+          <label className="block text-xs font-semibold text-muted-foreground">
+            Instruções extras (opcional)
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="ex.: falar do case do setor de saúde, sem falar preço"
+              className="mt-1 w-full resize-y rounded-xl border bg-background px-3 py-2 text-sm font-normal outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+        </div>
+
+        {agentError && <p className="text-sm text-destructive">{agentError}</p>}
+
+        {agentResult && (
+          <div className="space-y-2 rounded-xl border bg-muted/30 p-3">
+            <p className="text-sm font-semibold text-emerald-600">
+              {agentResult.queued} no WhatsApp · {agentResult.emails} por e-mail ·{" "}
+              {agentResult.sent} enviadas agora
+              {agentResult.alreadyContacted ? ` · ${agentResult.alreadyContacted} já contatado(s)` : ""}
+              {agentResult.skipped ? ` · ${agentResult.skipped} pulado(s)` : ""}
+            </p>
+            {agentResult.previews.map((p, i) => (
+              <div key={i} className="rounded-lg border bg-background p-2 text-xs">
+                <div className="mb-1 flex items-center justify-between gap-2 font-semibold">
+                  <span className="truncate">{p.name || p.contact}</span>
+                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+                    {p.channel === "email" ? "e-mail" : "whatsapp"}
+                    {p.source === "template" ? " · modelo" : ""}
+                  </span>
+                </div>
+                <p className="whitespace-pre-wrap text-muted-foreground">{p.text}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <button
+          onClick={runAgent}
+          disabled={agentPending || selected.size === 0}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+        >
+          <Sparkles size={16} />
+          {agentPending
+            ? "Agente escrevendo e enviando..."
+            : `Agente prospecta ${selected.size} contato(s)`}
+        </button>
+
+        <p className="text-xs text-muted-foreground">
+          Máx. 10 leads por rodada (cada mensagem é escrita na hora). Respostas caem em{" "}
+          <Link className="underline" href="/conversas">Conversas</Link>.
+        </p>
+
+        {gmail?.canSend ? (
+          <p className="text-xs text-emerald-600">
+            E-mail ativo{gmail.email ? ` (${gmail.email})` : ""} — leads sem telefone saem por
+            e-mail.
+          </p>
+        ) : (
+          <p className="text-xs text-amber-600">
+            E-mail desligado: leads sem telefone serão pulados. Conecte o Google em{" "}
+            <Link className="underline" href="/conexoes">Conexões</Link> para enviar por e-mail.
+          </p>
+        )}
+
+        <div className="space-y-2 rounded-xl border border-dashed p-3">
+          <p className="text-xs font-bold">Follow-up de fechamento</p>
+          <p className="text-xs text-muted-foreground">
+            Retoma quem recebeu a primeira mensagem e não respondeu (1 retomada por lead).
+          </p>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground">
+              após
+              <input
+                type="number"
+                min={1}
+                value={followupHours}
+                onChange={(e) => setFollowupHours(Number(e.target.value) || 24)}
+                className="mx-1 w-16 rounded-lg border bg-background px-2 py-1 text-xs"
+              />
+              horas
+            </label>
+            <button
+              type="button"
+              onClick={() => runFollowup(true)}
+              disabled={followupPending}
+              className="rounded-lg border px-2 py-1 text-xs hover:bg-accent disabled:opacity-50"
+            >
+              ver quem é elegível
+            </button>
+            <button
+              type="button"
+              onClick={() => runFollowup(false)}
+              disabled={followupPending}
+              className="rounded-lg bg-primary px-2 py-1 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              {followupPending ? "rodando..." : "enviar follow-up"}
+            </button>
+          </div>
+          {followupError && <p className="text-xs text-destructive">{followupError}</p>}
+          {followupResult && <p className="text-xs text-emerald-600">{followupResult}</p>}
+        </div>
+      </div>
+
+      {/* Mensagem */}
+      <div className="space-y-3 rounded-2xl border bg-card p-4 lg:col-start-2 lg:row-start-2">
+        <div>
+          <h2 className="text-sm font-bold">Mensagem manual</h2>
           <p className="text-xs text-muted-foreground">{VAR_HELP}</p>
         </div>
 

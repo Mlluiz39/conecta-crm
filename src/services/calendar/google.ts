@@ -1,10 +1,11 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { GOOGLE_SCOPES, validAccessToken } from "@/services/email/gmail";
 
 const GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN = "https://oauth2.googleapis.com/token";
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
-const SCOPES = ["https://www.googleapis.com/auth/calendar.events"];
+const SCOPES = GOOGLE_SCOPES;
 
 export function googleAuthUrl(state: string, redirectUri: string): string {
   const params = new URLSearchParams({
@@ -53,13 +54,15 @@ export async function syncEventToGoogle(organizationId: string, appointmentId: s
 
   const { data: conn } = await admin
     .from("google_calendar_connections")
-    .select("sync_token")
+    .select("id")
     .eq("organization_id", organizationId)
     .maybeSingle();
+  if (!conn) return;
 
-  // Se houver token configurado em sync_token
-  const token = conn?.sync_token;
-  if (!token) return;
+  // Token do Google (renova pelo refresh_token quando expira)
+  const auth = await validAccessToken(organizationId);
+  if (!auth) return;
+  const token = auth.token;
 
   const body = {
     summary: appt.title,

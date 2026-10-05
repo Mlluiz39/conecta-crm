@@ -6,12 +6,20 @@ import { Inbox } from "@/components/conversas/Inbox";
 
 export const revalidate = 10;
 
-export default async function ConversasPage() {
+export default async function ConversasPage({
+  searchParams,
+}: {
+  searchParams?: { c?: string };
+}) {
   const { organizationId } = await requireProfile();
   const conversations = await getConversations(50);
   const supabase = createClient();
 
-  const firstId = conversations[0]?.id;
+  // ?c=<id> abre a conversa pedida (links do dashboard); senão, a mais recente
+  const requested = searchParams?.c;
+  const firstId =
+    (requested && conversations.some((c) => c.id === requested) ? requested : conversations[0]?.id) ??
+    undefined;
   const [messagesRes, notesRes] = await Promise.all([
     firstId
       ? supabase
@@ -41,6 +49,7 @@ export default async function ConversasPage() {
         initialConversations={conversations as any}
         initialMessages={firstId ? { [firstId]: (messagesRes.data ?? []) as any } : {}}
         initialNotes={firstId ? { [firstId]: (notesRes.data ?? []) as any } : {}}
+        initialActiveId={firstId}
       />
     </div>
   );

@@ -1,8 +1,9 @@
 import { Users, TrendingUp, MessagesSquare, CalendarCheck } from "lucide-react";
-import { getDashboardKpis, getOpportunities, getStages } from "@/lib/data/queries";
+import { getConversations, getDashboardKpis, getOpportunities, getStages } from "@/lib/data/queries";
 import { Card, PageHeader, Badge } from "@/components/ui/primitives";
 import { formatBRL } from "@/lib/utils";
 import dynamic from "next/dynamic";
+import { RecentConversations } from "@/components/dashboard/RecentConversations";
 
 const PipelineMiniChart = dynamic(
   () => import("@/components/dashboard/PipelineMiniChart").then((m) => ({ default: m.PipelineMiniChart })),
@@ -12,10 +13,11 @@ const PipelineMiniChart = dynamic(
 export const revalidate = 15;
 
 export default async function DashboardPage() {
-  const [kpis, opportunities, stages] = await Promise.all([
+  const [kpis, opportunities, stages, conversations] = await Promise.all([
     getDashboardKpis(),
     getOpportunities(),
     getStages(),
+    getConversations(5),
   ]);
 
   const cards = [
@@ -45,6 +47,8 @@ export default async function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      <RecentConversations conversations={conversations as any} />
 
       <Card>
         <div className="mb-4 flex items-center justify-between">
