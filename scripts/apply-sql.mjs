@@ -88,10 +88,17 @@ try {
   client = conn.client;
   console.log(`conectado ✓ (${conn.label}) · aplicando ${file}`);
 
-  const statements = sql
-    .split(/;\s*\n/)
+  // Remove comentários de linha ANTES de separar por ';' (senão um bloco
+  // que começa com comentário seria descartado inteiro).
+  const withoutComments = sql
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+
+  const statements = withoutComments
+    .split(/;\s*(?:\n|$)/)
     .map((s) => s.trim())
-    .filter((s) => s && !s.startsWith("--"));
+    .filter(Boolean);
 
   let applied = 0;
   let skipped = 0;
