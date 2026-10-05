@@ -47,25 +47,40 @@ const registry: Record<AgentToolKey, ToolDef> = {
         })
         .limit(3);
 
-      // 2. Fallback ILIKE quando full-text não casa (ex: "web site" vs "site")
+      // 2. Fallback por termo quando full-text não casa (AND estrito: "quanto custa um site")
       if (!data?.length) {
-        const q = `%${consulta.replace(/[,%()\\]/g, " ").trim()}%`;
-        const [byTitle, byContent] = await Promise.all([
-          ctx.supabase
-            .from("knowledge_base_items")
-            .select("title, content")
-            .eq("organization_id", ctx.organizationId)
-            .ilike("title", q)
-            .limit(3),
-          ctx.supabase
-            .from("knowledge_base_items")
-            .select("title, content")
-            .eq("organization_id", ctx.organizationId)
-            .ilike("content", q)
-            .limit(3),
-        ]);
-        const merged = [...(byTitle.data ?? []), ...(byContent.data ?? [])];
-        data = [...new Map(merged.map((d: any) => [d.title, d])).values()].slice(0, 3) as any;
+        const terms = consulta
+          .toLowerCase()
+          .split(/[^\p{L}\p{N}]+/u)
+          .filter((t) => t.length >= 3);
+        const scored = new Map<string, { title: string; content: string; score: number }>();
+
+        await Promise.all(
+          terms.map(async (t) => {
+            const q = `%${t}%`;
+            const [byTitle, byContent] = await Promise.all([
+              ctx.supabase
+                .from("knowledge_base_items")
+                .select("title, content")
+                .eq("organization_id", ctx.organizationId)
+                .ilike("title", q)
+                .limit(10),
+              ctx.supabase
+                .from("knowledge_base_items")
+                .select("title, content")
+                .eq("organization_id", ctx.organizationId)
+                .ilike("content", q)
+                .limit(10),
+            ]);
+            for (const row of [...(byTitle.data ?? []), ...(byContent.data ?? [])] as any[]) {
+              const prev = scored.get(row.title) ?? { ...row, score: 0 };
+              prev.score += 1;
+              scored.set(row.title, prev);
+            }
+          }),
+        );
+
+        data = [...scored.values()].sort((a, b) => b.score - a.score).slice(0, 3) as any;
       }
 
       const resultados = (data ?? []).map((d: any) => ({
