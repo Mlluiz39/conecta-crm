@@ -8,8 +8,9 @@ import type {
 
 /**
  * Adapter Zernio (também compatível com Cernio).
- * Documentação oficial: https://docs.zernio.com
- * Suporta mensagens e comentários de WhatsApp, Instagram e Messenger.
+ * Documentação oficial: https://docs.zernio.com (OpenAPI: https://zernio.com/openapi.json)
+ * Webhook: evento `message.received`, assinatura HMAC-SHA256 em X-Zernio-Signature.
+ * Envio: POST /v1/inbox/conversations (create) ou /{conversationId}/messages.
  */
 export function createCernioProvider(cfg: {
   apiUrl: string;
@@ -18,11 +19,80 @@ export function createCernioProvider(cfg: {
 }): MessageProvider {
   const normalizedApiUrl = (cfg.apiUrl || "https://api.zernio.com").replace(/\/$/, "");
 
+  function api(path: string, init?: RequestInit) {
+    return fetch(`${normalizedApiUrl}${path}`, {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${cfg.apiKey}`,
+        ...(init?.headers ?? {}),
+      },
+    });
+  }
+
+  /** Busca conversa existente do participante (evita criar thread duplicada). */
+  async function findConversation(accountId: string, participantId: string): Promise<string | null> {
+    const res = await api(
+      `/v1/inbox/conversations?accountId=${encodeURIComponent(accountId)}&limit=100`,
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { data?: Array<{ id: string; participantId?: string }> };
+    const hit = (data.data ?? []).find(
+      (c) => c.participantId && c.participantId.replace(/[^\d]/g, "") === participantId,
+    );
+    return hit?.id ?? null;
+  }
+
+  /** POST com retry Direct Send (utility) quando a janela de 24h do WhatsApp expirou. */
+  async function sendConversationMessage(
+    accountId: string,
+    participantId: string,
+    body: Record<string, unknown>,
+  ): Promise<SendResult> {
+    const convId = await findConversation(accountId, participantId);
+
+    let res = convId
+      ? await api(`/v1/inbox/conversations/${convId}/messages`, {
+          method: "POST",
+          body: JSON.stringify({ accountId, ...body }),
+        })
+      : await api(`/v1/inbox/conversations`, {
+          method: "POST",
+          body: JSON.stringify({ accountId, participantId, ...body }),
+        });
+
+    // Fora da janela de 24h: WhatsApp exige template ou Direct Send (utility)
+    if (!res.ok && convId) {
+      const errText = await res.text();
+      if (/template|24\s*hour|window|service.*notification/i.test(errText)) {
+        res = await api(`/v1/inbox/conversations/${convId}/messages`, {
+          method: "POST",
+          body: JSON.stringify({ accountId, ...body, category: "utility" }),
+        });
+        if (res.ok) {
+          const d = (await res.json()) as any;
+          return { ok: true, externalMessageId: d?.id ?? d?.message?.id ?? `zernio_${Date.now()}` };
+        }
+        return { ok: false, error: `HTTP ${res.status}: ${await res.text()}` };
+      }
+      return { ok: false, error: `HTTP ${res.status}: ${errText}` };
+    }
+
+    if (!res.ok) {
+      return { ok: false, error: `HTTP ${res.status}: ${await res.text()}` };
+    }
+    const data = (await res.json()) as any;
+    return {
+      ok: true,
+      externalMessageId: data?.id ?? data?.message?.id ?? data?._id ?? `zernio_${Date.now()}`,
+    };
+  }
+
   return {
     name: "zernio",
 
     verifySignature(rawBody: string, headers: Headers): boolean {
-      // Em desenvolvimento ou se o segredo não estiver configurado, aceita
+      // Sem segredo configurado (dev) aceita — em produção preencha CERNIO_WEBHOOK_SECRET
       if (!cfg.webhookSecret) return true;
 
       const signature =
@@ -46,11 +116,37 @@ export function createCernioProvider(cfg: {
     parseInbound(payload: unknown): InboundMessage[] {
       const p = payload as any;
 
-      // Zernio suporta múltiplos formatos de evento:
-      // 1. { messages: [...] }
-      // 2. { data: { message: ... } } ou { data: [...] }
-      // 3. { event: "message.created", data: { id, from, text ... } }
-      // 4. { id, from, text, channel ... }
+      // ── Formato oficial Zernio: evento message.received ──
+      if (p && typeof p === "object" && typeof p.event === "string") {
+        if (p.event !== "message.received" || !p.message) return [];
+        const m = p.message;
+        if (m.direction === "outgoing") return []; // ignora mensagens de saída (eco)
+
+        const platform = m.platform === "facebook" ? "messenger" : m.platform;
+        const channel = ["whatsapp", "instagram", "messenger"].includes(platform)
+          ? platform
+          : "whatsapp";
+        const att = Array.isArray(m.attachments) ? m.attachments[0] : undefined;
+        const sender = m.sender ?? {};
+
+        return [
+          {
+            externalEventId: String(p.id ?? m.id),
+            externalMessageId: String(m.id),
+            channel: channel as InboundMessage["channel"],
+            externalAccountId: String(p.account?.accountId ?? ""),
+            from: String(sender.phoneNumber ?? sender.id ?? ""),
+            fromName: sender.name ?? undefined,
+            kind: (att?.type && att.type !== "share" ? att.type : m.text ? "text" : "text") as InboundMessage["kind"],
+            text: m.text ? String(m.text) : undefined,
+            mediaUrl: att?.url ?? undefined,
+            timestamp: m.sentAt ?? p.timestamp ?? new Date().toISOString(),
+            raw: p,
+          },
+        ];
+      }
+
+      // ── Formatos legados/compat (Cernio e testes) ──
       let items: any[] = [];
 
       if (Array.isArray(p?.messages)) {
@@ -96,35 +192,15 @@ export function createCernioProvider(cfg: {
 
     async sendText(accountId, to, text): Promise<SendResult> {
       if (!cfg.apiKey) {
-        console.warn("[Zernio] Sem API Key configurada. Mensagem simulada.");
-        return { ok: true, externalMessageId: `stub_zernio_${Date.now()}` };
+        // Falha honesta: outbox retenta e marca 'falhou' em vez de sumir com a mensagem.
+        return { ok: false, error: "Zernio: API key não configurada (Conexões ou env CERNIO_API_KEY)" };
       }
 
+      const participantId = String(to).replace(/[^\d]/g, "");
+      if (!participantId) return { ok: false, error: `Telefone inválido: ${to}` };
+
       try {
-        const res = await fetch(`${normalizedApiUrl}/v1/messages`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${cfg.apiKey}`,
-          },
-          body: JSON.stringify({
-            account_id: accountId,
-            channel_id: accountId,
-            to,
-            type: "text",
-            text,
-            content: text,
-          }),
-        });
-
-        if (!res.ok) {
-          const errText = await res.text();
-          console.error("[Zernio sendText erro]", res.status, errText);
-          return { ok: false, error: `HTTP ${res.status}: ${errText}` };
-        }
-
-        const data = (await res.json()) as { id?: string; message_id?: string };
-        return { ok: true, externalMessageId: data.id || data.message_id || `zernio_${Date.now()}` };
+        return await sendConversationMessage(accountId, participantId, { message: text });
       } catch (err) {
         return { ok: false, error: (err as Error).message };
       }
@@ -132,35 +208,26 @@ export function createCernioProvider(cfg: {
 
     async sendTemplate(accountId, to, templateName, variables): Promise<SendResult> {
       if (!cfg.apiKey) {
-        return { ok: true, externalMessageId: `stub_template_${Date.now()}` };
+        return { ok: false, error: "Zernio: API key não configurada" };
       }
 
+      const participantId = String(to).replace(/[^\d]/g, "");
       try {
-        const res = await fetch(`${normalizedApiUrl}/v1/messages`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${cfg.apiKey}`,
-          },
-          body: JSON.stringify({
-            account_id: accountId,
-            to,
-            type: "template",
-            template: templateName,
-            variables,
-          }),
+        return await sendConversationMessage(accountId, participantId, {
+          templateName,
+          templateParams: Object.values(variables ?? {}),
         });
-
-        if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
-        const data = (await res.json()) as { id?: string };
-        return { ok: true, externalMessageId: data.id };
       } catch (err) {
         return { ok: false, error: (err as Error).message };
       }
     },
 
-    async markRead() {
-      // Suporte a confirmação de leitura
+    async markRead(accountId, conversationId) {
+      if (!cfg.apiKey || !conversationId) return;
+      await api(`/v1/inbox/conversations/${conversationId}/read`, {
+        method: "POST",
+        body: JSON.stringify({ accountId }),
+      }).catch(() => null);
     },
   };
 }

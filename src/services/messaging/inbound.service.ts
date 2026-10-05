@@ -152,25 +152,10 @@ export async function handleInboundWebhook(params: {
         inboundText: msg.text,
       });
 
-      // Se o agente gerou resposta, envia imediatamente pelo provider Zernio
+      // Resposta já foi gravada pelo engine como 'pendente' (fila de saída).
+      // Envia agora para chegar rápido; o cron /api/cron/outbox retenta falhas.
       if (res.handled && res.reply) {
-        // Checa se a organização tem API Key configurada na tela de Conexões
-        const { data: orgData } = await supabase
-          .from("organizations")
-          .select("settings")
-          .eq("id", organizationId)
-          .single();
-
-        const zernioConfig = (orgData?.settings as any)?.connections?.zernio;
-        const activeProvider = zernioConfig?.apiKey
-          ? createCernioProvider({
-              apiUrl: zernioConfig.apiUrl || "https://api.zernio.com",
-              apiKey: zernioConfig.apiKey,
-              webhookSecret: zernioConfig.webhookSecret || "",
-            })
-          : provider;
-
-        await activeProvider.sendText(msg.externalAccountId || "default", handle, res.reply).catch(() => null);
+        await flushOutbox(10).catch((e) => console.error("[outbox flush]", e));
       }
     }
 
@@ -180,6 +165,94 @@ export async function handleInboundWebhook(params: {
   return { status: processed > 0 ? "processed" : "duplicate", messages: processed };
 }
 
+const MAX_ATTEMPTS = 3;
+
+type OutboxMeta = { attempts?: number; lastError?: string; lastAttemptAt?: string };
+
+/**
+ * Envia mensagens de saída pendentes (fila em messages.status='pendente').
+ * Sucesso → 'enviada' + external_id. Falha → retenta até MAX_ATTEMPTS → 'falhou'.
+ * Tentativas ficam em messages.media.outbox (jsonb, sem DDL).
+ */
 export async function flushOutbox(limit = 50): Promise<number> {
-  return 0;
+  const supabase = createAdminClient();
+
+  const { data: rows, error } = await supabase
+    .from("messages")
+    .select(
+      `id, organization_id, content, media,
+       conversation:conversations!inner(
+         id, channel_id,
+         channel:channels!inner(id, cernio_channel_id, config),
+         contact:contacts(id, phone)
+       )`,
+    )
+    .eq("direction", "out")
+    .eq("status", "pendente")
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    console.error("[outbox] erro ao ler fila:", error.message);
+    return 0;
+  }
+
+  // Provider por organização: config do canal (tela Conexões) > env
+  const providers = new Map<string, ReturnType<typeof getMessageProvider>>();
+  function providerFor(orgId: string, channelCfg: any) {
+    const cached = providers.get(orgId);
+    if (cached) return cached;
+    const p = channelCfg?.apiKey
+      ? createCernioProvider({
+          apiUrl: channelCfg.apiUrl || "https://api.zernio.com",
+          apiKey: channelCfg.apiKey,
+          webhookSecret: channelCfg.webhookSecret || "",
+        })
+      : getMessageProvider();
+    providers.set(orgId, p);
+    return p;
+  }
+
+  let sent = 0;
+  for (const row of rows ?? []) {
+    const conv: any = row.conversation;
+    const phone: string | undefined = conv?.contact?.phone;
+    const meta: OutboxMeta = (row.media as any)?.outbox ?? {};
+    const attempts = (meta.attempts ?? 0) + 1;
+    const base: OutboxMeta = { attempts, lastAttemptAt: new Date().toISOString() };
+
+    if (!row.content || !phone) {
+      await supabase
+        .from("messages")
+        .update({
+          status: "falhou",
+          media: { ...base, lastError: !phone ? "contato sem telefone" : "mensagem sem conteúdo" },
+        })
+        .eq("id", row.id);
+      continue;
+    }
+
+    const provider = providerFor(row.organization_id, (conv?.channel as any)?.config);
+    const accountId = (conv?.channel as any)?.cernio_channel_id || "default";
+    const result = await provider.sendText(accountId, phone, row.content);
+
+    if (result.ok) {
+      await supabase
+        .from("messages")
+        .update({ status: "enviada", external_id: result.externalMessageId ?? null, media: base })
+        .eq("id", row.id);
+      sent++;
+    } else if (attempts >= MAX_ATTEMPTS) {
+      await supabase
+        .from("messages")
+        .update({ status: "falhou", media: { ...base, lastError: result.error } })
+        .eq("id", row.id);
+      console.error(`[outbox] mensagem ${row.id} falhou após ${attempts} tentativas:`, result.error);
+    } else {
+      await supabase.from("messages").update({ media: { ...base, lastError: result.error } }).eq("id", row.id);
+      console.warn(`[outbox] tentativa ${attempts}/${MAX_ATTEMPTS} falhou:`, result.error);
+    }
+  }
+
+  return sent;
 }

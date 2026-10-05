@@ -226,7 +226,8 @@ export async function runAgentForConversation(params: {
       sender_type: "agent_ai",
       agent_id: agentId,
       content: result.reply,
-      status: "enviada",
+      // Fila de saída: flushOutbox envia e retenta; 'enviada' só após aceite do provider.
+      status: "pendente",
     });
   }
 
