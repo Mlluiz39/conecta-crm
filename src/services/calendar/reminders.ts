@@ -1,7 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getMessageProvider } from "@/services/messaging";
-import { createCernioProvider } from "@/services/messaging/cernio.adapter";
+import { providerFromConfig } from "@/services/messaging";
 
 /**
  * Materializa lembretes padrão (24h e 1h antes) para o agendamento
@@ -55,7 +54,7 @@ export async function dispatchDueReminders(supabase: SupabaseClient, limit = 50)
     .limit(limit);
 
   // Conexão por organização: canal WhatsApp conectado > env
-  const conns = new Map<string, { accountId: string; provider: ReturnType<typeof getMessageProvider> }>();
+  const conns = new Map<string, { accountId: string; provider: import("@/services/messaging").MessageProvider }>();
   async function connFor(orgId: string) {
     const cached = conns.get(orgId);
     if (cached) return cached;
@@ -67,16 +66,9 @@ export async function dispatchDueReminders(supabase: SupabaseClient, limit = 50)
       .eq("status", "conectado")
       .limit(1)
       .maybeSingle();
-    const cfg = (chan?.config ?? {}) as any;
     const conn = {
       accountId: chan?.cernio_channel_id || "default",
-      provider: cfg.apiKey
-        ? createCernioProvider({
-            apiUrl: cfg.apiUrl || "https://api.zernio.com",
-            apiKey: cfg.apiKey,
-            webhookSecret: cfg.webhookSecret || "",
-          })
-        : getMessageProvider(),
+      provider: providerFromConfig(chan?.config ?? {}),
     };
     conns.set(orgId, conn);
     return conn;

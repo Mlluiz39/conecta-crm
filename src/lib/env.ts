@@ -36,6 +36,11 @@ export function serverEnv() {
       apiKey: process.env.CERNIO_API_KEY ?? "",
       webhookSecret: process.env.CERNIO_WEBHOOK_SECRET ?? "",
     },
+    evolution: {
+      apiUrl: process.env.EVOLUTION_API_URL ?? "",
+      apiKey: process.env.EVOLUTION_API_KEY ?? "",
+      instance: process.env.EVOLUTION_INSTANCE ?? "",
+    },
     cronSecret: process.env.CRON_SECRET ?? "",
   };
 }

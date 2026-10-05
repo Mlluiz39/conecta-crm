@@ -28,8 +28,12 @@ export function NewContactButton() {
 
             <form
               action={async (fd) => {
-                await createContact(fd);
-                setOpen(false);
+                try {
+                  await createContact(fd);
+                  setOpen(false);
+                } catch (e) {
+                  alert((e as Error).message.replace(/^Error:\s*/, "") || "Erro ao salvar contato");
+                }
               }}
               className="space-y-3"
             >
@@ -43,6 +47,15 @@ export function NewContactButton() {
                 <Field name="city" label="Cidade" />
                 <Field name="state" label="UF" />
               </div>
+
+              <label className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  name="open_conversation"
+                  className="h-4 w-4 rounded border-input accent-primary"
+                />
+                Abrir conversa agora <span className="text-muted-foreground/70">(teste — precisa de canal conectado; depois o agente inicia os contatos)</span>
+              </label>
 
               <div className="flex justify-end gap-2 pt-3">
                 <button

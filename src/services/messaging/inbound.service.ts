@@ -1,8 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runAgentForConversation } from "@/services/agents/engine";
-import { getMessageProvider } from "./index";
-import { createCernioProvider } from "./cernio.adapter";
+import { getMessageProvider, providerFromConfig } from "./index";
 
 export type InboundOutcome = {
   status: "processed" | "duplicate" | "ignored" | "invalid_signature";
@@ -223,13 +222,7 @@ export async function flushOutbox(limit = 50): Promise<number> {
   function providerFor(orgId: string, channelCfg: any) {
     const cached = providers.get(orgId);
     if (cached) return cached;
-    const p = channelCfg?.apiKey
-      ? createCernioProvider({
-          apiUrl: channelCfg.apiUrl || "https://api.zernio.com",
-          apiKey: channelCfg.apiKey,
-          webhookSecret: channelCfg.webhookSecret || "",
-        })
-      : getMessageProvider();
+    const p = providerFromConfig(channelCfg);
     providers.set(orgId, p);
     return p;
   }
