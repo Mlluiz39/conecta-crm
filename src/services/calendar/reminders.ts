@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getMessageProvider } from "@/services/messaging";
+import { createCernioProvider } from "@/services/messaging/cernio.adapter";
 
 /**
  * Materializa lembretes padrão (24h e 1h antes) para o agendamento
@@ -40,9 +41,9 @@ export async function materializeReminders(
   return rows.length;
 }
 
-/** Dispara lembretes vencidos: envia WhatsApp pelo provider e marca sent_at */
+/** Dispara lembretes vencidos: envia WhatsApp pelo provider e marca sent_at.
+ * Falha de envio NÃO marca (próximo cron retenta); canal resolve o accountId real. */
 export async function dispatchDueReminders(supabase: SupabaseClient, limit = 50): Promise<number> {
-  const provider = getMessageProvider();
   const { data: due } = await supabase
     .from("appointment_reminders")
     .select(
@@ -53,17 +54,52 @@ export async function dispatchDueReminders(supabase: SupabaseClient, limit = 50)
     .order("send_at")
     .limit(limit);
 
+  // Conexão por organização: canal WhatsApp conectado > env
+  const conns = new Map<string, { accountId: string; provider: ReturnType<typeof getMessageProvider> }>();
+  async function connFor(orgId: string) {
+    const cached = conns.get(orgId);
+    if (cached) return cached;
+    const { data: chan } = await supabase
+      .from("channels")
+      .select("cernio_channel_id, config")
+      .eq("organization_id", orgId)
+      .eq("type", "whatsapp")
+      .eq("status", "conectado")
+      .limit(1)
+      .maybeSingle();
+    const cfg = (chan?.config ?? {}) as any;
+    const conn = {
+      accountId: chan?.cernio_channel_id || "default",
+      provider: cfg.apiKey
+        ? createCernioProvider({
+            apiUrl: cfg.apiUrl || "https://api.zernio.com",
+            apiKey: cfg.apiKey,
+            webhookSecret: cfg.webhookSecret || "",
+          })
+        : getMessageProvider(),
+    };
+    conns.set(orgId, conn);
+    return conn;
+  }
+
   let sent = 0;
   for (const r of due ?? []) {
     const appt = (r as any).appointment;
     const phone = appt?.contact?.phone;
+
     if (phone) {
       const text = `Olá ${appt.contact.name ?? ""}! Lembrete do seu compromisso "${appt.title}" agendado para ${new Date(
         appt.starts_at,
       ).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}. Confirma sua presença?`;
 
-      await provider.sendText("default", phone, text).catch(() => null);
+      const conn = await connFor(r.organization_id);
+      const res = await conn.provider.sendText(conn.accountId, phone, text);
+      if (!res.ok) {
+        console.warn(`[reminders] falha ao enviar lembrete ${r.id}:`, res.error);
+        continue; // fica p/ retry do próximo cron
+      }
     }
+
     await supabase
       .from("appointment_reminders")
       .update({ sent_at: new Date().toISOString() })
