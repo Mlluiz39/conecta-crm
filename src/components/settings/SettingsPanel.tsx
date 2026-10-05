@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { applyPreset, createCustomField, deleteCustomField, inviteUser, setUserRole } from "@/lib/data/presets";
+import { applyPreset, createCustomField, deleteCustomField, inviteUser, setUserRole, updateOrganizationName } from "@/lib/data/presets";
 import { Badge, Card } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
 import type { BusinessType, UserRole } from "@/types/domain";
@@ -28,6 +28,27 @@ export function SettingsPanel({
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<"negocio" | "campos" | "equipe" | "atendimento">("negocio");
+  const [orgName, setOrgName] = useState(org.name);
+  const [nameNote, setNameNote] = useState("");
+  const [savingName, setSavingName] = useState(false);
+
+  async function saveOrgName() {
+    const clean = orgName.trim();
+    if (!clean || clean === org.name) {
+      setOrgName(org.name);
+      return;
+    }
+    setSavingName(true);
+    try {
+      await updateOrganizationName(clean);
+      setNameNote("Nome atualizado");
+      router.refresh();
+    } catch (e) {
+      setNameNote(`Erro: ${(e as Error).message}`);
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   return (
     <div>
@@ -55,6 +76,32 @@ export function SettingsPanel({
 
       {tab === "negocio" && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {/* Nome da organização ({{nome_agente}}/{{nome_empresa}} nos prompts) */}
+          <Card className="space-y-2 sm:col-span-2">
+            <h3 className="text-sm font-bold">Nome da empresa</h3>
+            <p className="text-xs text-muted-foreground">
+              Usado como <span className="font-mono">{"{{nome_empresa}}"}</span> nos prompts dos agentes de IA.
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={orgName}
+                onChange={(e) => setOrgName(e.target.value)}
+                onBlur={() => void saveOrgName()}
+                onKeyDown={(e) => e.key === "Enter" && void saveOrgName()}
+                placeholder="Nome da empresa"
+                className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+              <button
+                disabled={savingName || !orgName.trim() || orgName.trim() === org.name}
+                onClick={() => void saveOrgName()}
+                className="rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50"
+              >
+                {savingName ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+            {nameNote && <p className="text-[11px] text-emerald-600">{nameNote}</p>}
+          </Card>
+
           {presets.map((p) => (
             <Card key={p.business_type} className="space-y-2">
               <div className="flex items-center justify-between">

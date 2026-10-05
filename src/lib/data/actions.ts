@@ -480,3 +480,19 @@ export async function updateAgentRole(agentId: string, role: AgentRole, tone?: A
   if (error) throw new Error(error.message);
   revalidatePath("/agentes");
 }
+
+export async function updateAgentName(agentId: string, name: string) {
+  const clean = name.trim();
+  if (!clean) throw new Error("Nome vazio");
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+
+  const { error } = await supabase
+    .from("agents")
+    .update({ name: clean })
+    .eq("organization_id", organizationId)
+    .eq("id", agentId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/agentes");
+}

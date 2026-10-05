@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -13,6 +14,7 @@ import {
   toggleAgentActive,
   createAgent,
   updateAgentRole,
+  updateAgentName,
 } from "@/lib/data/actions";
 import { Badge, Card } from "@/components/ui/primitives";
 import { AGENT_ROLE_LABEL, AGENT_TONE_LABEL, CHANNEL_LABEL, HANDOFF_RULE_LABEL, TOOL_LABEL } from "@/types/domain";
@@ -152,12 +154,14 @@ export function AgentWorkbench({
 
 function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Agent[]; versions: Version[] }) {
   const agent = agents.find((a) => a.id === agentId)!;
+  const router = useRouter();
   const published = versions.find((v) => v.status === "published");
   const draft = versions.find((v) => v.status === "draft");
   const [text, setText] = useState(draft?.prompt ?? published?.prompt ?? "");
   const [saving, startSaving] = useTransition();
   const [note, setNote] = useState("");
   const [improving, setImproving] = useState(false);
+  const [agentName, setAgentName] = useState(agent.name);
   const [templates, setTemplates] = useState<{ id: string; name: string; prompt: string }[]>([]);
 
   // Modelos iniciais por função/nicho (agent_templates globais + da org).
@@ -194,6 +198,34 @@ function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Age
 
   return (
     <div className="space-y-3">
+      {/* Nome do agente ({{nome_agente}} nos prompts) */}
+      <div className="rounded-xl border bg-muted/20 p-3">
+        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">
+          Nome do Agente
+        </label>
+        <div className="flex gap-2">
+          <input
+            value={agentName}
+            onChange={(e) => setAgentName(e.target.value)}
+            onBlur={() => {
+              const clean = agentName.trim();
+              if (!clean || clean === agent.name) {
+                setAgentName(agent.name);
+                return;
+              }
+              startSaving(async () => {
+                await updateAgentName(agentId, clean);
+                router.refresh();
+                setNote("Nome atualizado");
+              });
+            }}
+            placeholder="Nome do agente"
+            className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+          <span className="self-center font-mono text-[10px] text-muted-foreground">{"{{nome_agente}}"}</span>
+        </div>
+      </div>
+
       {/* Seletor de Função/Papel do Agente com 1 clique */}
       <div className="rounded-xl border bg-muted/20 p-3 space-y-2">
         <div className="flex items-center justify-between">

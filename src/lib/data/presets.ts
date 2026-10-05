@@ -53,6 +53,21 @@ export async function getOrganization() {
   return data;
 }
 
+/** Nome da organização ({{nome_empresa}} nos prompts dos agentes). */
+export async function updateOrganizationName(name: string) {
+  const clean = name.trim();
+  if (!clean) throw new Error("Nome vazio");
+  const { organizationId, role } = await requireProfile();
+  if (role !== "admin") throw new Error("Não autorizado: somente administradores podem alterar o nome da empresa");
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("organizations")
+    .update({ name: clean, updated_at: new Date().toISOString() })
+    .eq("id", organizationId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/configuracoes");
+}
+
 /**
  * Aplica um preset de negócio: executa a procedure nativa apply_business_profile do Postgres.
  */
