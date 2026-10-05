@@ -2,6 +2,7 @@ import { requireProfile } from "@/lib/auth/session";
 import {
   getBusinessPresets,
   getCustomFields,
+  getKnowledgeItems,
   getOrganization,
   getTeam,
 } from "@/lib/data/presets";
@@ -12,24 +13,26 @@ export const revalidate = 60;
 
 export default async function ConfiguracoesPage() {
   const { role } = await requireProfile();
-  const [org, presets, fields, team] = await Promise.all([
+  const [org, presets, fields, team, knowledge] = await Promise.all([
     getOrganization(),
     getBusinessPresets(),
     getCustomFields(),
     getTeam(),
+    getKnowledgeItems(),
   ]);
 
   return (
     <div>
       <PageHeader
         title="Configurações"
-        subtitle="Tipo de negócio, campos personalizados, equipe e regras de atendimento"
+        subtitle="Tipo de negócio, base de conhecimento, campos personalizados, equipe e regras de atendimento"
       />
       <SettingsPanel
         org={(org as any) ?? { name: "", business_type: "outro", settings: {} }}
         presets={presets as any}
         fields={fields as any}
         team={team as any}
+        knowledge={knowledge as any}
         myRole={role}
       />
     </div>

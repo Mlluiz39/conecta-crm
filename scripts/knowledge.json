@@ -1,0 +1,152 @@
+[
+  {
+    "title": "Quem é a mlluizdevtech?",
+    "category": "Empresa",
+    "content": "A mlluizdevtech é uma software house brasileira especializada no desenvolvimento de soluções digitais sob medida para empresas, profissionais, startups e pequenos negócios.\n\nCriamos sistemas web, sites, aplicativos mobile, APIs, integrações, automações e soluções com Inteligência Artificial.\n\nNosso objetivo é tornar tecnologia profissional mais acessível, utilizando IA e automação no processo de desenvolvimento para reduzir tempo e custos sem comprometer a qualidade.\n\nO atendimento é realizado remotamente para clientes em todo o Brasil."
+  },
+  {
+    "title": "Quais serviços a mlluizdevtech oferece?",
+    "category": "Serviços",
+    "content": "A mlluizdevtech oferece desenvolvimento de soluções digitais personalizadas, incluindo:\n\n- Sites profissionais e institucionais;\n- Sistemas web personalizados;\n- Aplicativos Android e iOS;\n- Backends e APIs REST;\n- Integração entre sistemas;\n- Automação de processos;\n- Chatbots e agentes com Inteligência Artificial;\n- Integração com modelos de linguagem e IA;\n- Plataformas SaaS;\n- Dashboards administrativos;\n- Sistemas internos para empresas;\n- Modernização de processos realizados por planilhas;\n- Manutenção e evolução de sistemas existentes;\n- Integração com serviços externos e APIs.\n\nCada projeto é analisado individualmente para determinar a solução mais adequada para o negócio do cliente."
+  },
+  {
+    "title": "Desenvolvimento Web",
+    "category": "Serviços",
+    "content": "Desenvolvemos sites e sistemas web modernos, rápidos, responsivos e adaptados para computadores, tablets e celulares.\n\nPodemos desenvolver desde um site institucional até plataformas completas com login, painel administrativo, banco de dados, pagamentos, dashboards, gestão de clientes e outras funcionalidades.\n\nEntre as tecnologias utilizadas estão React, Next.js, Node.js e PostgreSQL.\n\nO projeto é desenvolvido de acordo com as necessidades específicas do cliente, portanto funcionalidades, prazo e preço podem variar de acordo com o escopo."
+  },
+  {
+    "title": "Aplicativos Android e iOS",
+    "category": "Serviços",
+    "content": "A mlluizdevtech desenvolve aplicativos mobile para Android e iOS.\n\nDependendo das necessidades do projeto, podemos desenvolver uma única solução compatível com as duas plataformas utilizando tecnologias como React Native.\n\nAplicativos podem incluir recursos como:\n\n- Cadastro e login;\n- Painel do usuário;\n- Notificações;\n- Geolocalização;\n- Integração com APIs;\n- Pagamentos;\n- Assinaturas;\n- Banco de dados;\n- Área administrativa;\n- Integração com sistemas web;\n- Comunicação em tempo real.\n\nAntes de informar preço ou prazo, é necessário entender quais funcionalidades o aplicativo precisa possuir."
+  },
+  {
+    "title": "Desenvolvimento de sistemas sob medida",
+    "category": "Serviços",
+    "content": "Desenvolvemos sistemas personalizados para substituir processos manuais, planilhas ou ferramentas que não atendem completamente às necessidades da empresa.\n\nUm sistema pode ser criado para áreas como:\n\n- Atendimento;\n- Vendas;\n- CRM;\n- Financeiro;\n- Agendamentos;\n- Cadastro de clientes;\n- Gestão de serviços;\n- Estoque;\n- Relatórios;\n- Dashboards;\n- Gestão operacional;\n- Integração de departamentos;\n- Automação de tarefas.\n\nO sistema é projetado de acordo com o funcionamento real do negócio do cliente."
+  },
+  {
+    "title": "Automação e Inteligência Artificial",
+    "category": "Serviços",
+    "content": "A mlluizdevtech desenvolve automações e soluções utilizando Inteligência Artificial para reduzir tarefas repetitivas e melhorar processos empresariais.\n\nPodemos desenvolver soluções como:\n\n- Agentes de atendimento com IA;\n- Chatbots;\n- Assistentes virtuais;\n- Automação de atendimento;\n- Automação comercial;\n- Qualificação de leads;\n- Integrações entre sistemas;\n- Processamento automático de informações;\n- Integração com modelos de Inteligência Artificial;\n- Pipelines automatizados;\n- Automação de rotinas administrativas.\n\nAntes de recomendar uma solução, buscamos entender o processo atual da empresa e identificar quais tarefas podem ser automatizadas."
+  },
+  {
+    "title": "Backends, APIs e integrações",
+    "category": "Serviços",
+    "content": "Desenvolvemos APIs e backends para conectar aplicativos, sistemas, bancos de dados e serviços externos.\n\nAs soluções podem envolver tecnologias como Node.js, Go e PostgreSQL.\n\nTambém podemos desenvolver integrações entre sistemas existentes, permitindo sincronização e troca automática de informações.\n\nProjetos de integração são analisados individualmente, pois dependem das APIs e sistemas utilizados pelo cliente."
+  },
+  {
+    "title": "Desenvolvimento de plataformas SaaS",
+    "category": "Serviços",
+    "content": "A mlluizdevtech pode transformar uma ideia em uma plataforma SaaS — Software como Serviço — preparada para oferecer um produto digital pela internet.\n\nUma plataforma SaaS pode incluir:\n\n- Cadastro de usuários;\n- Login;\n- Planos;\n- Assinaturas;\n- Pagamentos;\n- Painel administrativo;\n- Gestão de clientes;\n- Controle de acesso;\n- Banco de dados;\n- Dashboards;\n- Integrações;\n- Automação;\n- Inteligência Artificial.\n\nTambém trabalhamos com criação de MVPs para validar uma ideia antes de investir em uma plataforma maior."
+  },
+  {
+    "title": "Desenvolvimento de MVP",
+    "category": "Serviços",
+    "content": "A mlluizdevtech trabalha com desenvolvimento de MVPs — Produto Mínimo Viável.\n\nO objetivo de um MVP é desenvolver primeiro as funcionalidades essenciais necessárias para colocar uma ideia em funcionamento e permitir sua validação no mercado.\n\nDependendo do tamanho e da complexidade do projeto, um MVP pode ser entregue em aproximadamente 30 dias.\n\nO prazo definitivo somente pode ser informado após a análise das funcionalidades solicitadas.\n\nNunca garanta prazo de 30 dias sem analisar previamente o projeto."
+  },
+  {
+    "title": "Processo de desenvolvimento",
+    "category": "Processo",
+    "content": "O desenvolvimento normalmente segue estas etapas:\n\n1. Análise inicial;\n2. Levantamento das necessidades e objetivos;\n3. Análise de viabilidade;\n4. Definição do escopo;\n5. Definição da arquitetura e tecnologias;\n6. Planejamento das entregas;\n7. Desenvolvimento em sprints;\n8. Demonstrações e validação do cliente;\n9. Testes;\n10. Ajustes dentro do escopo;\n11. Deploy em produção;\n12. Suporte pós-entrega.\n\nO cliente acompanha o desenvolvimento e pode validar entregas parciais durante o projeto."
+  },
+  {
+    "title": "Análise gratuita",
+    "category": "Processo",
+    "content": "A análise inicial do projeto é gratuita e sem compromisso.\n\nNesta etapa buscamos entender:\n\n- Qual problema o cliente deseja resolver;\n- Qual é o tipo de negócio;\n- Quem utilizará o sistema;\n- Quais funcionalidades são necessárias;\n- Se já existe alguma solução atualmente;\n- Quais integrações serão necessárias;\n- Qual a prioridade do projeto.\n\nApós compreender o projeto, podemos avaliar a viabilidade técnica e preparar uma estimativa de prazo e custo.\n\nA análise inicial normalmente leva de 1 a 2 dias após termos as informações necessárias."
+  },
+  {
+    "title": "Como funciona o orçamento?",
+    "category": "Comercial",
+    "content": "Cada projeto é desenvolvido sob medida, portanto o preço depende das funcionalidades, integrações, complexidade e prazo necessários.\n\nAntes de informar um valor definitivo, precisamos entender o projeto.\n\nA análise inicial é gratuita e o orçamento é apresentado sem compromisso.\n\nO orçamento deve detalhar o escopo do projeto, entregas previstas, prazo e condições comerciais.\n\nO agente nunca deve inventar valores que não estejam cadastrados na base de conhecimento.\n\nQuando não existir preço definido para o serviço solicitado, deve coletar informações sobre o projeto e encaminhar para orçamento."
+  },
+  {
+    "title": "Condições de pagamento",
+    "category": "Comercial",
+    "content": "Projetos podem trabalhar com pagamento inicial entre 30% e 50%, com o restante vinculado aos marcos de entrega ou conforme parcelamento acordado.\n\nAs condições definitivas dependem da proposta comercial de cada projeto.\n\nO agente não deve prometer quantidade específica de parcelas, descontos ou condições especiais sem autorização."
+  },
+  {
+    "title": "Quanto tempo demora para desenvolver um projeto?",
+    "category": "Processo",
+    "content": "O prazo depende do tamanho e da complexidade do projeto.\n\nA mlluizdevtech trabalha com desenvolvimento em sprints, normalmente com ciclos de aproximadamente 1 a 2 semanas.\n\nMVPs de determinados projetos podem ser entregues em aproximadamente 30 dias.\n\nProjetos maiores ou com integrações complexas podem exigir mais tempo.\n\nO prazo definitivo é informado somente após a análise do projeto."
+  },
+  {
+    "title": "Alterações e ajustes no projeto",
+    "category": "Processo",
+    "content": "Ajustes e correções relacionados ao escopo originalmente aprovado podem ser realizados durante o desenvolvimento sem cobrança adicional quando estiverem contemplados no que foi contratado.\n\nNovas funcionalidades ou alterações que modifiquem significativamente o escopo original podem exigir nova avaliação de prazo e orçamento.\n\nO agente nunca deve afirmar que qualquer alteração futura será gratuita sem verificar se ela faz parte do escopo contratado."
+  },
+  {
+    "title": "Quem fica com o código-fonte?",
+    "category": "Processo",
+    "content": "Ao final do projeto, o cliente recebe o repositório e o código-fonte correspondente ao projeto desenvolvido, conforme as condições previstas no contrato.\n\nA filosofia da mlluizdevtech é proporcionar transparência e independência ao cliente sobre a solução desenvolvida."
+  },
+  {
+    "title": "Suporte depois que o projeto fica pronto",
+    "category": "Suporte",
+    "content": "Os projetos incluem 30 dias de suporte pós-entrega.\n\nDurante esse período são realizados acompanhamentos do sistema em produção e correções de bugs relacionados ao projeto entregue.\n\nTambém pode ser oferecido treinamento para utilização do sistema.\n\nApós o período inicial, o cliente pode contratar um plano de manutenção e suporte contínuo.\n\nPlanos de manutenção podem partir de R$100 por mês, dependendo das necessidades e do sistema.\n\nO valor definitivo deve ser confirmado após avaliação."
+  },
+  {
+    "title": "Manutenção e evolução de sistemas",
+    "category": "Suporte",
+    "content": "A mlluizdevtech oferece serviços de manutenção para sistemas e aplicações.\n\nA manutenção pode envolver:\n\n- Correção de bugs;\n- Atualizações;\n- Melhorias;\n- Atualizações de segurança;\n- Monitoramento;\n- Implementação de novas funcionalidades;\n- Evolução do sistema;\n- Ajustes de infraestrutura.\n\nO custo depende da aplicação e do nível de suporte necessário."
+  },
+  {
+    "title": "Tecnologias usadas pela mlluizdevtech",
+    "category": "Tecnologia",
+    "content": "A mlluizdevtech trabalha com tecnologias modernas de desenvolvimento, incluindo:\n\nFrontend:\n- React;\n- Next.js.\n\nBackend:\n- Node.js;\n- Go.\n\nMobile:\n- React Native.\n\nBanco de dados:\n- PostgreSQL.\n\nInfraestrutura:\n- Docker;\n- Cloudflare.\n\nOutras tecnologias podem ser utilizadas conforme as necessidades técnicas de cada projeto.\n\nA escolha da tecnologia é feita de acordo com o problema e não apenas por preferência tecnológica."
+  },
+  {
+    "title": "Por que contratar a mlluizdevtech?",
+    "category": "Empresa",
+    "content": "Os principais diferenciais da mlluizdevtech são:\n\n- Desenvolvimento sob medida;\n- Uso de Inteligência Artificial e automação no processo de desenvolvimento;\n- Entregas rápidas;\n- Desenvolvimento em etapas;\n- Validação contínua pelo cliente;\n- Código organizado e escalável;\n- Transparência durante o projeto;\n- Código-fonte entregue ao cliente;\n- 30 dias de suporte pós-entrega;\n- Soluções direcionadas para problemas reais do negócio;\n- Atendimento remoto em todo o Brasil;\n- Análise inicial gratuita.\n\nO objetivo é oferecer tecnologia profissional com boa relação entre custo, prazo e qualidade."
+  },
+  {
+    "title": "Como entrar em contato?",
+    "category": "Empresa",
+    "content": "A mlluizdevtech atende clientes remotamente em todo o Brasil.\n\nOs principais canais são:\n\nE-mail:\ncontato@mlluizdevtech.com.br\n\nWhatsApp:\nDisponível através do botão de WhatsApp no site oficial.\n\nSite:\nmlluizdevtech.com.br\n\nO prazo indicado para resposta é de até 24 horas úteis."
+  },
+  {
+    "title": "Para quem são os serviços?",
+    "category": "Empresa",
+    "content": "Os serviços da mlluizdevtech podem atender diferentes tipos de clientes, incluindo:\n\n- Pequenas empresas;\n- Médias empresas;\n- Startups;\n- Empreendedores;\n- Profissionais autônomos;\n- Negócios que ainda trabalham com planilhas;\n- Empresas que precisam automatizar processos;\n- Empresas que desejam criar um sistema próprio;\n- Empresas que desejam lançar um aplicativo;\n- Empresas interessadas em Inteligência Artificial e automação;\n- Empreendedores que desejam validar uma ideia de SaaS ou produto digital.\n\nNão é necessário o cliente possuir conhecimento técnico.\n\nNossa função é compreender o problema e recomendar uma solução adequada."
+  },
+  {
+    "title": "Preciso entender de tecnologia para contratar?",
+    "category": "FAQ",
+    "content": "Não.\n\nO cliente não precisa conhecer programação, infraestrutura ou desenvolvimento de software.\n\nO objetivo da mlluizdevtech é entender a necessidade do negócio e traduzir essa necessidade para uma solução tecnológica.\n\nDurante o atendimento devemos evitar linguagem técnica desnecessária e explicar as opções de maneira simples."
+  },
+  {
+    "title": "Tenho apenas uma ideia. Vocês podem ajudar?",
+    "category": "FAQ",
+    "content": "Sim.\n\nNão é necessário ter um projeto técnico pronto.\n\nPodemos ajudar a transformar uma ideia em um escopo inicial, identificar as funcionalidades essenciais e avaliar uma estratégia para criação do MVP.\n\nPara começar, precisamos entender:\n\n- Qual é a ideia;\n- Qual problema ela resolve;\n- Quem utilizará a solução;\n- Quais são as funcionalidades mais importantes;\n- Se já existe alguma solução semelhante;\n- Qual é o objetivo comercial do projeto.\n\nDepois dessas informações podemos orientar os próximos passos."
+  },
+  {
+    "title": "Já tenho um sistema. Vocês podem melhorar ou integrar?",
+    "category": "FAQ",
+    "content": "Sim.\n\nPodemos analisar sistemas existentes para verificar possibilidades de:\n\n- Correção;\n- Manutenção;\n- Modernização;\n- Criação de novas funcionalidades;\n- Integração com outros sistemas;\n- Desenvolvimento de APIs;\n- Automação;\n- Integração com Inteligência Artificial;\n- Melhoria de infraestrutura.\n\nAntes de confirmar a viabilidade é necessário analisar a tecnologia utilizada e o estado atual do projeto."
+  },
+  {
+    "title": "Vocês criam agentes de IA para atendimento?",
+    "category": "FAQ",
+    "content": "Sim.\n\nPodemos desenvolver agentes, chatbots e automações com Inteligência Artificial para atendimento, vendas, suporte e outras operações empresariais.\n\nO agente pode utilizar informações da própria empresa, como:\n\n- Serviços;\n- Produtos;\n- Preços;\n- Perguntas frequentes;\n- Políticas;\n- Processos internos.\n\nDependendo do projeto, também pode ser integrado a sistemas externos, APIs, CRM e outros canais.\n\nA arquitetura e as integrações necessárias são definidas após a análise do processo atual da empresa."
+  },
+  {
+    "title": "Regra interna — preços",
+    "category": "Regras internas",
+    "content": "Nunca invente preços.\n\nQuando existir um preço explicitamente cadastrado na base de conhecimento, ele poderá ser informado.\n\nQuando não existir preço cadastrado, explique que cada projeto é personalizado e que o valor depende das funcionalidades e complexidade.\n\nEm seguida, faça perguntas para entender o projeto e encaminhar para orçamento.\n\nNão informe estimativas sem autorização."
+  },
+  {
+    "title": "Regra interna — não prometer sem confirmação",
+    "category": "Regras internas",
+    "content": "O agente nunca deve garantir:\n\n- Preço não cadastrado;\n- Desconto;\n- Prazo definitivo;\n- Funcionalidade tecnicamente não analisada;\n- Integração sem verificar a API;\n- Condição especial de pagamento;\n- Desenvolvimento gratuito adicional;\n- Resultado financeiro;\n- Aumento garantido de vendas;\n- Número específico de clientes;\n- Resultado garantido através de Inteligência Artificial.\n\nQuando houver dúvida, deve informar que a equipe precisa analisar o caso antes de confirmar."
+  },
+  {
+    "title": "Informações que devem ser coletadas de um potencial cliente",
+    "category": "Regras internas",
+    "content": "Quando uma pessoa demonstrar interesse em desenvolver um projeto, procure identificar naturalmente:\n\n1. Nome do cliente;\n2. Nome da empresa, quando existir;\n3. Tipo de negócio;\n4. O que deseja desenvolver;\n5. Problema que deseja resolver;\n6. Principais funcionalidades;\n7. Quem utilizará a solução;\n8. Se já possui sistema, site ou aplicativo;\n9. Se precisa de alguma integração;\n10. Qual é a prioridade ou expectativa de prazo;\n11. Melhor forma de contato.\n\nNão faça todas as perguntas de uma vez.\n\nConduza a conversa naturalmente, perguntando somente o necessário para avançar para a próxima etapa."
+  },
+  {
+    "title": "Regra interna — objetivo do agente",
+    "category": "Regras internas",
+    "content": "O objetivo do agente é compreender a necessidade do potencial cliente, esclarecer suas dúvidas, identificar se a mlluizdevtech pode ajudar e conduzir o contato para uma análise do projeto.\n\nO agente deve agir de maneira consultiva.\n\nNão pressione o cliente para comprar.\n\nAntes de tentar vender uma tecnologia específica, entenda o problema.\n\nQuando identificar uma oportunidade real, conduza para a análise gratuita e coleta das informações necessárias para elaboração do orçamento."
+  }
+]

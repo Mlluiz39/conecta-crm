@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { applyPreset, createCustomField, deleteCustomField, inviteUser, setUserRole, updateOrganizationName } from "@/lib/data/presets";
+import { applyPreset, createCustomField, createKnowledgeItem, deleteCustomField, deleteKnowledgeItem, inviteUser, setUserRole, updateOrganizationName } from "@/lib/data/presets";
 import { Badge, Card } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
 import type { BusinessType, UserRole } from "@/types/domain";
@@ -10,6 +10,7 @@ import type { BusinessType, UserRole } from "@/types/domain";
 type Preset = { business_type: BusinessType; name: string; custom_fields: any[]; pipeline_stages: any[] };
 type Field = { id: string; key: string; label: string; type: string };
 type Member = { id: string; full_name: string; email: string; role: UserRole; is_active: boolean };
+type KnowledgeItem = { id: string; title: string; content: string; category: string | null };
 
 const ROLE_LABEL: Record<string, string> = { admin: "Administrador", gerente: "Gerente", atendente: "Atendente" };
 
@@ -18,16 +19,18 @@ export function SettingsPanel({
   presets,
   fields,
   team,
+  knowledge,
   myRole,
 }: {
   org: { name: string; business_type: BusinessType; timezone?: string; out_of_hours_message?: string };
   presets: Preset[];
   fields: Field[];
   team: Member[];
+  knowledge: KnowledgeItem[];
   myRole: string;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"negocio" | "campos" | "equipe" | "atendimento">("negocio");
+  const [tab, setTab] = useState<"negocio" | "conhecimento" | "campos" | "equipe" | "atendimento">("negocio");
   const [orgName, setOrgName] = useState(org.name);
   const [nameNote, setNameNote] = useState("");
   const [savingName, setSavingName] = useState(false);
@@ -56,6 +59,7 @@ export function SettingsPanel({
         {(
           [
             ["negocio", "Tipo de negócio"],
+            ["conhecimento", "Base de conhecimento"],
             ["campos", "Campos personalizados"],
             ["equipe", "Equipe"],
             ["atendimento", "Atendimento"],
@@ -128,6 +132,85 @@ export function SettingsPanel({
               </button>
             </Card>
           ))}
+        </div>
+      )}
+
+      {tab === "conhecimento" && (
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <Card>
+            <h3 className="mb-1 text-sm font-bold">Cadastrar conhecimento</h3>
+            <p className="mb-3 text-xs text-muted-foreground">
+              O agente usa estes itens para responder perguntas sobre seus serviços, preços e políticas.
+            </p>
+            <form
+              action={async (fd) => {
+                try {
+                  await createKnowledgeItem(fd);
+                  router.refresh();
+                } catch (e) {
+                  alert((e as Error).message);
+                }
+              }}
+              className="space-y-2"
+            >
+              <input
+                name="title"
+                required
+                placeholder="Título (ex: Criação de sites)"
+                className="w-full rounded-xl border bg-background px-3 py-2 text-sm"
+              />
+              <input
+                name="category"
+                placeholder="Categoria (ex: Serviços, Preços, Políticas)"
+                className="w-full rounded-xl border bg-background px-3 py-2 text-sm"
+              />
+              <textarea
+                name="content"
+                required
+                rows={6}
+                placeholder={"Descreva o serviço, preços, prazos, o que inclui... O agente cita este conteúdo nas respostas."}
+                className="w-full rounded-xl border bg-background px-3 py-2 text-sm"
+              />
+              <button
+                type="submit"
+                className="w-full rounded-xl bg-primary px-3 py-2 text-xs font-bold text-primary-foreground hover:opacity-90"
+              >
+                Adicionar à base
+              </button>
+            </form>
+          </Card>
+
+          <Card>
+            <h3 className="mb-3 text-sm font-bold">Itens na base ({knowledge.length})</h3>
+            {knowledge.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Base vazia — o agente não consegue responder nada sobre seus serviços ainda.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {knowledge.map((k) => (
+                  <div key={k.id} className="rounded-xl border p-2.5 text-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="font-semibold">{k.title}</span>
+                        {k.category && <Badge className="ml-2 bg-muted text-muted-foreground">{k.category}</Badge>}
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{k.content}</p>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          await deleteKnowledgeItem(k.id);
+                          router.refresh();
+                        }}
+                        className="shrink-0 text-xs text-muted-foreground hover:text-destructive"
+                      >
+                        remover
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
         </div>
       )}
 

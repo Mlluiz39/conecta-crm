@@ -24,7 +24,7 @@ const registry: Record<AgentToolKey, ToolDef> = {
     schema: {
       name: "buscar_informacoes",
       description:
-        "Busca na base de conhecimento da empresa. Chame APENAS se o cliente fizer uma pergunta factual específica sobre preços, endereço ou políticas que você precise consultar.",
+        "Busca na base de conhecimento da empresa (serviços, preços, prazos, endereço, políticas). Chame quando o cliente perguntar qualquer coisa factual sobre a empresa que você precise consultar.",
       input_schema: {
         type: "object",
         properties: {
@@ -34,20 +34,52 @@ const registry: Record<AgentToolKey, ToolDef> = {
       },
     },
     async handler(ctx, input) {
-      const { data } = await ctx.supabase
+      const consulta = String(input.consulta ?? "");
+
+      // 1. Busca full-text (português)
+      let { data } = await ctx.supabase
         .from("knowledge_base_items")
         .select("title, content")
         .eq("organization_id", ctx.organizationId)
-        .textSearch("search", String(input.consulta), {
+        .textSearch("search", consulta, {
           config: "portuguese",
           type: "websearch",
         })
         .limit(3);
+
+      // 2. Fallback ILIKE quando full-text não casa (ex: "web site" vs "site")
+      if (!data?.length) {
+        const q = `%${consulta.replace(/[,%()\\]/g, " ").trim()}%`;
+        const [byTitle, byContent] = await Promise.all([
+          ctx.supabase
+            .from("knowledge_base_items")
+            .select("title, content")
+            .eq("organization_id", ctx.organizationId)
+            .ilike("title", q)
+            .limit(3),
+          ctx.supabase
+            .from("knowledge_base_items")
+            .select("title, content")
+            .eq("organization_id", ctx.organizationId)
+            .ilike("content", q)
+            .limit(3),
+        ]);
+        const merged = [...(byTitle.data ?? []), ...(byContent.data ?? [])];
+        data = [...new Map(merged.map((d: any) => [d.title, d])).values()].slice(0, 3) as any;
+      }
+
+      const resultados = (data ?? []).map((d: any) => ({
+        titulo: d.title,
+        trecho: String(d.content).slice(0, 500),
+      }));
+
       return {
-        resultados: (data ?? []).map((d: any) => ({
-          titulo: d.title,
-          trecho: String(d.content).slice(0, 500),
-        })),
+        resultados,
+        total: resultados.length,
+        aviso:
+          resultados.length === 0
+            ? "Nada encontrado na base. Não invente: diga que vai confirmar com a equipe e, se fizer sentido, derive para humano."
+            : undefined,
       };
     },
   },

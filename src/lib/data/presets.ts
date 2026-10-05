@@ -165,3 +165,44 @@ export async function deleteCustomField(id: string) {
   revalidatePath("/configuracoes");
   revalidatePath("/contatos");
 }
+
+/* ─────────── Base de conhecimento (ferramenta buscar_informacoes) ─────────── */
+
+export async function getKnowledgeItems() {
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("knowledge_base_items")
+    .select("id, title, content, category, created_at")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false });
+  return data ?? [];
+}
+
+export async function createKnowledgeItem(formData: FormData) {
+  const title = String(formData.get("title") ?? "").trim();
+  const content = String(formData.get("content") ?? "").trim();
+  const category = String(formData.get("category") ?? "").trim() || null;
+  if (!title || !content) throw new Error("Título e conteúdo são obrigatórios");
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+  const { error } = await supabase.from("knowledge_base_items").insert({
+    organization_id: organizationId,
+    title,
+    content,
+    category,
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath("/configuracoes");
+}
+
+export async function deleteKnowledgeItem(id: string) {
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+  await supabase
+    .from("knowledge_base_items")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("id", id);
+  revalidatePath("/configuracoes");
+}
