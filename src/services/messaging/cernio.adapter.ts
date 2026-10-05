@@ -51,24 +51,24 @@ export function createCernioProvider(cfg: {
   ): Promise<SendResult> {
     const convId = await findConversation(accountId, participantId);
 
-    let res = convId
-      ? await api(`/v1/inbox/conversations/${convId}/messages`, {
-          method: "POST",
-          body: JSON.stringify({ accountId, ...body }),
-        })
-      : await api(`/v1/inbox/conversations`, {
-          method: "POST",
-          body: JSON.stringify({ accountId, participantId, ...body }),
-        });
+    const attempt = (extra: Record<string, unknown> = {}) =>
+      convId
+        ? api(`/v1/inbox/conversations/${convId}/messages`, {
+            method: "POST",
+            body: JSON.stringify({ accountId, ...body, ...extra }),
+          })
+        : api(`/v1/inbox/conversations`, {
+            method: "POST",
+            body: JSON.stringify({ accountId, participantId, ...body, ...extra }),
+          });
+
+    let res = await attempt();
 
     // Fora da janela de 24h: WhatsApp exige template ou Direct Send (utility)
-    if (!res.ok && convId) {
+    if (!res.ok) {
       const errText = await res.text();
-      if (/template|24\s*hour|window|service.*notification/i.test(errText)) {
-        res = await api(`/v1/inbox/conversations/${convId}/messages`, {
-          method: "POST",
-          body: JSON.stringify({ accountId, ...body, category: "utility" }),
-        });
+      if (/TEMPLATE_REQUIRED|template|24\s*hour|window/i.test(errText)) {
+        res = await attempt({ category: "utility" });
         if (res.ok) {
           const d = (await res.json()) as any;
           return { ok: true, externalMessageId: d?.id ?? d?.message?.id ?? `zernio_${Date.now()}` };
@@ -78,9 +78,6 @@ export function createCernioProvider(cfg: {
       return { ok: false, error: `HTTP ${res.status}: ${errText}` };
     }
 
-    if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status}: ${await res.text()}` };
-    }
     const data = (await res.json()) as any;
     return {
       ok: true,
@@ -133,6 +130,7 @@ export function createCernioProvider(cfg: {
           {
             externalEventId: String(p.id ?? m.id),
             externalMessageId: String(m.id),
+            externalConversationId: String(m.conversationId ?? p.conversation?.id ?? ""),
             channel: channel as InboundMessage["channel"],
             externalAccountId: String(p.account?.accountId ?? ""),
             from: String(sender.phoneNumber ?? sender.id ?? ""),

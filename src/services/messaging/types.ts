@@ -6,6 +6,8 @@ export interface InboundMessage {
   externalEventId: string;
   /** Id da mensagem no provider (dedup de 2º nível). */
   externalMessageId: string;
+  /** Id estável da conversa/thread no provider (chave de upsert da conversa). */
+  externalConversationId?: string;
   channel: ChannelType;
   /** Conta do provider (phone_number_id / page_id) p/ resolver a organização. */
   externalAccountId: string;

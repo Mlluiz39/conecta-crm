@@ -85,24 +85,45 @@ export async function handleInboundWebhook(params: {
     const organizationId = channelRow.organization_id;
     const handle = normalizeHandle(msg.from);
 
-    // 3. Upsert contato
-    const { data: contact } = await supabase
+    // 3. Localiza/cria contato (índice org+phone é PARCIAL — não dá pra usar
+    //    upsert onConflict; select-then-insert com tratamento de corrida 23505)
+    let { data: contact } = await supabase
       .from("contacts")
-      .upsert(
-        {
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("phone", handle)
+      .maybeSingle();
+
+    if (!contact) {
+      const inserted = await supabase
+        .from("contacts")
+        .insert({
           organization_id: organizationId,
           name: msg.fromName || handle || "Lead Inbound",
           phone: handle || null,
-        },
-        { onConflict: "organization_id,phone" },
-      )
-      .select("id")
-      .single();
+        })
+        .select("id")
+        .single();
+      if (inserted.error && inserted.error.code !== "23505") {
+        console.error("[webhook] erro ao criar contato:", inserted.error.message);
+      }
+      contact = inserted.data;
+      if (!contact) {
+        // corrida: outro evento criou o mesmo telefone agora
+        const again = await supabase
+          .from("contacts")
+          .select("id")
+          .eq("organization_id", organizationId)
+          .eq("phone", handle)
+          .maybeSingle();
+        contact = again.data;
+      }
+    }
 
     if (!contact) continue;
 
-    // 4. Upsert conversa (unique channel_id, external_id)
-    const externalConvId = msg.externalMessageId || `conv_${handle}`;
+    // 4. Upsert conversa (unique channel_id, external_id) — chave estável = thread do provider
+    const externalConvId = msg.externalConversationId || msg.externalMessageId || `conv_${handle}`;
     const { data: conv } = await supabase
       .from("conversations")
       .upsert(
