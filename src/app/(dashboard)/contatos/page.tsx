@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getContacts } from "@/lib/data/queries";
 import { PageHeader, Card, EmptyState, Badge } from "@/components/ui/primitives";
 import { NewContactButton } from "@/components/contacts/NewContactButton";
+import { DeleteContactButton } from "@/components/contacts/DeleteContactButton";
 import { formatBRL, formatDateTime } from "@/lib/utils";
 import {
   MessageCircle,
@@ -263,6 +264,7 @@ export default async function ContatosPage({
                             >
                               <MessageCircle className="h-4 w-4" />
                             </Link>
+                            <DeleteContactButton id={c.id} name={c.name ?? "contato"} />
                           </div>
                         </td>
                       </tr>

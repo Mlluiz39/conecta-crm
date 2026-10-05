@@ -4,6 +4,7 @@ import { getContactById } from "@/lib/data/queries";
 import { requireProfile } from "@/lib/auth/session";
 import { PageHeader, Badge } from "@/components/ui/primitives";
 import { ContactTabs } from "@/components/contacts/ContactTabs";
+import { temperatureFromTagNames } from "@/lib/data/lead-temperature";
 
 export const revalidate = 15;
 
@@ -17,19 +18,24 @@ export default async function ContactDetailPage({
   if (!contact) notFound();
 
   const supabase = createClient();
-  const [opportunities, appointments, notes, conversations, fields] = await Promise.all([
+  const [opportunities, appointments, notes, conversations, fields, tagLinks] = await Promise.all([
     supabase.from("opportunities").select("id, title, value, stage_id").eq("organization_id", organizationId).eq("contact_id", contact.id),
     supabase.from("appointments").select("id, title, starts_at, status").eq("organization_id", organizationId).eq("contact_id", contact.id).order("starts_at", { ascending: false }),
     supabase.from("conversation_notes").select("id, content, created_at").eq("organization_id", organizationId).eq("contact_id", contact.id),
     supabase.from("conversations").select("id, channel_type, status, last_message_at").eq("organization_id", organizationId).eq("contact_id", contact.id),
     supabase.from("custom_field_definitions").select("key, label, type, options").eq("organization_id", organizationId).eq("entity", "contact").order("position"),
+    supabase.from("contact_tags").select("tag:tags(name, color)").eq("organization_id", organizationId).eq("contact_id", contact.id),
   ]);
 
   const custom = (contact.custom_fields ?? {}) as Record<string, any>;
+  const contactTags = ((tagLinks.data ?? []) as unknown as { tag?: { name?: string; color?: string } | null }[])
+    .map((link) => ({ name: link.tag?.name ?? "", color: link.tag?.color ?? "#6366F1" }))
+    .filter((t) => t.name);
 
   return (
     <div>
       <PageHeader
+        back={{ href: "/contatos", label: "Contatos" }}
         title={contact.name}
         subtitle={[custom.empresa, contact.phone, contact.email].filter(Boolean).join(" · ")}
         action={
@@ -62,6 +68,8 @@ export default async function ContactDetailPage({
         appointments={appointments.data ?? []}
         notes={notes.data ?? []}
         conversations={conversations.data ?? []}
+        tags={contactTags}
+        temperature={temperatureFromTagNames(contactTags.map((t) => t.name))}
       />
     </div>
   );

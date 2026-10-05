@@ -1,5 +1,6 @@
 import { requireProfile } from "@/lib/auth/session";
 import { logout } from "@/lib/auth/actions";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "Administrador",
@@ -17,6 +18,7 @@ export async function Header() {
       </div>
 
       <div className="flex items-center gap-3">
+        <ThemeToggle />
         <span className="hidden rounded-full bg-accent px-3 py-1 text-xs font-semibold text-accent-foreground sm:inline">
           {ROLE_LABEL[profile.role] ?? profile.role}
         </span>

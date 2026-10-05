@@ -12,12 +12,25 @@ export async function getContactedContactIds(contactIds: string[]): Promise<stri
   const { organizationId } = await requireProfile();
   const supabase = createClient();
 
+  // Contatos que receberam e-mail (registrado no próprio contato, sem conversa)
+  const { data: mailed } = await supabase
+    .from("contacts")
+    .select("id, custom_fields")
+    .eq("organization_id", organizationId)
+    .in("id", contactIds);
+  const emailedIds = (mailed ?? [])
+    .filter((c) => {
+      const cf = c.custom_fields as { email_prospeccao?: unknown } | null;
+      return Array.isArray(cf?.email_prospeccao) && cf.email_prospeccao.length > 0;
+    })
+    .map((c) => String(c.id));
+
   const { data: convs } = await supabase
     .from("conversations")
     .select("id, contact_id")
     .eq("organization_id", organizationId)
     .in("contact_id", contactIds);
-  if (!convs || convs.length === 0) return [];
+  if (!convs || convs.length === 0) return emailedIds;
 
   const { data: outs } = await supabase
     .from("messages")
@@ -30,9 +43,57 @@ export async function getContactedContactIds(contactIds: string[]): Promise<stri
     );
 
   const withOut = new Set((outs ?? []).map((m) => String(m.conversation_id)));
-  return convs
+  const fromConversations = convs
     .filter((c) => c.contact_id && withOut.has(String(c.id)))
     .map((c) => String(c.contact_id));
+  return [...new Set([...fromConversations, ...emailedIds])];
+}
+
+export type RecentSearch = {
+  provider: string;
+  nicho: string;
+  local: string;
+  at: string;
+  leads: number;
+  withPhone: number;
+};
+
+/**
+ * Histórico das buscas de empresas (Apify/AISA), derivado do que foi salvo em
+ * contacts.custom_fields.busca — evita tabela nova e mostra o resultado real.
+ */
+export async function getRecentSearches(limit = 6): Promise<RecentSearch[]> {
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+
+  const { data } = await supabase
+    .from("contacts")
+    .select("phone, custom_fields")
+    .eq("organization_id", organizationId)
+    .limit(5000);
+
+  const map = new Map<string, RecentSearch>();
+  for (const contact of data ?? []) {
+    const cf = contact.custom_fields as { busca?: { provider?: string; nicho?: string; local?: string; at?: string } } | null;
+    const busca = cf?.busca;
+    if (!busca?.at) continue;
+    const key = `${busca.provider}|${busca.nicho}|${busca.local}|${busca.at}`;
+    const entry = map.get(key) ?? {
+      provider: busca.provider ?? "",
+      nicho: busca.nicho ?? "",
+      local: busca.local ?? "",
+      at: busca.at,
+      leads: 0,
+      withPhone: 0,
+    };
+    entry.leads++;
+    if (contact.phone) entry.withPhone++;
+    map.set(key, entry);
+  }
+
+  return [...map.values()]
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+    .slice(0, limit);
 }
 
 export type ProspectStats = {

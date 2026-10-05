@@ -10,8 +10,6 @@ export type ConversationStatus = "aberta" | "pendente" | "resolvida";
 export type MessageDirection = "in" | "out";
 export type SenderType = "contact" | "agent_ai" | "user" | "system";
 export type FieldType = "text" | "number" | "date" | "select" | "currency";
-export type TemplateCategory = "marketing" | "utilidade" | "autenticacao";
-export type TemplateStatus = "rascunho" | "pendente" | "aprovado" | "rejeitado";
 export type AppointmentStatus = "agendado" | "confirmado" | "realizado" | "cancelado" | "faltou";
 
 export type AgentToolKey =

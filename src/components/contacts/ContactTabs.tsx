@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { updateContact } from "@/lib/data/actions";
+import { useState, useTransition } from "react";
+import { Flame, Snowflake, Sun } from "lucide-react";
+import { updateContact, setLeadTemperature, saveLeadOpportunity } from "@/lib/data/actions";
+import { useNotify } from "@/components/ui/dialog-provider";
+import { TEMPERATURE_TAGS, type LeadTemperature } from "@/lib/data/lead-temperature";
 import { Card, Badge, EmptyState } from "@/components/ui/primitives";
 import { formatBRL, formatDateTime } from "@/lib/utils";
 import { CHANNEL_LABEL, type ChannelType } from "@/types/domain";
@@ -16,6 +19,8 @@ export function ContactTabs({
   appointments,
   notes,
   conversations,
+  temperature = null,
+  tags = [],
 }: {
   contact: any;
   customFields: FieldDef[];
@@ -23,9 +28,50 @@ export function ContactTabs({
   appointments: any[];
   notes: any[];
   conversations: any[];
+  /** Temperatura atual (etiqueta) do contato */
+  temperature?: LeadTemperature | null;
+  /** Todas as etiquetas do contato */
+  tags?: { name: string; color: string }[];
 }) {
   const [tab, setTab] = useState<Tab>("dados");
   const [saving, setSaving] = useState(false);
+  const [temp, setTemp] = useState<LeadTemperature | null>(temperature);
+  const [dealValue, setDealValue] = useState(
+    opportunities[0]?.value ? String(opportunities[0].value) : "",
+  );
+  const [tempPending, startTempTransition] = useTransition();
+  const notify = useNotify();
+
+  function changeTemperature(next: LeadTemperature) {
+    const target = temp === next ? null : next;
+    const previous = temp;
+    setTemp(target);
+    startTempTransition(async () => {
+      try {
+        await setLeadTemperature(contact.id, target);
+        notify(target ? `Etiqueta: ${TEMPERATURE_TAGS[target].name}` : "Etiqueta de temperatura removida");
+      } catch (e) {
+        setTemp(previous);
+        notify((e as Error).message.replace(/^Error:\s*/, ""), "error");
+      }
+    });
+  }
+
+  function saveValue() {
+    const numeric = Number(dealValue.replace(/[^\d,.]/g, "").replace(".", "").replace(",", "."));
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      notify("Informe o valor do serviço", "error");
+      return;
+    }
+    startTempTransition(async () => {
+      try {
+        await saveLeadOpportunity({ contactId: contact.id, value: numeric });
+        notify(`Oportunidade salva: ${formatBRL(numeric)}`);
+      } catch (e) {
+        notify((e as Error).message.replace(/^Error:\s*/, ""), "error");
+      }
+    });
+  }
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: "dados", label: "Dados" },
@@ -104,6 +150,83 @@ export function ContactTabs({
               </button>
             </div>
           </form>
+
+          <div className="mt-5 grid grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-2">
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                Temperatura do lead
+              </p>
+              <div className="flex items-center gap-2">
+                {(
+                  [
+                    ["frio", Snowflake],
+                    ["morno", Sun],
+                    ["quente", Flame],
+                  ] as [LeadTemperature, typeof Flame][]
+                ).map(([key, Icon]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    disabled={tempPending}
+                    onClick={() => changeTemperature(key)}
+                    title={TEMPERATURE_TAGS[key].name}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                      temp === key
+                        ? "border-primary/50 bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-accent"
+                    }`}
+                  >
+                    <Icon size={14} />
+                    {TEMPERATURE_TAGS[key].name.replace("Lead ", "")}
+                  </button>
+                ))}
+              </div>
+
+              {tags.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {tags.map((t) => (
+                    <span
+                      key={t.name}
+                      className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                      style={{ backgroundColor: `${t.color}20`, color: t.color }}
+                    >
+                      {t.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                Valor do serviço (oportunidade)
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  value={dealValue}
+                  onChange={(e) => setDealValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveValue();
+                  }}
+                  placeholder="ex.: 2.500,00"
+                  className="w-40 rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                />
+                <button
+                  type="button"
+                  onClick={saveValue}
+                  disabled={tempPending}
+                  className="rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                >
+                  Salvar valor
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {opportunities.length > 0
+                  ? `Oportunidade atual: ${formatBRL(Number(opportunities[0].value))} · veja a aba Oportunidades`
+                  : "Ainda sem oportunidade — salvar cria uma no funil."}
+              </p>
+            </div>
+          </div>
         </Card>
       )}
 

@@ -30,6 +30,7 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        back={null}
         title="Dashboard"
         subtitle={`${kpis.openCount} oportunidades abertas · ${kpis.conversionRate.toFixed(1)}% de conversão`}
       />

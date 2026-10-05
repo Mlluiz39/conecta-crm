@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth/session";
 import { normalizePhone, parseLeadLine, stripHeader } from "@/lib/data/lead-parser";
+import {
+  TEMPERATURE_NAMES,
+  TEMPERATURE_TAGS,
+  type LeadTemperature,
+} from "@/lib/data/lead-temperature";
 import type { AgentToolKey, AgentRole, AgentTone, ChannelType, HandoffRuleKey } from "@/types/domain";
 
 /* ───────────────────────────── Contatos ───────────────────────────── */
@@ -232,6 +237,288 @@ export async function deleteContact(id: string) {
     .eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/contatos");
+  revalidatePath("/prospeccao");
+  revalidatePath("/conversas");
+}
+
+/**
+ * Apaga os leads selecionados. O banco remove em cascata conversas, mensagens,
+ * oportunidades e tags ligados a eles.
+ */
+export async function deleteContacts(ids: string[]): Promise<{ deleted: number }> {
+  const { organizationId, role } = await requireProfile();
+  if (role === "atendente") throw new Error("Sem permissão");
+
+  const list = (ids ?? []).filter(Boolean);
+  if (list.length === 0) throw new Error("Selecione ao menos um lead");
+
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("contacts")
+    .delete()
+    .eq("organization_id", organizationId)
+    .in("id", list)
+    .select("id");
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/prospeccao");
+  revalidatePath("/contatos");
+  revalidatePath("/conversas");
+  return { deleted: data?.length ?? 0 };
+}
+
+export type BulkDeleteFilter =
+  | { kind: "noPhone" }
+  | { kind: "neverContacted" }
+  | { kind: "search"; at: string }
+  | { kind: "all" };
+
+/** IDs de contatos que nunca receberam mensagem nossa (direction='out'). */
+async function contactIdsWithOutbound(
+  supabase: ReturnType<typeof createClient>,
+  organizationId: string,
+): Promise<Set<string>> {
+  const { data: convs } = await supabase
+    .from("conversations")
+    .select("id, contact_id")
+    .eq("organization_id", organizationId);
+  const withOut = new Set<string>();
+  if (!convs || convs.length === 0) return withOut;
+
+  const { data: outs } = await supabase
+    .from("messages")
+    .select("conversation_id")
+    .eq("organization_id", organizationId)
+    .eq("direction", "out")
+    .in(
+      "conversation_id",
+      convs.map((c) => c.id),
+    );
+  const convWithOut = new Set((outs ?? []).map((m) => String(m.conversation_id)));
+  for (const c of convs) {
+    if (c.contact_id && convWithOut.has(String(c.id))) withOut.add(String(c.contact_id));
+  }
+  return withOut;
+}
+
+/** Resolve os leads que batem com o filtro de limpeza. */
+async function resolveFilterIds(
+  supabase: ReturnType<typeof createClient>,
+  organizationId: string,
+  filter: BulkDeleteFilter,
+): Promise<string[]> {
+  if (filter.kind === "search") {
+    const { data } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("custom_fields->busca->>at", filter.at);
+    return (data ?? []).map((c) => String(c.id));
+  }
+
+  const { data: contacts } = await supabase
+    .from("contacts")
+    .select("id, phone")
+    .eq("organization_id", organizationId);
+
+  if (filter.kind === "noPhone") {
+    return (contacts ?? []).filter((c) => !c.phone).map((c) => String(c.id));
+  }
+
+  if (filter.kind === "neverContacted") {
+    const contacted = await contactIdsWithOutbound(supabase, organizationId);
+    return (contacts ?? []).filter((c) => !contacted.has(String(c.id))).map((c) => String(c.id));
+  }
+
+  // "all": todos os leads da organização
+  return (contacts ?? []).map((c) => String(c.id));
+}
+
+/** Quantos leads seriam apagados por este filtro (para mostrar na tela). */
+export async function countContactsByFilter(
+  filter: BulkDeleteFilter,
+): Promise<number> {
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+  const ids = await resolveFilterIds(supabase, organizationId, filter);
+  return ids.length;
+}
+
+/**
+ * Limpeza em massa: apaga leads por filtro (sem telefone, nunca contatados,
+ * resultado de uma busca específica, ou tudo). Cascata do banco cuida de
+ * conversas, mensagens, oportunidades, tags e agendamentos.
+ */
+export async function deleteContactsByFilter(
+  filter: BulkDeleteFilter,
+): Promise<{ deleted: number }> {
+  const { organizationId, role } = await requireProfile();
+  if (role === "atendente") throw new Error("Sem permissão");
+
+  const supabase = createClient();
+  const ids = await resolveFilterIds(supabase, organizationId, filter);
+  if (ids.length === 0) return { deleted: 0 };
+
+  let deleted = 0;
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const { data, error } = await supabase
+      .from("contacts")
+      .delete()
+      .eq("organization_id", organizationId)
+      .in("id", chunk)
+      .select("id");
+    if (error) throw new Error(error.message);
+    deleted += data?.length ?? 0;
+  }
+
+  revalidatePath("/prospeccao");
+  revalidatePath("/contatos");
+  revalidatePath("/conversas");
+  return { deleted };
+}
+
+
+/* ───────────────── Etiquetas de temperatura e oportunidades ───────────────── */
+
+
+/** Garante que as etiquetas de temperatura existam e devolve os IDs. */
+async function ensureTemperatureTags(
+  supabase: ReturnType<typeof createClient>,
+  organizationId: string,
+): Promise<Record<string, string>> {
+  const { data: existing } = await supabase
+    .from("tags")
+    .select("id, name")
+    .eq("organization_id", organizationId)
+    .in("name", TEMPERATURE_NAMES);
+
+  const map: Record<string, string> = {};
+  for (const tag of existing ?? []) map[tag.name] = tag.id;
+
+  for (const [key, def] of Object.entries(TEMPERATURE_TAGS)) {
+    if (map[def.name]) continue;
+    const { data } = await supabase
+      .from("tags")
+      .insert({ organization_id: organizationId, name: def.name, color: def.color })
+      .select("id, name")
+      .single();
+    if (data) map[data.name] = data.id;
+    void key;
+  }
+  return map;
+}
+
+/** Marca (ou troca) a temperatura do lead: frio, morno ou quente. */
+export async function setLeadTemperature(
+  contactId: string,
+  temperature: LeadTemperature | null,
+): Promise<{ ok: true; temperature: LeadTemperature | null }> {
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+
+  const tags = await ensureTemperatureTags(supabase, organizationId);
+  const ids = Object.values(tags);
+
+  // Remove as temperaturas anteriores desse contato
+  if (ids.length > 0) {
+    await supabase
+      .from("contact_tags")
+      .delete()
+      .eq("organization_id", organizationId)
+      .eq("contact_id", contactId)
+      .in("tag_id", ids);
+  }
+
+  if (temperature) {
+    const tagId = tags[TEMPERATURE_TAGS[temperature].name];
+    if (tagId) {
+      const { error } = await supabase
+        .from("contact_tags")
+        .insert({ organization_id: organizationId, contact_id: contactId, tag_id: tagId });
+      if (error) throw new Error(error.message);
+    }
+  }
+
+  revalidatePath("/contatos");
+  revalidatePath("/prospeccao");
+  return { ok: true, temperature };
+}
+
+/**
+ * Cria/atualiza a oportunidade do lead com o valor do serviço.
+ * Sem etapa informada, entra na primeira do funil ("Novo lead").
+ */
+export async function saveLeadOpportunity(input: {
+  contactId: string;
+  value: number;
+  title?: string;
+  stageId?: string;
+}): Promise<{ id: string; created: boolean }> {
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+
+  const value = Number(input.value);
+  if (!Number.isFinite(value) || value < 0) throw new Error("Informe um valor válido");
+
+  let stageId = input.stageId ?? null;
+  if (!stageId) {
+    const { data: stage } = await supabase
+      .from("pipeline_stages")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .order("position", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    stageId = stage?.id ?? null;
+  }
+
+  const { data: existing } = await supabase
+    .from("opportunities")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("contact_id", input.contactId)
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from("opportunities")
+      .update({
+        value,
+        ...(input.title ? { title: input.title } : {}),
+        ...(stageId ? { stage_id: stageId } : {}),
+      })
+      .eq("id", existing.id);
+    if (error) throw new Error(error.message);
+    revalidatePath("/contatos");
+    revalidatePath("/pipeline");
+    return { id: existing.id, created: false };
+  }
+
+  const { data: contact } = await supabase
+    .from("contacts")
+    .select("name")
+    .eq("id", input.contactId)
+    .maybeSingle();
+
+  const { data, error } = await supabase
+    .from("opportunities")
+    .insert({
+      organization_id: organizationId,
+      contact_id: input.contactId,
+      stage_id: stageId,
+      title: input.title ?? `Serviço — ${contact?.name ?? "lead"}`,
+      value,
+      position: 0,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/contatos");
+  revalidatePath("/pipeline");
+  return { id: data.id, created: true };
 }
 
 /* ───────────────────────────── Pipeline ───────────────────────────── */
@@ -536,12 +823,59 @@ export async function prospectContacts(
   return { queued, sent, skipped };
 }
 
+/**
+ * Registra o contato por e-mail no próprio contato (custom_fields) — assim o lead
+ * aparece como "já contatado" mesmo antes de existir o canal de e-mail no CRM.
+ */
+async function registerEmailTouch(
+  supabase: ReturnType<typeof createClient>,
+  organizationId: string,
+  contactId: string,
+  info: { provider: string; to: string; subject: string; source: string },
+): Promise<void> {
+  const { data } = await supabase
+    .from("contacts")
+    .select("custom_fields")
+    .eq("id", contactId)
+    .maybeSingle();
+
+  const custom =
+    data?.custom_fields && typeof data.custom_fields === "object"
+      ? (data.custom_fields as Record<string, unknown>)
+      : {};
+  const history = Array.isArray(custom.email_prospeccao)
+    ? (custom.email_prospeccao as unknown[])
+    : [];
+
+  await supabase
+    .from("contacts")
+    .update({
+      custom_fields: {
+        ...custom,
+        email_prospeccao: [
+          ...history.slice(-9),
+          {
+            at: new Date().toISOString(),
+            provider: info.provider,
+            to: info.to,
+            subject: info.subject,
+            source: info.source,
+          },
+        ],
+      },
+    })
+    .eq("id", contactId)
+    .eq("organization_id", organizationId);
+}
+
 export type AgentProspectResult = {
   queued: number;
   sent: number;
   skipped: number;
   alreadyContacted: number;
   emails: number;
+  /** Contatos que receberam a abordagem (para marcar temperatura/valor depois). */
+  contactIds: string[];
   previews: {
     name: string;
     channel: "whatsapp" | "email";
@@ -586,11 +920,14 @@ export async function prospectWithAgent(
     "@/services/prospecting/agent-outreach"
   );
   const { sendEmail, gmailStatus } = await import("@/services/email/gmail");
+  const { sendEmailViaHermes, hermesEmailStatus } = await import("@/services/email/hermes-email");
   const gmail = await gmailStatus(organizationId);
+  const hermesEmail = hermesEmailStatus();
+  const emailReady = gmail.canSend || hermesEmail.configured;
 
-  if (!chan && !gmail.canSend) {
+  if (!chan && !emailReady) {
     throw new Error(
-      "Conecte o WhatsApp em Conexões (ou reconecte o Google com permissão de envio) antes de prospectar",
+      "Conecte o WhatsApp em Conexões (ou configure o e-mail do Hermes) antes de prospectar",
     );
   }
 
@@ -598,7 +935,7 @@ export async function prospectWithAgent(
   let emailChannelId: string | null = null;
   async function ensureEmailChannel(): Promise<string | null> {
     if (emailChannelId) return emailChannelId;
-    if (!gmail.canSend) return null;
+    if (!gmail.canSend) return null; // canal no CRM só existe com Gmail/DDL do enum 'email' 
 
     const { data: existing } = await supabase
       .from("channels")
@@ -635,6 +972,7 @@ export async function prospectWithAgent(
   let emails = 0;
   let skipped = 0;
   let alreadyContacted = 0;
+  const contactedIds: string[] = [];
   const previews: AgentProspectResult["previews"] = [];
 
   // Quem já recebeu alguma mensagem nossa (out) não é recontatado nesta rodada.
@@ -704,6 +1042,7 @@ export async function prospectWithAgent(
       }
 
       queued++;
+      contactedIds.push(String(c.id));
       if (previews.length < 5) {
         previews.push({
           name: c.name ?? "",
@@ -717,14 +1056,46 @@ export async function prospectWithAgent(
     }
 
     // 2) E-mail quando não houver telefone utilizável
-    if (c.email && gmail.canSend) {
+    if (c.email && emailReady) {
+      const { subject, body, source } = await generateFirstTouchEmail(lead, briefing);
+
+      // Hermes (IMAP/SMTP) primeiro: não exige OAuth nem tabela nova
+      if (hermesEmail.configured) {
+        const sent = await sendEmailViaHermes({ to: c.email, subject, text: body });
+        if (sent.ok) {
+          await registerEmailTouch(supabase, organizationId, String(c.id), {
+            provider: "hermes",
+            to: c.email,
+            subject,
+            source,
+          });
+          emails++;
+          contactIds.push(String(c.id));
+          if (previews.length < 5) {
+            previews.push({
+              name: c.name ?? "",
+              channel: "email",
+              contact: c.email,
+              text: `Assunto: ${subject}\n\n${body}`,
+              source,
+            });
+          }
+          continue;
+        }
+        console.error("[prospect/agent] e-mail via Hermes falhou:", sent.error);
+      }
+
+      // Gmail API (exige migration do enum + OAuth)
+      if (!gmail.canSend) {
+        skipped++;
+        continue;
+      }
       const chId = await ensureEmailChannel();
       if (!chId) {
         skipped++;
         continue;
       }
 
-      const { subject, body, source } = await generateFirstTouchEmail(lead, briefing);
       const result = await sendEmail({
         organizationId,
         to: c.email,
@@ -767,6 +1138,7 @@ export async function prospectWithAgent(
       }
 
       emails++;
+      contactedIds.push(String(c.id));
       if (previews.length < 5) {
         previews.push({
           name: c.name ?? "",
@@ -787,7 +1159,7 @@ export async function prospectWithAgent(
 
   revalidatePath("/prospeccao");
   revalidatePath("/conversas");
-  return { queued, sent, skipped, alreadyContacted, emails, previews };
+  return { queued, sent, skipped, alreadyContacted, emails, contactIds: contactedIds, previews };
 }
 
 export type FollowupActionResult = {
@@ -816,6 +1188,198 @@ export async function runProspectFollowups(
   revalidatePath("/prospeccao");
   revalidatePath("/conversas");
   return result;
+}
+
+export type ManualProspectResult = {
+  contactId: string;
+  created: boolean;
+  queued: number;
+  sent: number;
+  preview: string;
+  skippedReason?: string;
+};
+
+/**
+ * "Disparar nova prospecção" manual: você viu um cliente em potencial em algum
+ * lugar (indicação, Instagram, rua…) e dispara a abordagem na hora — sem payload
+ * de busca. O contato é criado se ainda não existir e o agente escreve o texto.
+ */
+export async function prospectManualLead(input: {
+  name: string;
+  phone?: string;
+  email?: string;
+  offer?: string;
+  goal?: string;
+  notes?: string;
+  /** Valor do serviço (cria a oportunidade no funil). */
+  value?: number;
+  temperature?: LeadTemperature;
+}): Promise<ManualProspectResult> {
+  const { organizationId, id: userId } = await requireProfile();
+  const supabase = createClient();
+
+  const name = String(input.name ?? "").trim();
+  if (!name) throw new Error("Informe o nome do contato");
+
+  const phone = normalizePhone(String(input.phone ?? "")) ?? null;
+  const email = String(input.email ?? "").trim().toLowerCase() || null;
+  if (!phone && !email) throw new Error("Informe telefone ou e-mail");
+
+  const { data: chan } = await supabase
+    .from("channels")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("type", "whatsapp")
+    .eq("status", "conectado")
+    .limit(1)
+    .maybeSingle();
+
+  // Contato existente? (telefone por sufixo de 9 dígitos ou e-mail)
+  let contactId: string | null = null;
+  if (phone) {
+    const { data } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .like("phone", `%${phone.slice(-9)}`)
+      .limit(1)
+      .maybeSingle();
+    contactId = data?.id ?? null;
+  }
+  if (!contactId && email) {
+    const { data } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("email", email)
+      .limit(1)
+      .maybeSingle();
+    contactId = data?.id ?? null;
+  }
+
+  let created = false;
+  if (!contactId) {
+    const { data, error } = await supabase
+      .from("contacts")
+      .insert({
+        organization_id: organizationId,
+        owner_id: userId,
+        name,
+        phone,
+        email,
+        custom_fields: { origem: "manual" },
+      })
+      .select("id")
+      .single();
+    if (error || !data) throw new Error(error?.message ?? "Falha ao criar contato");
+    contactId = data.id;
+    created = true;
+  }
+
+  if (!contactId) throw new Error("Não foi possível resolver o contato");
+  const targetContactId: string = contactId;
+
+  // Etiqueta de temperatura + oportunidade com o valor do serviço
+  if (input.temperature) {
+    await setLeadTemperature(targetContactId, input.temperature).catch((e) =>
+      console.error("[prospect/manual] temperatura:", (e as Error).message),
+    );
+  }
+  if (input.value && input.value > 0) {
+    await saveLeadOpportunity({ contactId: targetContactId, value: input.value }).catch((e) =>
+      console.error("[prospect/manual] oportunidade:", (e as Error).message),
+    );
+  }
+
+  if (!phone && email) {
+    const { sendEmailViaHermes, hermesEmailStatus } = await import("@/services/email/hermes-email");
+    const mail = hermesEmailStatus();
+    if (mail.configured) {
+      const { generateFirstTouchEmail } = await import("@/services/prospecting/agent-outreach");
+      const mailContent = await generateFirstTouchEmail(
+        { id: targetContactId, name, email, context: input.notes ?? null },
+        { offer: input.offer, goal: input.goal, notes: input.notes },
+      );
+      const sent = await sendEmailViaHermes({
+        to: email,
+        subject: mailContent.subject,
+        text: mailContent.body,
+      });
+      if (sent.ok) {
+        await registerEmailTouch(supabase, organizationId, targetContactId, {
+          provider: "hermes",
+          to: email,
+          subject: mailContent.subject,
+          source: mailContent.source,
+        });
+      }
+      revalidatePath("/prospeccao");
+      revalidatePath("/contatos");
+      return {
+        contactId: targetContactId,
+        created,
+        queued: sent.ok ? 1 : 0,
+        sent: sent.ok ? 1 : 0,
+        preview: sent.ok
+          ? `Assunto: ${mailContent.subject}\n\n${mailContent.body}`
+          : "",
+        skippedReason: sent.ok ? undefined : `Falha no e-mail: ${sent.error}`,
+      };
+    }
+  }
+
+  if (!phone || !chan) {
+    revalidatePath("/prospeccao");
+    revalidatePath("/contatos");
+    return {
+      contactId: targetContactId,
+      created,
+      queued: 0,
+      sent: 0,
+      preview: "",
+      skippedReason: !phone
+        ? "contato salvo sem telefone (e-mail exige o Gmail conectado)"
+        : "WhatsApp não conectado",
+    };
+  }
+
+  const conv = await ensureProspectConversation(supabase, {
+    organizationId,
+    contactId: targetContactId,
+    channelId: chan.id,
+    phone,
+  });
+  if (!conv) throw new Error("Não foi possível abrir a conversa");
+
+  const { generateFirstTouch } = await import("@/services/prospecting/agent-outreach");
+  const { text, source } = await generateFirstTouch(
+    { id: targetContactId, name, phone, email, context: input.notes ?? null },
+    { offer: input.offer, goal: input.goal, notes: input.notes },
+  );
+
+  const { error: msgErr } = await supabase.from("messages").insert({
+    organization_id: organizationId,
+    conversation_id: conv.id,
+    direction: "out",
+    sender_type: "agent_ai",
+    content: text,
+    status: "pendente",
+  });
+  if (msgErr) throw new Error(msgErr.message);
+
+  const { flushOutbox } = await import("@/services/messaging/inbound.service");
+  const sent = await flushOutbox(1).catch(() => 0);
+
+  revalidatePath("/prospeccao");
+  revalidatePath("/conversas");
+  revalidatePath("/contatos");
+  return {
+    contactId: targetContactId,
+    created,
+    queued: 1,
+    sent,
+    preview: source === "agent" ? text : `[modelo] ${text}`,
+  };
 }
 
 /* ───────────────────────────── Agentes ────────────────────────────── */

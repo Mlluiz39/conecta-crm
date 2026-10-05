@@ -1,4 +1,5 @@
 import { getConnections } from "@/lib/data/connections";
+import { Breadcrumbs } from "@/components/ui/primitives";
 import dynamic from "next/dynamic";
 
 const ConnectionsManager = dynamic(
@@ -12,10 +13,9 @@ export default async function ConexoesPage() {
   const { config, channels, appUrl } = await getConnections();
 
   return (
-    <ConnectionsManager
-      config={config}
-      channels={channels}
-      appUrl={appUrl}
-    />
+    <div>
+      <Breadcrumbs />
+      <ConnectionsManager config={config} channels={channels} appUrl={appUrl} />
+    </div>
   );
 }

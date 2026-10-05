@@ -41,11 +41,11 @@ export function ImportLeadsPanel() {
   }
 
   return (
-    <div className="rounded-2xl border bg-card">
+    <div className="rounded-xl border bg-background">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+        className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
       >
         <span className="flex items-center gap-2 text-sm font-bold">
           <Upload size={15} className="text-primary" />
@@ -57,7 +57,7 @@ export function ImportLeadsPanel() {
       </button>
 
       {open && (
-        <div className="space-y-3 border-t p-4">
+        <div className="space-y-3 border-t p-3">
           <p className="text-xs text-muted-foreground">
             Uma linha por lead: <code>Nome; Telefone; E-mail; Empresa; Cidade</code>. Telefone e
             e-mail podem vir em qualquer ordem e o cabeçalho da planilha é ignorado. Duplicados

@@ -92,7 +92,7 @@ export function PipelineBoard({
   return (
     <>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        <div className="flex gap-4 overflow-x-auto pb-4">
+        <div className="pipeline-board">
           {stages.map((stage) => {
             const data = stageColumns.get(stage.id) ?? { col: [], total: 0 };
             return (
@@ -137,7 +137,7 @@ function DroppableColumn({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
   return (
-    <div className="flex w-72 shrink-0 flex-col">
+    <div className="pipeline-column">
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="h-2.5 w-2.5 rounded-full" style={{ background: stage.color }} />

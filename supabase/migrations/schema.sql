@@ -20,8 +20,6 @@ create type conversation_status as enum ('aberta', 'pendente', 'resolvida');
 create type message_direction  as enum ('in', 'out');
 create type sender_type        as enum ('contact', 'agent_ai', 'user', 'system');
 create type field_type         as enum ('text', 'number', 'date', 'select', 'currency');
-create type template_category  as enum ('marketing', 'utilidade', 'autenticacao');
-create type template_status    as enum ('rascunho', 'pendente', 'aprovado', 'rejeitado');
 create type appointment_status as enum ('agendado', 'confirmado', 'realizado', 'cancelado', 'faltou');
 
 -- ---------------------------------------------------------------------
@@ -377,25 +375,6 @@ create table webhook_events (
 -- ---------------------------------------------------------------------
 -- 9. TEMPLATES DE WHATSAPP
 -- ---------------------------------------------------------------------
-create table whatsapp_templates (
-  id                uuid primary key default gen_random_uuid(),
-  organization_id   uuid not null references organizations(id) on delete cascade,
-  name              text not null check (name ~ '^[a-z0-9_]+$'),   -- padrão exigido pela Meta
-  category          template_category not null default 'utilidade',
-  language          text not null default 'pt_BR',
-  header            text,
-  body              text not null,                -- com variáveis {{1}}, {{2}} ou nomeadas
-  footer            text,
-  buttons           jsonb not null default '[]',  -- quick reply / link
-  variables         jsonb not null default '[]',
-  status            template_status not null default 'rascunho',
-  meta_template_id  text,
-  rejection_reason  text,
-  submitted_at      timestamptz,
-  created_at        timestamptz not null default now(),
-  updated_at        timestamptz not null default now(),
-  unique (organization_id, name, language)
-);
 
 -- ---------------------------------------------------------------------
 -- 10. CALENDÁRIO
@@ -426,7 +405,6 @@ create table appointment_reminders (
   organization_id uuid not null references organizations(id) on delete cascade,
   appointment_id  uuid not null references appointments(id) on delete cascade,
   offset_minutes  int not null,                   -- ex.: 1440 (24h) e 60 (1h) antes
-  template_id     uuid references whatsapp_templates(id) on delete set null,
   send_at         timestamptz not null,
   sent_at         timestamptz,
   error           text
@@ -454,7 +432,7 @@ declare t text;
 begin
   foreach t in array array[
     'organizations', 'channels', 'contacts', 'opportunities', 'agents',
-    'knowledge_base_items', 'conversations', 'whatsapp_templates', 'appointments'
+    'knowledge_base_items', 'conversations', 'appointments'
   ] loop
     execute format(
       'create trigger trg_%1$s_updated before update on public.%1$I
@@ -490,7 +468,7 @@ begin
   foreach t in array array[
     'channels', 'custom_field_definitions', 'pipeline_stages', 'agents',
     'agent_prompt_versions', 'agent_channels', 'agent_tools', 'agent_handoff_rules',
-    'knowledge_base_items', 'whatsapp_templates'
+    'knowledge_base_items'
   ] loop
     execute format('alter table public.%I enable row level security', t);
     execute format(

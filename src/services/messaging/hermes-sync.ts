@@ -67,8 +67,15 @@ export async function syncHermesState(): Promise<HermesSyncResult> {
     const channelId = channel.id;
 
     const sessions = db
-      .prepare("SELECT id, session_key, display_name FROM sessions WHERE source = 'whatsapp'")
-      .all() as { id: string; session_key: string | null; display_name: string | null }[];
+      .prepare(
+        "SELECT id, source, session_key, display_name FROM sessions WHERE source IN ('whatsapp', 'email')",
+      )
+      .all() as {
+      id: string;
+      source: string;
+      session_key: string | null;
+      display_name: string | null;
+    }[];
     result.sessions = sessions.length;
 
     // Corte opcional (HERMES_SYNC_SINCE em ISO): só espelha mensagens a partir dali.
@@ -107,19 +114,54 @@ export async function syncHermesState(): Promise<HermesSyncResult> {
     // ── Contatos da org (1 query) para casar em memória ──────────────────
     const { data: contactRows } = await supabase
       .from("contacts")
-      .select("id, phone, name")
+      .select("id, phone, name, email")
       .eq("organization_id", organizationId)
       .limit(5000);
     const byPhone = new Map<string, string>();
     const bySuffix = new Map<string, string>();
     const byName = new Map<string, string>();
+    const byEmail = new Map<string, string>();
     for (const c of contactRows ?? []) {
       if (c.phone) {
         byPhone.set(c.phone, c.id);
         const digits = String(c.phone).replace(/\D/g, "");
         if (digits.length >= 9) bySuffix.set(digits.slice(-9), c.id);
       }
+      if (c.email) byEmail.set(String(c.email).toLowerCase(), c.id);
       if (c.name) byName.set(String(c.name).toLowerCase(), c.id);
+    }
+
+    // ── Canal de e-mail (criado na primeira vez que o enum 'email' existir) ──
+    let emailChannelId: string | null = null;
+    {
+      const { data: emailChan } = await supabase
+        .from("channels")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .eq("type", "email")
+        .limit(1)
+        .maybeSingle();
+      emailChannelId = emailChan?.id ?? null;
+
+      if (!emailChannelId) {
+        const { data: created, error } = await supabase
+          .from("channels")
+          .insert({
+            organization_id: organizationId,
+            type: "email",
+            name: "E-mail (Hermes)",
+            status: "conectado",
+            config: { provider: "hermes" },
+          })
+          .select("id")
+          .single();
+        if (error) {
+          // Sem a migration do enum, o insert falha — segue só com WhatsApp.
+          console.warn("[hermes-sync] canal de e-mail indisponível:", error.message.slice(0, 90));
+        } else {
+          emailChannelId = created.id;
+        }
+      }
     }
 
     // ── Conversas existentes do canal (1 query) ──────────────────────────
@@ -127,7 +169,7 @@ export async function syncHermesState(): Promise<HermesSyncResult> {
       .from("conversations")
       .select("id, external_id")
       .eq("organization_id", organizationId)
-      .eq("channel_id", channelId);
+      .in("channel_id", [channelId, ...(emailChannelId ? [emailChannelId] : [])]);
     const convByExternal = new Map<string, string>();
     for (const c of convRows ?? []) {
       if (c.external_id) convByExternal.set(String(c.external_id), c.id);
@@ -155,15 +197,28 @@ export async function syncHermesState(): Promise<HermesSyncResult> {
     for (const sess of sessions) {
       const rows = rowsBySession.get(sess.id);
       if (!rows) continue; // nada novo nesta sessão: não mexe em contato/conversa
-      const phone = sess.session_key?.match(/whatsapp:dm:(\d+)/)?.[1];
-      if (!phone) continue; // sessão sem DM identificável (grupo etc.)
-      const handle = `${phone}@s.whatsapp.net`;
-      const suffix = phone.length >= 9 ? phone.slice(-9) : null;
+
+      const isEmail = sess.source === "email";
+      const emailAddress = isEmail
+        ? (sess.session_key?.match(/email:dm:([^:\s]+)/)?.[1] ??
+            sess.session_key?.match(/([\w.+-]+@[\w-]+\.[\w.-]+)/)?.[1] ??
+            null)
+        : null;
+      const phone = isEmail ? null : sess.session_key?.match(/whatsapp:dm:(\d+)/)?.[1];
+      if (!isEmail && !phone) continue; // sessão sem DM identificável (grupo etc.)
+      if (isEmail && !emailAddress) continue;
+
+      // e-mail só é espelhado quando o canal existe (migration do enum aplicada)
+      if (isEmail && !emailChannelId) continue;
+
+      const handle = isEmail ? String(emailAddress).toLowerCase() : `${phone}@s.whatsapp.net`;
+      const targetChannelId = isEmail ? (emailChannelId as string) : channelId;
+      const suffix = !isEmail && phone && phone.length >= 9 ? phone.slice(-9) : null;
       const nameKey = sess.display_name ? sess.display_name.toLowerCase() : null;
 
-      // Match 3-tier em memória: phone exato → sufixo (9) → nome
+      // Match em memória: telefone exato/sufixo (WhatsApp) ou e-mail; por fim o nome
       let contactId =
-        byPhone.get(handle) ??
+        (isEmail ? byEmail.get(handle) : byPhone.get(handle)) ??
         (suffix ? bySuffix.get(suffix) : undefined) ??
         (nameKey ? byName.get(nameKey) : undefined) ??
         null;
@@ -174,7 +229,8 @@ export async function syncHermesState(): Promise<HermesSyncResult> {
           missingContacts.push({
             organization_id: organizationId,
             name: sess.display_name || handle,
-            phone: handle,
+            phone: isEmail ? null : handle,
+            email: isEmail ? handle : null,
           });
         }
       }
@@ -196,8 +252,8 @@ export async function syncHermesState(): Promise<HermesSyncResult> {
             {
               organization_id: organizationId,
               contact_id: contactId,
-              channel_id: channelId,
-              channel_type: "whatsapp",
+              channel_id: targetChannelId,
+              channel_type: isEmail ? "email" : "whatsapp",
               external_id: handle,
               status: "aberta",
             },

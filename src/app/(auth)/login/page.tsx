@@ -1,4 +1,5 @@
 import { login } from "@/lib/auth/actions";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 export default function LoginPage({
   searchParams,
@@ -8,6 +9,9 @@ export default function LoginPage({
   return (
     <div className="w-full max-w-sm rounded-2xl border bg-card p-8 shadow-sm">
       <div className="mb-6 text-center">
+        <div className="mb-3 flex justify-center">
+          <ThemeToggle />
+        </div>
         <h1 className="text-2xl font-extrabold tracking-tight text-primary">
           ConectaCRM
         </h1>

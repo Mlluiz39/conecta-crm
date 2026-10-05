@@ -11,7 +11,6 @@ import {
   CalendarDays,
   BarChart3,
   Bot,
-  FileText,
   Cable,
   Megaphone,
   Settings,
@@ -29,7 +28,6 @@ const NAV = [
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { href: "/agentes", label: "Agentes de IA", icon: Bot },
   { href: "/prospeccao", label: "Prospecção", icon: Megaphone },
-  { href: "/templates", label: "Templates", icon: FileText },
   { href: "/conexoes", label: "Conexões", icon: Cable },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];

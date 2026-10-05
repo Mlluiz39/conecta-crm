@@ -45,6 +45,15 @@ export function serverEnv() {
       bin: process.env.HERMES_BIN ?? "",
       home: process.env.HERMES_HOME ?? "",
     },
+    apify: {
+      apiKey: process.env.APIFY_API_KEY ?? "",
+      /** Actor do Google Maps usado na busca de empresas. */
+      actor: process.env.APIFY_GOOGLE_MAPS_ACTOR ?? "compass~crawler-google-places",
+    },
+    aisa: {
+      apiKey: process.env.AISA_API_KEY ?? "",
+      baseUrl: process.env.AISA_API_URL ?? "https://api.aisa.one/apis/v1",
+    },
     cronSecret: process.env.CRON_SECRET ?? "",
   };
 }

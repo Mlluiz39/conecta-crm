@@ -67,3 +67,38 @@ body {
   color: var(--foreground);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
+
+/* ── Board do pipeline ─────────────────────────────────────────────────
+   No celular as colunas rolam na horizontal (comportamento esperado).
+   A partir de tablet (768px) as colunas se distribuem na largura da tela,
+   quebrando linha quando não couberem — sem barra horizontal. */
+.pipeline-board {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  padding-bottom: 1rem;
+}
+
+.pipeline-column {
+  display: flex;
+  flex-direction: column;
+  width: 18rem; /* w-72 */
+  flex: none;
+}
+
+@media (min-width: 768px) {
+  .pipeline-board {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 0.75rem;
+    overflow-x: visible;
+    padding-bottom: 0;
+    align-items: start;
+  }
+
+  .pipeline-column {
+    width: auto;
+    min-width: 0;
+    flex: initial;
+  }
+}

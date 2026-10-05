@@ -6,6 +6,9 @@ export const metadata: Metadata = {
   description: "CRM multicanal com agentes de IA",
 };
 
+// Aplica o tema antes do primeiro paint (evita flash claro/escuro).
+const THEME_SCRIPT = `(function(){try{var s=localStorage.getItem("crm-theme");var d=s?s==="dark":window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.classList.toggle("dark",d);}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: {
@@ -13,6 +16,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body suppressHydrationWarning>{children}</body>
     </html>
   );
