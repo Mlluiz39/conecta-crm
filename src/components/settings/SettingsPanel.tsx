@@ -99,7 +99,11 @@ export function SettingsPanel({
                 {savingName ? "Salvando..." : "Salvar"}
               </button>
             </div>
-            {nameNote && <p className="text-[11px] text-emerald-600">{nameNote}</p>}
+            {nameNote && (
+              <p className={`text-[11px] ${nameNote.startsWith("Erro") ? "text-destructive" : "text-emerald-600"}`}>
+                {nameNote}
+              </p>
+            )}
           </Card>
 
           {presets.map((p) => (

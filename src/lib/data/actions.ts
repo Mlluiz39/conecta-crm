@@ -278,6 +278,8 @@ export async function createAgent(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const role = (String(formData.get("role") ?? "vendedor") as AgentRole) || "vendedor";
   const channel = (String(formData.get("channel") ?? "whatsapp") as ChannelType) || "whatsapp";
+  const tone = (String(formData.get("tone") ?? "") as AgentTone) || "consultivo";
+  const customPrompt = String(formData.get("prompt") ?? "").trim();
 
   const { data: agent, error } = await supabase
     .from("agents")
@@ -285,7 +287,7 @@ export async function createAgent(formData: FormData) {
       organization_id: organizationId,
       name,
       role,
-      tone: "consultivo" as AgentTone,
+      tone,
       is_active: true,
       created_by: userId,
     })
@@ -293,12 +295,26 @@ export async function createAgent(formData: FormData) {
     .single();
   if (error) throw new Error(error.message);
 
-  // Prompt inicial
+  // Prompt inicial: custom > template do papel (agent_templates) > fallback
+  let prompt = customPrompt;
+  if (!prompt) {
+    const { data: tpl } = await supabase
+      .from("agent_templates")
+      .select("prompt")
+      .eq("role", role)
+      .order("name")
+      .limit(1)
+      .maybeSingle();
+    prompt =
+      tpl?.prompt ??
+      `Você é o ${role} da {{nome_empresa}}. Atenda {{nome_contato}} pelo {{canal}} com atenção e objetividade.`;
+  }
+
   await supabase.from("agent_prompt_versions").insert({
     organization_id: organizationId,
     agent_id: agent.id,
     version: 1,
-    prompt: `Você é o ${role} da {{nome_empresa}}. Atenda {{nome_contato}} pelo {{canal}} com atenção e objetividade.`,
+    prompt,
     status: "published",
     created_by: userId,
   });

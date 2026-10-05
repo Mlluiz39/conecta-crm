@@ -101,7 +101,7 @@ export function AgentWorkbench({
         {!detail || !selectedId ? (
           <Card className="text-sm text-muted-foreground">Selecione ou crie um agente.</Card>
         ) : (
-          <Card className="space-y-4">
+          <Card key={selectedId} className="space-y-4">
             <div className="flex gap-2 overflow-x-auto border-b pb-2 text-xs font-bold">
               {(
                 [
@@ -162,6 +162,16 @@ function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Age
   const [note, setNote] = useState("");
   const [improving, setImproving] = useState(false);
   const [agentName, setAgentName] = useState(agent.name);
+  const dirtyName = agentName.trim().length > 0 && agentName.trim() !== agent.name;
+
+  function saveName() {
+    if (!dirtyName || saving) return;
+    startSaving(async () => {
+      await updateAgentName(agentId, agentName.trim());
+      router.refresh();
+      setNote("Nome atualizado");
+    });
+  }
   const [templates, setTemplates] = useState<{ id: string; name: string; prompt: string }[]>([]);
 
   // Modelos iniciais por função/nicho (agent_templates globais + da org).
@@ -207,22 +217,21 @@ function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Age
           <input
             value={agentName}
             onChange={(e) => setAgentName(e.target.value)}
-            onBlur={() => {
-              const clean = agentName.trim();
-              if (!clean || clean === agent.name) {
-                setAgentName(agent.name);
-                return;
-              }
-              startSaving(async () => {
-                await updateAgentName(agentId, clean);
-                router.refresh();
-                setNote("Nome atualizado");
-              });
-            }}
+            onKeyDown={(e) => e.key === "Enter" && dirtyName && saveName()}
             placeholder="Nome do agente"
             className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
-          <span className="self-center font-mono text-[10px] text-muted-foreground">{"{{nome_agente}}"}</span>
+          <button
+            onClick={() => void saveName()}
+            disabled={!dirtyName || saving}
+            className="rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50"
+          >
+            {saving ? "Salvando..." : "Salvar nome"}
+          </button>
+        </div>
+        <div className="mt-1 flex items-center justify-between">
+          <span className="font-mono text-[10px] text-muted-foreground">{"{{nome_agente}}"}</span>
+          {note && <span className="text-[11px] text-emerald-600">{note}</span>}
         </div>
       </div>
 
@@ -607,30 +616,63 @@ function Playground({
 function NewAgentModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [role, setRole] = useState<AgentRole>("vendedor");
+  const [tone, setTone] = useState<AgentTone>("consultivo");
   const [channel, setChannel] = useState<ChannelType>("whatsapp");
+  const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl border bg-card p-6 shadow-xl">
+      <div className="w-full max-w-lg rounded-2xl border bg-card p-6 shadow-xl">
         <h3 className="text-base font-bold">Novo Agente de IA</h3>
         <div className="mt-4 space-y-3">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Nome do agente"
+            placeholder="Nome do agente (ex: Lucas)"
             className="w-full rounded-xl border bg-background px-3 py-2 text-sm"
           />
-          <select value={role} onChange={(e) => setRole(e.target.value as AgentRole)} className="w-full rounded-xl border bg-background px-3 py-2 text-sm">
-            {Object.entries(AGENT_ROLE_LABEL).map(([v, l]) => (
-              <option key={v} value={v}>{l}</option>
-            ))}
-          </select>
-          <select value={channel} onChange={(e) => setChannel(e.target.value as ChannelType)} className="w-full rounded-xl border bg-background px-3 py-2 text-sm">
-            {CHANNELS.map((c) => (
-              <option key={c} value={c}>{CHANNEL_LABEL[c]}</option>
-            ))}
-          </select>
+          <div className="grid grid-cols-3 gap-2">
+            <select value={role} onChange={(e) => setRole(e.target.value as AgentRole)} className="rounded-xl border bg-background px-3 py-2 text-sm">
+              {Object.entries(AGENT_ROLE_LABEL).map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
+            <select value={tone} onChange={(e) => setTone(e.target.value as AgentTone)} className="rounded-xl border bg-background px-3 py-2 text-sm">
+              {Object.entries(AGENT_TONE_LABEL).map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
+            <select value={channel} onChange={(e) => setChannel(e.target.value as ChannelType)} className="rounded-xl border bg-background px-3 py-2 text-sm">
+              {CHANNELS.map((c) => (
+                <option key={c} value={c}>{CHANNEL_LABEL[c]}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Prompt inicial</label>
+              <span className="text-[10px] text-muted-foreground">vazio = modelo do papel</span>
+            </div>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={7}
+              placeholder={`Você é {{nome_agente}}, ${AGENT_ROLE_LABEL[role].toLowerCase()} da {{nome_empresa}}...`}
+              className="w-full rounded-xl border bg-background px-3 py-2 font-mono text-xs leading-relaxed outline-none focus:ring-2 focus:ring-ring"
+            />
+            <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
+              {VARS.map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setPrompt((p) => `${p} ${v}`)}
+                  className="rounded bg-muted px-1.5 py-0.5 font-mono text-primary hover:bg-accent"
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-semibold text-muted-foreground hover:bg-accent">
@@ -640,18 +682,24 @@ function NewAgentModal({ onClose }: { onClose: () => void }) {
             disabled={busy || !name.trim()}
             onClick={async () => {
               setBusy(true);
-              const fd = new FormData();
-              fd.set("name", name);
-              fd.set("role", role);
-              fd.set("channel", channel);
-              await createAgent(fd);
-              setBusy(false);
-              onClose();
-              location.reload();
+              try {
+                const fd = new FormData();
+                fd.set("name", name);
+                fd.set("role", role);
+                fd.set("tone", tone);
+                fd.set("channel", channel);
+                fd.set("prompt", prompt);
+                await createAgent(fd);
+                onClose();
+                location.reload();
+              } catch (e) {
+                alert(`Erro ao criar agente: ${(e as Error).message}`);
+                setBusy(false);
+              }
             }}
             className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-50"
           >
-            Criar
+            {busy ? "Criando..." : "Criar"}
           </button>
         </div>
       </div>
