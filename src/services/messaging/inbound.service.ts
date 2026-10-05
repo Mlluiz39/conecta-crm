@@ -201,9 +201,10 @@ export async function handleInboundWebhook(params: {
       });
 
       // Resposta já foi gravada pelo engine como 'pendente' (fila de saída).
-      // Envia agora para chegar rápido; o cron /api/cron/outbox retenta falhas.
+      // Fire-and-forget: webhook responde rápido (Evolution redeliveria em 30s);
+      // envio acontece em paralelo e o cron /api/cron/outbox cobre falhas.
       if (res.handled && res.reply) {
-        await flushOutbox(10).catch((e) => console.error("[outbox flush]", e));
+        void flushOutbox(10).catch((e) => console.error("[outbox flush]", e));
       }
     }
 
@@ -256,6 +257,7 @@ export async function flushOutbox(limit = 50): Promise<number> {
   }
 
   let sent = 0;
+  console.log(`[outbox] fila: ${rows?.length ?? 0} pendente(s)`);
   for (const [i, row] of (rows ?? []).entries()) {
     // Delay anti-flood: rajada derruba a conexão Baileys
     if (i > 0) await new Promise((r) => setTimeout(r, 1500));
@@ -278,6 +280,7 @@ export async function flushOutbox(limit = 50): Promise<number> {
 
     const provider = providerFor(row.organization_id, (conv?.channel as any)?.config);
     const accountId = (conv?.channel as any)?.cernio_channel_id || "default";
+    console.log(`[outbox] send via provider=${provider.name} to=${phone}`);
     const result = await provider.sendText(accountId, phone, row.content);
 
     if (result.ok) {

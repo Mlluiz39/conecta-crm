@@ -41,6 +41,10 @@ export function serverEnv() {
       apiKey: process.env.EVOLUTION_API_KEY ?? "",
       instance: process.env.EVOLUTION_INSTANCE ?? "",
     },
+    hermes: {
+      bin: process.env.HERMES_BIN ?? "",
+      home: process.env.HERMES_HOME ?? "",
+    },
     cronSecret: process.env.CRON_SECRET ?? "",
   };
 }

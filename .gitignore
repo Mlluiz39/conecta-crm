@@ -1,4 +1,5 @@
 node_modules/
+Changes/
 .next/
 build/
 dist/
@@ -10,3 +11,5 @@ coverage/
 .env.local
 !.env.example
 .kilo/
+.hermes-home/
+

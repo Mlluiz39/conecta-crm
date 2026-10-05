@@ -2,29 +2,38 @@ import "server-only";
 import { serverEnv } from "@/lib/env";
 import { createCernioProvider } from "./cernio.adapter";
 import { createEvolutionProvider } from "./evolution.adapter";
+import { createHermesProvider } from "./hermes.adapter";
 import type { MessageProvider } from "./types";
 
 export type { InboundMessage, MessageProvider, SendResult } from "./types";
 
-/** Registry de providers. Suporta 'evolution', 'zernio' e 'cernio'. */
+function hermesProvider(): MessageProvider {
+  const e = serverEnv();
+  return createHermesProvider({ bin: e.hermes.bin, home: e.hermes.home });
+}
+
+/** Registry de providers. Suporta 'hermes', 'evolution', 'zernio' e 'cernio'. */
 const registry: Record<string, () => MessageProvider> = {
+  hermes: hermesProvider,
   evolution: () => createEvolutionProvider(serverEnv().evolution),
   zernio: () => createCernioProvider(serverEnv().cernio),
   cernio: () => createCernioProvider(serverEnv().cernio),
 };
 
-/** Resolve o provider de mensageria ativo. Default: evolution (se EVOLUTION_* set) senão zernio. */
+/** Resolve o provider de mensageria ativo. Default: hermes (se HERMES_BIN set) senão evolution. */
 export function getMessageProvider(name?: string): MessageProvider {
-  const defaultName = serverEnv().evolution.instance ? "evolution" : "zernio";
+  const env = serverEnv();
+  const defaultName = env.hermes.bin ? "hermes" : env.evolution.instance ? "evolution" : "zernio";
   const factory = registry[(name ?? defaultName).toLowerCase()] ?? registry[defaultName];
   return factory();
 }
 
 /**
  * Provider a partir do config do canal (tabela channels.config).
- * config.provider === "evolution" → Evolution; caso contrário Zernio/Cernio.
+ * config.provider === "hermes" → Hermes CLI; "evolution" → Evolution; senão Zernio/Cernio.
  */
 export function providerFromConfig(cfg: any): MessageProvider {
+  if (cfg?.provider === "hermes") return hermesProvider();
   if (cfg?.provider === "evolution" || cfg?.instance) {
     return createEvolutionProvider({
       apiUrl: cfg.apiUrl || process.env.EVOLUTION_API_URL || "",
