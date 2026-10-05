@@ -58,11 +58,35 @@ try {
 }
 
 const sql = readFileSync(resolve(file), "utf8");
-const client = new pg.Client({ connectionString: dsn, ssl: { rejectUnauthorized: false } });
 
+/** Tenta TLS primeiro; se o servidor não completar o handshake, cai para conexão direta. */
+async function connectWithFallback() {
+  const attempts = [
+    { label: "TLS", config: { connectionString: dsn, ssl: { rejectUnauthorized: false } } },
+    { label: "sem TLS", config: { connectionString: dsn } },
+  ];
+  let lastError = null;
+  for (const { label, config } of attempts) {
+    const client = new pg.Client({ ...config, connectionTimeoutMillis: 12000 });
+    try {
+      await client.connect();
+      if (label === "sem TLS") {
+        console.warn("aviso: conectado SEM TLS (handshake TLS não completou nesta rede)");
+      }
+      return { client, label };
+    } catch (err) {
+      lastError = err;
+      await client.end().catch(() => {});
+    }
+  }
+  throw lastError ?? new Error("não foi possível conectar");
+}
+
+let client;
 try {
-  await client.connect();
-  console.log(`conectado ✓ · aplicando ${file}`);
+  const conn = await connectWithFallback();
+  client = conn.client;
+  console.log(`conectado ✓ (${conn.label}) · aplicando ${file}`);
 
   const statements = sql
     .split(/;\s*\n/)
