@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
   if (secret && request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "não autorizado" }, { status: 401 });
   }
-  const sent = await flushOutbox(50);
+  // Lote reduzido: 1,5s de delay entre envios (anti-flood) — 20 msgs ≈ 35s
+  const sent = await flushOutbox(20);
   return NextResponse.json({ ok: true, sent });
 }

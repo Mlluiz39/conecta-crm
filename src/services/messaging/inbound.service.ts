@@ -9,7 +9,10 @@ export type InboundOutcome = {
 };
 
 function normalizeHandle(from: string): string {
-  return from.replace(/[^\d+]/g, "");
+  const v = String(from ?? "");
+  // LID (identidade vinculada): preserva o sufixo p/ roundtrip de envio
+  if (v.endsWith("@lid")) return `${v.replace(/[^\d]/g, "")}@lid`;
+  return v.replace(/[^\d+]/g, "");
 }
 
 /**
@@ -84,14 +87,39 @@ export async function handleInboundWebhook(params: {
     const organizationId = channelRow.organization_id;
     const handle = normalizeHandle(msg.from);
 
-    // 3. Localiza/cria contato (índice org+phone é PARCIAL — não dá pra usar
-    //    upsert onConflict; select-then-insert com tratamento de corrida 23505)
+    // 3. Localiza/cria contato — matching hierárquico (índice org+phone é PARCIAL,
+    //    não dá upsert onConflict): 1) phone exato 2) sufixo 9 dígitos (DDI varia:
+    //    "5511977869073" vs "11977869073") 3) nome/pushName (caso @lid)
     let { data: contact } = await supabase
       .from("contacts")
       .select("id")
       .eq("organization_id", organizationId)
       .eq("phone", handle)
+      .limit(1)
       .maybeSingle();
+
+    const digits = handle.replace(/\D/g, "");
+    if (!contact && digits.length >= 9 && !handle.endsWith("@lid")) {
+      const { data: bySuffix } = await supabase
+        .from("contacts")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .like("phone", `%${digits.slice(-9)}`)
+        .limit(1)
+        .maybeSingle();
+      contact = bySuffix;
+    }
+
+    if (!contact && msg.fromName) {
+      const { data: byName } = await supabase
+        .from("contacts")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .ilike("name", `%${msg.fromName}%`)
+        .limit(1)
+        .maybeSingle();
+      contact = byName;
+    }
 
     if (!contact) {
       const inserted = await supabase
@@ -228,7 +256,9 @@ export async function flushOutbox(limit = 50): Promise<number> {
   }
 
   let sent = 0;
-  for (const row of rows ?? []) {
+  for (const [i, row] of (rows ?? []).entries()) {
+    // Delay anti-flood: rajada derruba a conexão Baileys
+    if (i > 0) await new Promise((r) => setTimeout(r, 1500));
     const conv: any = row.conversation;
     const phone: string | undefined = conv?.contact?.phone;
     const meta: OutboxMeta = (row.media as any)?.outbox ?? {};

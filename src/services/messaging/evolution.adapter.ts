@@ -17,6 +17,8 @@ export function createEvolutionProvider(cfg: {
   function api(path: string, init?: RequestInit) {
     return fetch(`${base}${path}`, {
       ...init,
+      // timeout: Evolution em reconexão pode pendurar — nunca travar a outbox
+      signal: AbortSignal.timeout(15_000),
       headers: {
         "content-type": "application/json",
         apikey: cfg.apiKey,
@@ -25,9 +27,11 @@ export function createEvolutionProvider(cfg: {
     });
   }
 
-  /** BR: dígitos + 55 se não tiver DDI. */
+  /** Telefone cru vira 55+; jid completo (@lid / @s.whatsapp.net) vai como está. */
   function toNumber(to: string): string {
-    const n = String(to).replace(/\D/g, "");
+    const v = String(to).trim();
+    if (v.includes("@")) return v;
+    const n = v.replace(/\D/g, "");
     if (n.length <= 11) return `55${n}`;
     return n;
   }
@@ -84,7 +88,8 @@ export function createEvolutionProvider(cfg: {
       const p = payload as any;
       if (!p || typeof p !== "object") return [];
 
-      const event = String(p.event ?? "").toUpperCase();
+      // evento chega "messages.upsert" (ponto) — normaliza p/ underscore
+      const event = String(p.event ?? "").toUpperCase().replace(/\./g, "_");
       if (event && !event.startsWith("MESSAGES_")) return []; // grupos/status/instância
       if (event === "MESSAGES_UPDATE") return []; // só entregas/acks
 
@@ -93,11 +98,12 @@ export function createEvolutionProvider(cfg: {
       if (m.key.fromMe) return []; // eco do que enviamos
 
       const jid = String(m.key.remoteJid);
-      // grupos (@g.us) e LIDs linkados (sem telefone) ficam de fora
-      if (jid.endsWith("@g.us") || jid.endsWith("@lid")) return [];
+      // grupos (@g.us) ficam de fora; @lid (identidade vinculada) é remetente válido
+      if (jid.endsWith("@g.us")) return [];
 
+      const isLid = jid.endsWith("@lid");
       const number = jid.split("@")[0];
-      if (!/^\d{7,}$/.test(number)) return [];
+      if (isLid ? !/^\d{6,}$/.test(number) : !/^\d{7,}$/.test(number)) return [];
 
       const msg = m.message ?? {};
       const text: string =
@@ -130,7 +136,7 @@ export function createEvolutionProvider(cfg: {
           externalConversationId: jid, // thread estável = remoteJid
           channel: "whatsapp",
           externalAccountId: String(p.instance || cfg.instance),
-          from: number,
+          from: jid, // completo: "5511...@s.whatsapp.net" ou "9139...@lid"
           fromName: m.pushName || undefined,
           kind,
           text: text || undefined,

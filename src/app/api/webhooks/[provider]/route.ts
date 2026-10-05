@@ -17,6 +17,11 @@ export async function POST(
   // Corpo cru é obrigatório para validar a assinatura.
   const rawBody = await request.text();
 
+  // DEBUG: capturar payload real do provider (remover após diagnóstico)
+  if (rawBody.length < 4000) {
+    console.log(`[webhook:${params.provider}] payload:`, rawBody);
+  }
+
   try {
     const outcome = await handleInboundWebhook({
       providerName: params.provider,
