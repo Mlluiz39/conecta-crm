@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import fs from "node:fs";
+import { randomBytes } from "node:crypto";
 
 // Lê .env.local ou .env sem depender de pacotes externos
 function loadEnv() {
@@ -36,7 +37,6 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
 });
 
 function gerarSenha() {
-  const { randomBytes } = require("node:crypto");
   return randomBytes(18).toString("base64url");
 }
 

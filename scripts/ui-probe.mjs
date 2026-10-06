@@ -22,6 +22,10 @@ const SHOTS = (args.shots ?? ".probe").replace(/\/$/, "");
 const IMG = (name) => `${SHOTS}/${name}`;
 const EMAIL = process.env.CRM_TEST_EMAIL || "admin@conectacrm.com.br";
 const PASSWORD = process.env.CRM_TEST_PASSWORD || process.env.ADMIN_PASSWORD || "";
+if (!PASSWORD) {
+  console.error("defina CRM_TEST_PASSWORD (ou ADMIN_PASSWORD) para rodar este teste");
+  process.exit(2);
+}
 
 mkdirSync(SHOTS, { recursive: true });
 
