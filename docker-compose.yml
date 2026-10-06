@@ -101,6 +101,10 @@ services:
     network_mode: host
     user: "${HERMES_UID:-1000}:${HERMES_GID:-1000}"
     command: ["scripts/container-cron.mjs"]
+    # Não é servidor web: o healthcheck herdado da imagem testa a porta do CRM e
+    # deixaria o container eternamente "unhealthy".
+    healthcheck:
+      disable: true
     env_file:
       - .env.local
     environment:
@@ -119,6 +123,10 @@ services:
     network_mode: host
     user: "${HERMES_UID:-1000}:${HERMES_GID:-1000}"
     command: ["scripts/hermes-watchdog.mjs", "--interval=30"]
+    # Não é servidor web: o healthcheck herdado da imagem testa a porta do CRM e
+    # deixaria o container eternamente "unhealthy".
+    healthcheck:
+      disable: true
     env_file:
       - .env.local
     environment:

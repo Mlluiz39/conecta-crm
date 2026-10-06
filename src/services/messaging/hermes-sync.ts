@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { serverEnv } from "@/lib/env";
 import { stripLogLines } from "./hermes-noise";
+import { messageUidSelect } from "./hermes-schema";
 
 export type HermesSyncResult = {
   sessions: number;
@@ -102,7 +103,9 @@ export async function syncHermesState(): Promise<HermesSyncResult> {
     };
 
     const selectMessages = db.prepare(
-      `SELECT id, role, content, timestamp, message_uid
+      // `messageUidSelect` cobre state.db antigo (sem a coluna message_uid): sem isso a
+      // query inteira falhava com "no such column: message_uid" e nada era espelhado.
+      `SELECT id, role, content, timestamp, ${messageUidSelect(db)}
          FROM messages
         WHERE session_id = ? AND role IN ('user', 'assistant') AND content IS NOT NULL
           AND content NOT LIKE 'Your request was not processed%'
