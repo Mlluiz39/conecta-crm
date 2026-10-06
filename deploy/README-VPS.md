@@ -326,6 +326,55 @@ tar czf ~/backup-hermes-$(date +%F).tgz -C /root .hermes
 pm2 start whatsapp-bridge
 ```
 
+### Migrar de PM2 para Docker (feito nesta VPS em 06/10/2026)
+
+Nesta VPS o domínio `crm.mlluizdevtech.qzz.io` é um túnel cloudflared apontando para
+`http://localhost:3002`. Para o Docker assumir **sem mexer no túnel**:
+
+```bash
+# .env.local da VPS (ajusta porta e dono dos volumes)
+CRM_PORT="3002"      # mesma porta que o túnel já aponta
+CRM_BIND="0.0.0.0"
+HERMES_UID="0"       # os arquivos de /root/.hermes são do root
+HERMES_GID="0"
+HERMES_MEM_LIMIT="3g"  # VPS com ~6 GB, dividida com outros serviços
+```
+
+Ordem que funcionou (sem downtime no CRM até a virada):
+
+```bash
+cd /root/projects/conecta-crm
+
+# 1. backup: home do Hermes + estado do pm2
+tar czf ~/backup-hermes-$(date +%F).tgz -C /root .hermes
+cp /root/.pm2/dump.pm2 ~/dump.pm2.bak
+
+# 2. home do Hermes -> volume do Docker, personas e trava de saída dentro dele
+mkdir -p .hermes-home && rsync -a /root/.hermes/ .hermes-home/.hermes/
+WHATSAPP_DATA_DIR=$PWD/.hermes-home/.hermes HERMES_HOME=$PWD/.hermes-home/.hermes ./scripts/install-hermes-assets.sh
+python3 scripts/enable-hermes-plugin.py --config $PWD/.hermes-home/.hermes/config.yaml
+
+# 3. build com o stack antigo ainda no ar
+docker compose --env-file .env.local build
+
+# 4. virada
+pm2 delete conecta-crm crm-cron whatsapp-bridge && pm2 save
+systemctl --user stop hermes-gateway && systemctl --user disable hermes-gateway
+CONECTA_ROOT=$PWD docker compose --env-file .env.local up -d
+
+# 5. parear o WhatsApp (QR aparece no terminal)
+docker compose exec hermes hermes whatsapp
+docker compose restart hermes
+```
+
+Duas armadilhas encontradas:
+
+- **porta 3005 é de outro serviço nesta VPS** (`vendedor-ia`). O bridge do Hermes usa a porta
+  de `platforms.whatsapp.extra.bridge_port` — deixamos **3000** no `config.yaml` do volume;
+- o `bridge.js` do template não escrevia no log do PM2 (stdout num socket), então o QR nunca
+  aparecia: em Docker o QR sai em `docker compose logs hermes`, que é o motivo prático de
+  rodar tudo em container.
+
 ### Variante: CRM em Vercel, Hermes na VPS
 
 Se preferir o CRM na Vercel (com os crons do `vercel.json`) e a VPS só para o Hermes, o CRM
