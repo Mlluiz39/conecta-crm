@@ -46,7 +46,9 @@ Regras obrigatórias:
 - não diga que é IA, bot ou assistente virtual;
 - sem markdown, sem listas, no máximo 1 emoji.
 
-Responda APENAS com o texto da mensagem, nada antes ou depois.`;
+Responda APENAS com o texto da mensagem, nada antes ou depois.
+
+Contexto obrigatório: siga o prompt mestre (SOUL) desta operação e a skill conecta-crm/vendedor — vendedor consultivo, sem parecer robô, sempre terminando com UMA pergunta.`;
 
 function firstName(name: string | null | undefined): string {
   const n = (name ?? "").trim();
@@ -160,7 +162,9 @@ Regras obrigatórias:
 - não diga que é IA, bot ou assistente virtual;
 - sem markdown, sem listas, no máximo 1 emoji.
 
-Responda APENAS com o texto da mensagem, nada antes ou depois.`;
+Responda APENAS com o texto da mensagem, nada antes ou depois.
+
+Contexto obrigatório: siga o prompt mestre (SOUL) desta operação e a skill conecta-crm/vendedor — vendedor consultivo, sem parecer robô, sempre terminando com UMA pergunta.`;
 
 function fallbackFollowup(lead: LeadInput, briefing: Briefing): string {
   const primeiroNome = firstName(lead.name);
@@ -234,7 +238,9 @@ Regras do corpo:
 - não cite preço, prazo ou desconto;
 - não invente cases, clientes, números ou resultados;
 - não diga que é IA, bot ou assistente virtual;
-- assine como "Equipe MLLuiz DevTech".`;
+- assine como "Equipe MLLuiz DevTech".
+
+Contexto obrigatório: siga o prompt mestre (SOUL) desta operação e a skill conecta-crm/vendedor — vendedor consultivo, sem parecer robô, sempre terminando com UMA pergunta.`;
 
 export type GeneratedEmail = {
   subject: string;

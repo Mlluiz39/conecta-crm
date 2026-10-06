@@ -1,33 +1,29 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { pollFetch, startPolling } from "@/lib/client/poll";
 
 /**
  * Polling do estado "digitando" das conversas do WhatsApp.
- * Retorna um mapa { conversationId: true }.
+ * Retorna um mapa { conversationId: true }. Indicador cosmético: intervalo folgado
+ * e sem sobreposição de requisições (o bridge pode demorar).
  */
-export function useTypingConversations(intervalMs = 3000) {
+export function useTypingConversations(intervalMs = 6000) {
   const [typing, setTyping] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let cancelled = false;
 
-    async function tick() {
-      try {
-        const res = await fetch("/api/presence", { cache: "no-store" });
-        if (!res.ok) return;
-        const json = (await res.json()) as { typing?: Record<string, boolean> };
-        if (!cancelled) setTyping(json.typing ?? {});
-      } catch {
-        // silencioso: sem indicador quando o bridge não responde
-      }
-    }
+    const stop = startPolling(async (signal) => {
+      const res = await pollFetch("/api/presence", signal);
+      if (!res.ok) return;
+      const json = (await res.json()) as { typing?: Record<string, boolean> };
+      if (!cancelled) setTyping(json.typing ?? {});
+    }, intervalMs);
 
-    void tick();
-    const id = setInterval(tick, intervalMs);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
   }, [intervalMs]);
 

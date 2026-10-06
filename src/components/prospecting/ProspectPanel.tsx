@@ -2,13 +2,14 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Search, Sparkles, Trash2, Clock } from "lucide-react";
+import { Search, Sparkles, Trash2, Clock, CalendarClock } from "lucide-react";
 import { useConfirm, useNotify } from "@/components/ui/dialog-provider";
 import { TEMPERATURE_EMOJI, type LeadTemperature } from "@/lib/data/lead-temperature";
 import {
   saveLeadOpportunity,
   setLeadTemperature,
   deleteContacts,
+  enqueueOutreachContacts,
   prospectWithAgent,
   runProspectFollowups,
   type AgentProspectResult,
@@ -79,6 +80,10 @@ export function ProspectPanel({
   // Seletor de leads dentro do painel do agente
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
+
+  // Fila de disparo (anti-ban)
+  const [queuePending, startQueueTransition] = useTransition();
+  const [queueResult, setQueueResult] = useState<string | null>(null);
 
   // Follow-up
   const [followupHours, setFollowupHours] = useState(24);
@@ -199,22 +204,49 @@ export function ProspectPanel({
     }
     startAgentTransition(async () => {
       try {
-        const r = await prospectWithAgent([...selected], { offer, goal, notes });
+        const numeric = Number(dealValue.replace(/[^\d,.]/g, "").replace(".", "").replace(",", "."));
+        const r = await prospectWithAgent([...selected], {
+          offer,
+          goal,
+          notes,
+          value: Number.isFinite(numeric) && numeric > 0 ? numeric : undefined,
+        });
         setAgentResult(r);
 
-        const numeric = Number(dealValue.replace(/[^\d,.]/g, "").replace(".", "").replace(",", "."));
         if (Number.isFinite(numeric) && numeric > 0 && r.contactIds.length > 0) {
-          await Promise.all(
-            r.contactIds.map((id) =>
-              saveLeadOpportunity({ contactId: id, value: numeric }).catch(() => null),
-            ),
-          );
           setValues((prev) => ({
             ...prev,
             ...Object.fromEntries(r.contactIds.map((id) => [id, String(numeric)])),
           }));
         }
-        if (r.sent > 0) setSelected(new Set());
+        if (r.sent > 0 || r.emails > 0) setSelected(new Set());
+      } catch (e) {
+        setAgentError((e as Error).message.replace(/^Error:\s*/, ""));
+      }
+    });
+  }
+
+  function enqueueSelected() {
+    setAgentError(null);
+    setQueueResult(null);
+    if (selected.size === 0) {
+      setAgentError("Selecione ao menos um lead");
+      return;
+    }
+    startQueueTransition(async () => {
+      try {
+        const numeric = Number(dealValue.replace(/[^\d,.]/g, "").replace(".", "").replace(",", "."));
+        const r = await enqueueOutreachContacts({
+          contactIds: [...selected],
+          offer,
+          goal,
+          notes,
+          value: Number.isFinite(numeric) && numeric > 0 ? numeric : undefined,
+        });
+        setQueueResult(
+          `${r.queued} lead(s) no ciclo · ${r.status.pendentes} na fila · ${r.status.enviadosHoje}/${r.status.tetoHoje} hoje`,
+        );
+        setSelected(new Set());
       } catch (e) {
         setAgentError((e as Error).message.replace(/^Error:\s*/, ""));
       }
@@ -553,14 +585,27 @@ export function ProspectPanel({
             </div>
           )}
 
-          <button
-            onClick={runAgent}
-            disabled={agentPending || selected.size === 0}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
-          >
-            <Sparkles size={16} />
-            {agentPending ? "Agente escrevendo e enviando..." : `Agente prospecta ${selected.size} contato(s)`}
-          </button>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              onClick={runAgent}
+              disabled={agentPending || selected.size === 0}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border-2 border-primary/40 px-4 py-2.5 text-sm font-semibold hover:bg-accent disabled:opacity-50"
+            >
+              <Sparkles size={16} />
+              {agentPending ? "Enviando agora..." : `Enviar agora (${selected.size})`}
+            </button>
+            <button
+              onClick={enqueueSelected}
+              disabled={queuePending || selected.size === 0}
+              title="O Hermes aborda aos poucos, dentro da janela 9–18h, com intervalos variados"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              <CalendarClock size={16} />
+              {queuePending ? "Colocando na fila..." : `Ciclo de disparo (${selected.size})`}
+            </button>
+          </div>
+
+          {queueResult && <p className="text-xs text-emerald-600">{queueResult}</p>}
 
           {gmail?.canSend ? (
             <p className="text-xs text-emerald-600">

@@ -4,6 +4,7 @@ import { Card, PageHeader, Badge } from "@/components/ui/primitives";
 import { formatBRL } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { RecentConversations } from "@/components/dashboard/RecentConversations";
+import { AlertsFeed } from "@/components/dashboard/AlertsFeed";
 
 const PipelineMiniChart = dynamic(
   () => import("@/components/dashboard/PipelineMiniChart").then((m) => ({ default: m.PipelineMiniChart })),
@@ -48,6 +49,8 @@ export default async function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      <AlertsFeed />
 
       <RecentConversations conversations={conversations as any} />
 

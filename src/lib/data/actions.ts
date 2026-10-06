@@ -5,6 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth/session";
 import { normalizePhone, parseLeadLine, stripHeader } from "@/lib/data/lead-parser";
 import {
+  ensureEmailConversation,
+  ensureProspectConversation,
+} from "@/services/prospecting/conversations";
+import {
   TEMPERATURE_NAMES,
   TEMPERATURE_TAGS,
   type LeadTemperature,
@@ -521,6 +525,78 @@ export async function saveLeadOpportunity(input: {
   return { id: data.id, created: true };
 }
 
+
+/* ───────────────────── Fila de disparo (anti-ban) ──────────────────── */
+
+export type EnqueueOutreachResult = {
+  queued: number;
+  skipped: number;
+  status: {
+    pendentes: number;
+    agendados: number;
+    enviadosHoje: number;
+    tetoHoje: number;
+    proximoEnvio: string | null;
+    dentroDaJanela: boolean;
+    janela: { inicio: number; fim: number };
+  };
+};
+
+/**
+ * Coloca os leads selecionados no ciclo de disparo: o Hermes aborda aos poucos,
+ * dentro da janela (padrão 9h–18h), com intervalos variados e teto de 15–20/dia.
+ * Telefone → WhatsApp; só e-mail → e-mail.
+ */
+export async function enqueueOutreachContacts(input: {
+  contactIds: string[];
+  offer?: string;
+  goal?: string;
+  notes?: string;
+  value?: number;
+  runNow?: boolean;
+}): Promise<EnqueueOutreachResult> {
+  const { organizationId } = await requireProfile();
+  const ids = (input.contactIds ?? []).filter(Boolean);
+  if (ids.length === 0) throw new Error("Selecione ao menos um lead");
+
+  const { enqueueOutreach, outreachStatus, runOutreachCycle } = await import(
+    "@/services/prospecting/outreach-queue"
+  );
+
+  const { queued, skipped } = await enqueueOutreach({
+    organizationId,
+    contactIds: ids,
+    briefing: {
+      offer: input.offer,
+      goal: input.goal,
+      notes: input.notes,
+      value: input.value,
+    },
+  });
+
+  // Planeja imediatamente (fora da janela só agenda; sem enviar)
+  await runOutreachCycle({ organizationId, limit: input.runNow ? 1 : undefined }).catch(() => null);
+
+  revalidatePath("/prospeccao");
+  return { queued, skipped, status: await outreachStatus(organizationId) };
+}
+
+/** Situação atual do ciclo (para a tela). */
+export async function getOutreachStatus() {
+  const { organizationId } = await requireProfile();
+  const { outreachStatus } = await import("@/services/prospecting/outreach-queue");
+  return outreachStatus(organizationId);
+}
+
+/** Roda um ciclo agora (botão "rodar ciclo" — respeita a janela e o teto). */
+export async function runOutreachNow() {
+  const { organizationId } = await requireProfile();
+  const { runOutreachCycle, outreachStatus } = await import("@/services/prospecting/outreach-queue");
+  const result = await runOutreachCycle({ organizationId });
+  revalidatePath("/prospeccao");
+  return { ...result, status: await outreachStatus(organizationId) };
+}
+
 /* ───────────────────────────── Pipeline ───────────────────────────── */
 
 export async function moveOpportunity(
@@ -599,6 +675,17 @@ export async function getLossReasons(): Promise<{ id: string; name: string }[]> 
 export async function takeoverConversation(conversationId: string) {
   const { organizationId, id: userId } = await requireProfile();
   const supabase = createClient();
+
+  const { data: conv } = await supabase
+    .from("conversations")
+    .select("id, contact:contacts(name, phone)")
+    .eq("organization_id", organizationId)
+    .eq("id", conversationId)
+    .maybeSingle();
+
+  const contato = (conv as { contact?: { name?: string | null; phone?: string | null } } | null)?.contact;
+  const quem = contato?.name ?? contato?.phone ?? conversationId.slice(0, 8);
+
   const { error } = await supabase
     .from("conversations")
     .update({
@@ -609,7 +696,17 @@ export async function takeoverConversation(conversationId: string) {
     .eq("organization_id", organizationId)
     .eq("id", conversationId);
   if (error) throw new Error(error.message);
+
+  // Para o bot DE VERDADE: o Hermes não lê o flag do CRM, então acionamos o
+  // emergency stop dele (para novos turnos, sem derrubar o WhatsApp).
+  const { pauseHermesBot } = await import("@/services/messaging/hermes-control");
+  const paused = await pauseHermesBot(`assumido no CRM: ${quem}`);
+  if (!paused.ok) {
+    console.error("[takeover] falha ao pausar o Hermes:", paused.output);
+  }
+
   revalidatePath("/conversas");
+  return { ok: true, hermesPaused: paused.ok, detail: paused.ok ? null : paused.output };
 }
 
 export async function reactivateBot(conversationId: string) {
@@ -617,15 +714,18 @@ export async function reactivateBot(conversationId: string) {
   const supabase = createClient();
   const { error } = await supabase
     .from("conversations")
-    .update({
-      bot_active: true,
-      bot_disabled_at: null,
-      handoff_reason: null,
-    })
+    .update({ bot_active: true, assigned_to: null, bot_disabled_at: null })
     .eq("organization_id", organizationId)
     .eq("id", conversationId);
   if (error) throw new Error(error.message);
+
+  // Devolve o atendimento para a IA (levanta o emergency stop do Hermes)
+  const { resumeHermesBot } = await import("@/services/messaging/hermes-control");
+  const resumed = await resumeHermesBot();
+  if (!resumed.ok) console.error("[reactivate] falha ao retomar o Hermes:", resumed.output);
+
   revalidatePath("/conversas");
+  return { ok: true, hermesResumed: resumed.ok, detail: resumed.ok ? null : resumed.output };
 }
 
 export async function addInternalNote(conversationId: string, text: string) {
@@ -664,6 +764,22 @@ export async function sendHumanMessage(conversationId: string, text: string) {
   revalidatePath("/conversas");
 }
 
+
+/**
+ * Resolve a conversa de E-MAIL do lead: mesmo `external_id` que o sync do Hermes
+ * usa (`<email>`), então a resposta do cliente cai na mesma thread.
+ */
+
+/**
+ * Marca no `media` da mensagem que o disparo foi manual (botão "Enviar agora")
+ * e/ou feito fora da janela 9–18h — a tela mostra um tic nesses casos.
+ */
+async function outreachMarks(): Promise<Record<string, unknown>> {
+  const { insideWindow } = await import("@/services/prospecting/outreach-queue");
+  const outside = !insideWindow(new Date());
+  return { outreach: { manual: true, outsideWindow: outside, at: new Date().toISOString() } };
+}
+
 /* ───────────────────────────── Prospecção ──────────────────────────── */
 
 const MAX_PROSPECT_BATCH = 50; // lote quente p/ evitar ban; subir com aquecimento
@@ -671,79 +787,6 @@ const MAX_IMPORT_LINES = 2000; // linhas por importação de leads
 // O agente gera uma mensagem por lead (LLM), então o lote é menor e mais lento.
 const MAX_AGENT_PROSPECT_BATCH = 10;
 
-/**
- * Resolve a conversa de WhatsApp do lead usando o MESMO external_id que o sync
- * do Hermes (`<fone>@s.whatsapp.net`). Sem isso a prospecção abriria uma thread
- * separada (`manual_<id>`) e a resposta do lead cairia em outra conversa.
- */
-async function ensureProspectConversation(
-  supabase: ReturnType<typeof createClient>,
-  params: { organizationId: string; contactId: string; channelId: string; phone: string | null },
-): Promise<{ id: string; externalId: string; created: boolean } | null> {
-  const digits = normalizePhone(params.phone ?? "");
-  const canonical = digits ? `${digits}@s.whatsapp.net` : null;
-
-  // 1) conversa canônica (a que o Hermes alimenta)
-  if (canonical) {
-    const { data: existing } = await supabase
-      .from("conversations")
-      .select("id")
-      .eq("organization_id", params.organizationId)
-      .eq("channel_id", params.channelId)
-      .eq("external_id", canonical)
-      .maybeSingle();
-    if (existing) return { id: existing.id, externalId: canonical, created: false };
-  }
-
-  // 2) qualquer conversa já existente desse contato nesse canal (evita duplicar)
-  const { data: byContact } = await supabase
-    .from("conversations")
-    .select("id, external_id")
-    .eq("organization_id", params.organizationId)
-    .eq("channel_id", params.channelId)
-    .eq("contact_id", params.contactId)
-    .limit(1)
-    .maybeSingle();
-  if (byContact) {
-    return { id: byContact.id, externalId: byContact.external_id ?? "", created: false };
-  }
-
-  // 3) cria com o external_id canônico
-  const externalId = canonical ?? `manual_${params.contactId}`;
-  const { data: created, error } = await supabase
-    .from("conversations")
-    .insert({
-      organization_id: params.organizationId,
-      contact_id: params.contactId,
-      channel_id: params.channelId,
-      channel_type: "whatsapp",
-      external_id: externalId,
-      status: "aberta",
-    })
-    .select("id")
-    .single();
-  if (error) {
-    if (error.code === "23505") {
-      const { data: again } = await supabase
-        .from("conversations")
-        .select("id")
-        .eq("organization_id", params.organizationId)
-        .eq("channel_id", params.channelId)
-        .eq("external_id", externalId)
-        .maybeSingle();
-      if (again) return { id: again.id, externalId, created: false };
-    }
-    console.error("[prospect] conversa:", error.message);
-    return null;
-  }
-  return { id: created.id, externalId, created: true };
-}
-
-/**
- * Enfileira mensagem de prospecção para contatos selecionados.
- * Cria conversa (chave manual_<contactId>, dedupe), renderiza {{nome}}/{{primeiro_nome}}
- * e dispara a outbox. Resposta do cliente cai na conversa → agente assume.
- */
 export async function prospectContacts(
   contactIds: string[],
   text: string,
@@ -892,7 +935,7 @@ export type AgentProspectResult = {
  */
 export async function prospectWithAgent(
   contactIds: string[],
-  briefing: { offer?: string; goal?: string; notes?: string } = {},
+  briefing: { offer?: string; goal?: string; notes?: string; value?: number } = {},
 ): Promise<AgentProspectResult> {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
@@ -1034,6 +1077,7 @@ export async function prospectWithAgent(
         sender_type: "agent_ai",
         content: text,
         status: "pendente",
+        media: await outreachMarks(),
       });
       if (mErr) {
         console.error("[prospect/agent] mensagem:", mErr.message);
@@ -1069,6 +1113,27 @@ export async function prospectWithAgent(
             subject,
             source,
           });
+
+          // Espelha no CRM: conversa de e-mail + mensagem enviada (aparece no inbox
+          // e no painel "IA prospectando agora")
+          const mailConv = await ensureEmailConversation(supabase, {
+            organizationId,
+            contactId: String(c.id),
+            email: String(c.email),
+          });
+          if (mailConv) {
+            await supabase.from("messages").insert({
+              organization_id: organizationId,
+              conversation_id: mailConv.id,
+              direction: "out",
+              sender_type: "agent_ai",
+              content: `Assunto: ${subject}\n\n${body}`,
+              status: "entregue",
+              external_id: `hermes_email_${Date.now()}`,
+              media: await outreachMarks(),
+            });
+          }
+
           emails++;
           contactIds.push(String(c.id));
           if (previews.length < 5) {
@@ -1157,8 +1222,19 @@ export async function prospectWithAgent(
   const { flushOutbox } = await import("@/services/messaging/inbound.service");
   const sent = queued > 0 ? await flushOutbox(Math.min(queued, MAX_PROSPECT_BATCH)).catch(() => 0) : 0;
 
+  // Valor do serviço informado? cria/atualiza a oportunidade de cada lead abordado
+  const dealValue = Number(briefing.value);
+  if (Number.isFinite(dealValue) && dealValue > 0 && contactedIds.length > 0) {
+    for (const id of contactedIds) {
+      await saveLeadOpportunity({ contactId: id, value: dealValue }).catch((e) =>
+        console.error("[prospect/agent] oportunidade:", (e as Error).message),
+      );
+    }
+  }
+
   revalidatePath("/prospeccao");
   revalidatePath("/conversas");
+  revalidatePath("/pipeline");
   return { queued, sent, skipped, alreadyContacted, emails, contactIds: contactedIds, previews };
 }
 
@@ -1312,6 +1388,24 @@ export async function prospectManualLead(input: {
           subject: mailContent.subject,
           source: mailContent.source,
         });
+
+        const mailConv = await ensureEmailConversation(supabase, {
+          organizationId,
+          contactId: targetContactId,
+          email,
+        });
+        if (mailConv) {
+          await supabase.from("messages").insert({
+            organization_id: organizationId,
+            conversation_id: mailConv.id,
+            direction: "out",
+            sender_type: "agent_ai",
+            content: `Assunto: ${mailContent.subject}\n\n${mailContent.body}`,
+            status: "entregue",
+            external_id: `hermes_email_${Date.now()}`,
+            media: await outreachMarks(),
+          });
+        }
       }
       revalidatePath("/prospeccao");
       revalidatePath("/contatos");
@@ -1364,6 +1458,7 @@ export async function prospectManualLead(input: {
     sender_type: "agent_ai",
     content: text,
     status: "pendente",
+    media: await outreachMarks(),
   });
   if (msgErr) throw new Error(msgErr.message);
 

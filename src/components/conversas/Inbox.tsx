@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   takeoverConversation,
@@ -9,6 +10,8 @@ import {
   sendHumanMessage,
 } from "@/lib/data/actions";
 import { Badge } from "@/components/ui/primitives";
+import { useNotify } from "@/components/ui/dialog-provider";
+import { pollFetch, startPolling } from "@/lib/client/poll";
 import { formatDateTime } from "@/lib/utils";
 import { useTypingConversations } from "@/components/conversas/useTyping";
 import { CHANNEL_LABEL, type ChannelType } from "@/types/domain";
@@ -41,6 +44,23 @@ const CHANNEL_DOT: Record<string, string> = {
   messenger: "bg-blue-500",
 };
 
+/** Mesma mensagem? (id igual ou mesmo texto/direção em até 3 min — evita duplicar otimista + real) */
+function sameMessage(a: Msg, b: Msg): boolean {
+  if (a.id === b.id) return true;
+  if (a.content !== b.content || a.direction !== b.direction || a.sender_type !== b.sender_type) return false;
+  return Math.abs(new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) < 180_000;
+}
+
+function sameNote(a: Note, b: Note): boolean {
+  if (a.id === b.id) return true;
+  if (a.content !== b.content) return false;
+  return Math.abs(new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) < 180_000;
+}
+
+/** Ajuste local (otimista) que expira sozinho, para nunca mascarar o estado real do servidor. */
+type Patch<T> = { value: Partial<T>; at: number };
+const PATCH_TTL_MS = 8_000;
+
 export function Inbox({
   initialConversations,
   initialMessages,
@@ -54,16 +74,77 @@ export function Inbox({
   organizationId: string;
   initialActiveId?: string;
 }) {
-  const [conversations, setConversations] = useState(initialConversations);
+  const router = useRouter();
+  const notify = useNotify();
+
+  // Estado derivado das props (nunca um snapshot congelado): o servidor manda o
+  // estado novo depois de cada action e a tela acompanha; os ajustes otimistas
+  // ficam por cima por alguns segundos e caem sozinhos.
+  const [patches, setPatches] = useState<Record<string, Patch<Conv>>>({});
+  const [extraMessages, setExtraMessages] = useState<Record<string, Msg[]>>({});
+  const [extraNotes, setExtraNotes] = useState<Record<string, Note[]>>({});
+  const [tick, setTick] = useState(() => Date.now());
+  const [botBusy, setBotBusy] = useState<null | "assumir" | "reativar">(null);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick(Date.now()), 2_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const conversations = useMemo(
+    () =>
+      initialConversations.map((c) => {
+        const patch = patches[c.id];
+        return patch && tick - patch.at < PATCH_TTL_MS ? { ...c, ...patch.value } : c;
+      }),
+    [initialConversations, patches, tick],
+  );
+
+  const messages = useMemo(() => {
+    const out: Record<string, Msg[]> = { ...initialMessages };
+    for (const [conversationId, list] of Object.entries(extraMessages)) {
+      const base = out[conversationId] ?? [];
+      out[conversationId] = [...base, ...list.filter((m) => !base.some((b) => sameMessage(b, m)))];
+    }
+    return out;
+  }, [initialMessages, extraMessages]);
+
+  const notes = useMemo(() => {
+    const out: Record<string, Note[]> = { ...initialNotes };
+    for (const [conversationId, list] of Object.entries(extraNotes)) {
+      const base = out[conversationId] ?? [];
+      out[conversationId] = [...list.filter((n) => !base.some((b) => sameNote(b, n))), ...base];
+    }
+    return out;
+  }, [initialNotes, extraNotes]);
+
+  function patchConversation(conversationId: string, value: Partial<Conv>) {
+    setPatches((prev) => ({ ...prev, [conversationId]: { value, at: Date.now() } }));
+  }
+
   const [activeId, setActiveId] = useState<string | null>(initialActiveId ?? initialConversations[0]?.id ?? null);
-  const [messages, setMessages] = useState(initialMessages);
-  const [notes, setNotes] = useState(initialNotes);
   const [channelFilter, setChannelFilter] = useState<"all" | ChannelType>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "bot" | "humano">("all");
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<"message" | "note">("message");
 
   const typingMap = useTypingConversations();
+  const [botPaused, setBotPaused] = useState(false);
+
+  // estado global do bot (emergency stop do Hermes) — atualiza a cada 10s
+  useEffect(() => {
+    let cancelled = false;
+    const stop = startPolling(async (signal) => {
+      const res = await pollFetch("/api/hermes/bot-pause", signal);
+      if (!res.ok) return;
+      const json = (await res.json()) as { paused?: boolean };
+      if (!cancelled) setBotPaused(Boolean(json.paused));
+    }, 10_000);
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, []);
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
   const activeMessages = activeId ? messages[activeId] ?? [] : [];
@@ -78,7 +159,7 @@ export function Inbox({
         { event: "INSERT", schema: "public", table: "messages", filter: `organization_id=eq.${organizationId}` },
         (payload) => {
           const m = payload.new as Msg & { conversation_id: string };
-          setMessages((prev) => ({
+          setExtraMessages((prev) => ({
             ...prev,
             [m.conversation_id]: [...(prev[m.conversation_id] ?? []), m],
           }));
@@ -89,7 +170,7 @@ export function Inbox({
         { event: "UPDATE", schema: "public", table: "conversations", filter: `organization_id=eq.${organizationId}` },
         (payload) => {
           const c = payload.new as Conv;
-          setConversations((prev) => prev.map((x) => (x.id === c.id ? { ...x, ...c } : x)));
+          patchConversation(c.id, c);
         },
       )
       .subscribe();
@@ -110,35 +191,88 @@ export function Inbox({
     [conversations, channelFilter, statusFilter],
   );
 
+  /** Assumir conversa (pausa a IA) / reativar bot — com resposta imediata na tela. */
+  async function handleBotAction() {
+    if (!active || botBusy) return;
+    const conversa = active;
+    const assumindo = conversa.bot_active;
+    setBotBusy(assumindo ? "assumir" : "reativar");
+    patchConversation(conversa.id, { bot_active: !assumindo });
+
+    try {
+      if (assumindo) {
+        const res = await takeoverConversation(conversa.id);
+        if (res.hermesPaused) {
+          notify("Você assumiu a conversa. A IA está pausada.", "success");
+        } else {
+          notify("Assumido no CRM, mas a IA não pausou: " + (res.detail ?? "erro no Hermes"), "error");
+        }
+      } else {
+        const res = await reactivateBot(conversa.id);
+        if (res.hermesResumed) {
+          notify("Bot de IA reativado. A IA voltou a responder.", "success");
+        } else {
+          notify("Reativado no CRM, mas o Hermes não retomou: " + (res.detail ?? "erro no Hermes"), "error");
+        }
+      }
+    } catch (error) {
+      patchConversation(conversa.id, { bot_active: assumindo });
+      notify(
+        (assumindo ? "Não deu para assumir: " : "Não deu para reativar: ") + (error as Error).message,
+        "error",
+      );
+    } finally {
+      setBotBusy(null);
+      router.refresh();
+    }
+  }
+
   async function handleSend() {
     if (!input.trim() || !active) return;
     const text = input.trim();
+    const conversationId = active.id;
     setInput("");
     if (mode === "note") {
-      await addInternalNote(active.id, text);
-      setNotes((prev) => ({
+      setExtraNotes((prev) => ({
         ...prev,
-        [active.id]: [
+        [conversationId]: [
           { id: `tmp_${Date.now()}`, content: text, created_at: new Date().toISOString() },
-          ...(prev[active.id] ?? []),
+          ...(prev[conversationId] ?? []),
         ],
       }));
+      try {
+        await addInternalNote(conversationId, text);
+        router.refresh();
+      } catch (error) {
+        setExtraNotes((prev) => ({
+          ...prev,
+          [conversationId]: (prev[conversationId] ?? []).filter((n) => n.content !== text),
+        }));
+        notify("Não deu para salvar a nota: " + (error as Error).message, "error");
+      }
     } else {
-      await sendHumanMessage(active.id, text);
-      setMessages((prev) => ({
+      const optimistic: Msg = {
+        id: `tmp_${Date.now()}`,
+        direction: "out",
+        sender_type: "user",
+        content: text,
+        created_at: new Date().toISOString(),
+        status: "enviada",
+      };
+      setExtraMessages((prev) => ({
         ...prev,
-        [active.id]: [
-          ...(prev[active.id] ?? []),
-          {
-            id: `tmp_${Date.now()}`,
-            direction: "out",
-            sender_type: "user",
-            content: text,
-            created_at: new Date().toISOString(),
-            status: "enviada",
-          },
-        ],
+        [conversationId]: [...(prev[conversationId] ?? []), optimistic],
       }));
+      try {
+        await sendHumanMessage(conversationId, text);
+        router.refresh();
+      } catch (error) {
+        setExtraMessages((prev) => ({
+          ...prev,
+          [conversationId]: (prev[conversationId] ?? []).filter((m) => !sameMessage(m, optimistic)),
+        }));
+        notify("Não deu para enviar: " + (error as Error).message, "error");
+      }
     }
   }
 
@@ -221,6 +355,16 @@ export function Inbox({
       {/* Thread */}
       {active ? (
         <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border bg-card">
+          {botPaused && (
+            <div className="flex flex-wrap items-center gap-2 border-b bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+              <span className="font-bold">⏸️ Bot pausado — você está no controle.</span>
+              <span className="text-amber-700/80">
+                A IA não responde novos turnos até você retomar. Pelo celular: mande{" "}
+                <code className="rounded bg-background px-1">/pause</code> na conversa com o bot e{" "}
+                <code className="rounded bg-background px-1">/pause off</code> para voltar.
+              </span>
+            </div>
+          )}
           <div className="flex items-center justify-between border-b p-3">
             <div>
               <p className="text-sm font-bold">{active.contact?.name ?? "Contato"}</p>
@@ -234,16 +378,25 @@ export function Inbox({
                 )}
               </p>
             </div>
-            {active.bot_active ? (
+            {botBusy ? (
               <button
-                onClick={() => void takeoverConversation(active.id)}
+                disabled
+                className={`rounded-lg px-3 py-1.5 text-xs font-bold text-white opacity-60 ${
+                  botBusy === "assumir" ? "bg-primary" : "bg-emerald-600"
+                }`}
+              >
+                {botBusy === "assumir" ? "Assumindo…" : "Reativando…"}
+              </button>
+            ) : active.bot_active ? (
+              <button
+                onClick={() => void handleBotAction()}
                 className="rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground"
               >
                 Assumir conversa
               </button>
             ) : (
               <button
-                onClick={() => void reactivateBot(active.id)}
+                onClick={() => void handleBotAction()}
                 className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"
               >
                 Reativar bot (IA)

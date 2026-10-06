@@ -12,7 +12,8 @@ import { ImportLeadsPanel } from "@/components/prospecting/ImportLeadsPanel";
 import { CompanySearchPanel } from "@/components/prospecting/CompanySearchPanel";
 import { BulkCleanupPanel } from "@/components/prospecting/BulkCleanupPanel";
 import { LiveProspectingPanel } from "@/components/prospecting/LiveProspectingPanel";
-import { countContactsByFilter } from "@/lib/data/actions";
+import { OutreachCyclePanel } from "@/components/prospecting/OutreachCyclePanel";
+import { countContactsByFilter, getOutreachStatus } from "@/lib/data/actions";
 import { temperatureFromTagNames } from "@/lib/data/lead-temperature";
 import { Breadcrumbs } from "@/components/ui/primitives";
 import { ManualProspectPanel } from "@/components/prospecting/ManualProspectPanel";
@@ -55,6 +56,7 @@ export default async function ProspeccaoPage({
   const contacted = await getContactedContactIds(contacts.map((c) => c.id)).catch(() => []);
   const stats = await getProspectStats().catch(() => null);
   const recentSearches = await getRecentSearches().catch(() => []);
+  const outreach = await getOutreachStatus().catch(() => null);
   const [noPhoneCount, neverContactedCount] = await Promise.all([
     countContactsByFilter({ kind: "noPhone" }).catch(() => 0),
     countContactsByFilter({ kind: "neverContacted" }).catch(() => 0),
@@ -119,6 +121,8 @@ export default async function ProspeccaoPage({
 
       {/* Largura total: quem a IA está prospectando, em tempo real */}
       <LiveProspectingPanel />
+
+      {outreach && <OutreachCyclePanel initial={outreach} />}
 
       <ProspectPanel
         contacts={panelContacts}
