@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { serverEnv } from "@/lib/env";
 import { generateFirstTouch, generateFirstTouchEmail } from "@/services/prospecting/agent-outreach";
+import { holidayName } from "./holidays";
 import {
   ensureEmailConversation,
   ensureProspectConversation,
@@ -70,6 +71,7 @@ export function dailyTarget(date = new Date()): number {
 export function insideWindow(date = new Date()): boolean {
   const dow = date.getDay(); // 0=dom
   if (dow === 0) return false;
+  if (holidayName(date)) return false; // feriado: ninguém no trabalho para ler
   const hour = date.getHours() + date.getMinutes() / 60;
   return hour >= windowStart() && hour < windowEnd();
 }
@@ -81,7 +83,7 @@ export function nextWindowStart(date = new Date()): Date {
   candidate.setMinutes(0, 0, 0);
   candidate.setHours(start);
   if (candidate <= date) candidate.setDate(candidate.getDate() + 1);
-  while (candidate.getDay() === 0) candidate.setDate(candidate.getDate() + 1);
+  while (candidate.getDay() === 0 || holidayName(candidate)) candidate.setDate(candidate.getDate() + 1);
   return candidate;
 }
 

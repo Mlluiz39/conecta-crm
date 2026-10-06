@@ -1,0 +1,176 @@
+# ConectaCRM + Hermes em Docker.
+#
+#   docker compose --env-file .env.local up -d --build
+#
+# O que sobe:
+#   hermes   → gateway do Hermes (WhatsApp/e-mail/Telegram) + bridge do WhatsApp (porta 3005)
+#   crm      → ConectaCRM (Next.js) na porta 8081
+#   cron     → agenda interna (outbox, sync, alertas, prospecção, lembretes)
+#   watchdog → vigia: gateway por socket, bridge, CRM e aviso de fallback no Telegram
+#
+# Decisões que importam:
+#   * `network_mode: host` nos quatro: replica o que já funciona hoje (o CLI do Hermes fala com
+#     o bridge em 127.0.0.1:3005, o CRM em 8081, o Telegram faz polling). Sem isso, cada
+#     container veria um 127.0.0.1 diferente e nada se encontraria.
+#   * o MESMO volume do Hermes (`./.hermes-home/.hermes` → `/opt/data`) é montado em `hermes`,
+#     `crm` e `watchdog`: é de lá que vêm config, chaves, SOUL, skills, plugins, sessão do
+#     WhatsApp e o `state.db` que o CRM espelha.
+#   * senhas/segredos ficam no `.env.local` (fora do git) e entram por `env_file`; as variáveis
+#     `NEXT_PUBLIC_*` são embutidas em tempo de build, por isso viram build args.
+
+name: conectacrm
+
+# Raiz do projeto no host. Precisa ser o caminho ABSOLUTO: o hook do relógio/expediente é
+# registrado no config.yaml com o caminho absoluto do script, e o container precisa achar o
+# mesmo arquivo no mesmo lugar. Rode sempre a partir da raiz do repositório:
+#   CONECTA_ROOT="$PWD" docker compose --env-file .env.local up -d --build
+x-root: &root "${CONECTA_ROOT:-.}"
+# âncora com o volume completo (YAML não deixa concatenar em cima de um alias)
+x-hermes-home: &hermes-home "${CONECTA_ROOT:-.}/.hermes-home/.hermes:/opt/data"
+
+services:
+  hermes:
+    image: nousresearch/hermes-agent:latest
+    container_name: conectacrm-hermes
+    restart: unless-stopped
+    network_mode: host
+    command: ["gateway", "run"]
+    volumes:
+      - *hermes-home
+      # o hook `pre_llm_call` é registrado no config.yaml como "/opt/data/hooks/hermes-clock-context.py".
+      # Montar em /opt/data/hooks (dentro do próprio home) deixa o caminho IGUAL em qualquer máquina —
+      # não depende de onde o repositório está, então a stack é portátil para uma VPS.
+      - "${CONECTA_ROOT:-.}/scripts:/opt/data/hooks:ro"
+    environment:
+      HERMES_UID: "${HERMES_UID:-1000}"
+      HERMES_GID: "${HERMES_GID:-1000}"
+      TZ: America/Sao_Paulo
+    # Recomendado pela doc do Hermes: 2–4 GB e 2 CPUs (o gateway é o processo mais pesado).
+    mem_limit: 4g
+    cpus: 2
+    healthcheck:
+      # O gateway escreve /opt/data/gateway_state.json periodicamente; se ficou velho, travou.
+      test:
+        [
+          "CMD-SHELL",
+          "test -f /opt/data/gateway_state.json && [ $(( $(date +%s) - $(stat -c %Y /opt/data/gateway_state.json) )) -lt 300 ]",
+        ]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+
+  crm:
+    build:
+      context: .
+      target: runtime
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: "${NEXT_PUBLIC_SUPABASE_URL:-}"
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}"
+        NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL:-http://localhost:8081}"
+    image: conectacrm-app
+    container_name: conectacrm-web
+    restart: unless-stopped
+    network_mode: host
+    user: "${HERMES_UID:-1000}:${HERMES_GID:-1000}"
+    command: ["server.js"]
+    env_file:
+      - .env.local
+    environment:
+      # dentro do container o Hermes mora em /opt/data (volume), não no caminho do host
+      HERMES_BIN: /opt/hermes/bin/hermes
+      HERMES_HOME: /opt/data
+      PORT: "8081"
+      # local: 0.0.0.0 (acesso direto). VPS atrás do Caddy: 127.0.0.1 (só o proxy alcança).
+      HOSTNAME: "${CRM_BIND:-0.0.0.0}"
+      TZ: America/Sao_Paulo
+    volumes:
+      - *hermes-home
+      # o CRM também roda turnos do Hermes (texto da prospecção) e o hook vive em /opt/data/hooks
+      - "${CONECTA_ROOT:-.}/scripts:/opt/data/hooks:ro"
+    depends_on:
+      hermes:
+        condition: service_started
+
+  cron:
+    image: conectacrm-app
+    container_name: conectacrm-cron
+    restart: unless-stopped
+    network_mode: host
+    user: "${HERMES_UID:-1000}:${HERMES_GID:-1000}"
+    command: ["scripts/container-cron.mjs"]
+    env_file:
+      - .env.local
+    environment:
+      CRM_BASE_URL: http://127.0.0.1:8081
+      HERMES_BIN: /opt/hermes/bin/hermes
+      HERMES_HOME: /opt/data
+      TZ: America/Sao_Paulo
+    depends_on:
+      crm:
+        condition: service_started
+
+  watchdog:
+    image: conectacrm-app
+    container_name: conectacrm-watchdog
+    restart: unless-stopped
+    network_mode: host
+    user: "${HERMES_UID:-1000}:${HERMES_GID:-1000}"
+    command: ["scripts/hermes-watchdog.mjs", "--interval=30"]
+    env_file:
+      - .env.local
+    environment:
+      HERMES_HOME: /opt/data
+      HERMES_BIN: /opt/hermes/bin/hermes
+      CRM_HEALTH_URL: http://127.0.0.1:8081/login
+      # em container quem ressuscita é a restart policy do Docker — o vigia só observa e avisa
+      WATCHDOG_NO_SPAWN: "1"
+      TZ: America/Sao_Paulo
+    volumes:
+      - *hermes-home
+    depends_on:
+      hermes:
+        condition: service_started
+      crm:
+        condition: service_started
+
+  # Proxy reverso com HTTPS automático (Let's Encrypt via Caddy).
+  # Sobe só quando chamado:  docker compose --profile proxy up -d
+  # Exige: domínio apontando para o servidor e portas 80/443 liberadas.
+  # Com `CRM_BIND=127.0.0.1` o CRM fica inacessível de fora, exceto pelo proxy.
+  proxy:
+    image: caddy:2-alpine
+    container_name: conectacrm-proxy
+    restart: unless-stopped
+    network_mode: host
+    profiles: ["proxy"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      # domínio do CRM (ex.: crm.seudominio.com.br). Sem domínio, use ":80" para HTTP puro.
+      CRM_DOMAIN: "${CRM_DOMAIN:-:80}"
+    depends_on:
+      crm:
+        condition: service_started
+
+  # Acesso pelo Cloudflare Tunnel (não precisa abrir 80/443 nem expor o IP da VPS).
+  # 1. No painel: Zero Trust → Networks → Tunnels → Create tunnel (Cloudflared) → copie o token
+  # 2. No .env.local da VPS: CF_TUNNEL_TOKEN=... e CRM_BIND=127.0.0.1
+  # 3. Suba:  docker compose --env-file .env.local --profile tunnel up -d
+  # No túnel, configure o Public Hostname do domínio apontando para  http://127.0.0.1:8081
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: conectacrm-tunnel
+    restart: unless-stopped
+    network_mode: host
+    profiles: ["tunnel"]
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CF_TUNNEL_TOKEN:-}"]
+    depends_on:
+      crm:
+        condition: service_started
+
+volumes:
+  caddy-data:
+  caddy-config:

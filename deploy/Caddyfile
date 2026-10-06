@@ -1,0 +1,39 @@
+# Caddy na frente do ConectaCRM (HTTPS automático).
+#
+# Sobe junto com a stack:   CRM_DOMAIN=crm.seudominio.com.br docker compose --profile proxy up -d
+#
+# O domínio vem da variável CRM_DOMAIN (definida no ambiente ou no .env.local).
+# Sem domínio (ex.: VPS só com IP), use CRM_DOMAIN=":80" -> HTTP puro, sem certificado.
+
+{$CRM_DOMAIN} {
+	encode zstd gzip
+
+	# O CRM escuta em 127.0.0.1:8081 (CRM_BIND=127.0.0.1 no .env.local) — só o proxy alcança.
+	reverse_proxy 127.0.0.1:8081 {
+		# O CRM usa Supabase Auth por cookie; o proxy não pode reescrever nada.
+		header_up X-Real-IP {remote_host}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+	}
+
+	# Camada extra de proteção: o painel tem login (Supabase Auth), mas se quiser exigir
+	# uma senha ANTES de chegar na tela de login, gere o hash e descomente:
+	#   docker run --rm caddy:2-alpine caddy hash-password --plaintext 'SUA_SENHA'
+	#
+	#	basic_auth {
+	#		marcelo $2a$14$SUBSTITUA_PELO_HASH
+	#	}
+}

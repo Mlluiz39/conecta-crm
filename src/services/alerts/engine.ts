@@ -71,6 +71,19 @@ export function alertConfig(): AlertConfig {
   };
 }
 
+/**
+ * Escapa o que o Telegram (parse_mode HTML) interpreta como marcação.
+ *
+ * Histórico: usávamos `parse_mode: "Markdown"` (legado). O texto do lead é dinâmico e
+ * truncado em 160 caracteres — quando o corte caía no meio de uma entidade, o Telegram
+ * devolvia `400 can't parse entities: Can't find end of the entity` e o alerta se perdia
+ * (3 alertas assim em 06/10, comprovado reproduzindo a chamada). HTML só precisa de
+ * &, < e > escapados e sobrevive a truncamento — por isso a troca.
+ */
+function escaparHtml(texto: string): string {
+  return texto.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function telegramToken(): string {
   const env = hermesEnv();
   return process.env.TELEGRAM_BOT_TOKEN ?? env.TELEGRAM_BOT_TOKEN ?? "";
@@ -403,22 +416,28 @@ export async function notifyAlerts(
     const primeiro = mine[0];
     const nome = (primeiro.payload as { contacto?: string } | null)?.contacto ?? primeiro.title;
     const linhas: string[] = [];
-    linhas.push(mine.length > 1 ? `*${nome} — ${mine.length} novidades*` : `*${nome}*`);
+    linhas.push(
+      mine.length > 1
+        ? `<b>${escaparHtml(nome)} — ${mine.length} novidades</b>`
+        : `<b>${escaparHtml(nome)}</b>`,
+    );
 
     for (const alert of mine) {
       // rótulo = parte do título antes do travessão (ex.: "📞 Quer uma call")
-      const label = String(alert.title).split(" — ")[0].trim();
+      const label = escaparHtml(String(alert.title).split(" — ")[0].trim());
       const texto = String(alert.body ?? "").trim().replace(/\s+/g, " ");
-      linhas.push(texto ? `• ${label}\n  _"${texto.slice(0, 160)}"_` : `• ${label}`);
+      linhas.push(
+        texto ? `• ${label}\n  <i>"${escaparHtml(texto.slice(0, 160))}"</i>` : `• ${label}`,
+      );
     }
 
     linhas.push(
-      `_${new Date(String(primeiro.created_at)).toLocaleString("pt-BR", {
+      `<i>${new Date(String(primeiro.created_at)).toLocaleString("pt-BR", {
         day: "2-digit",
         month: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
-      })}_`,
+      })}</i>`,
     );
 
     const res = await fetch(`https://api.telegram.org/bot${telegramToken()}/sendMessage`, {
@@ -427,7 +446,7 @@ export async function notifyAlerts(
       body: JSON.stringify({
         chat_id: config.chatId,
         text: linhas.join("\n"),
-        parse_mode: "Markdown",
+        parse_mode: "HTML",
         disable_web_page_preview: true,
       }),
       signal: AbortSignal.timeout(15_000),
@@ -435,6 +454,8 @@ export async function notifyAlerts(
 
     if (res.ok) {
       sent++;
+      // limpa erro de tentativas anteriores (senão a coluna fica mentindo no futuro)
+      await supabase.from("alerts").update({ notify_error: null }).in("id", ids);
     } else {
       failed++;
       // devolve para a fila (tenta de novo na próxima rodada)
