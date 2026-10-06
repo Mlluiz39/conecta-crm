@@ -232,61 +232,67 @@ o diretório `platforms/whatsapp/session` guarda o vínculo do WhatsApp — sem 
 
 ## 10. VPS com Node puro + PM2 (sem Docker)
 
-Arranjo suportado quando a VPS já roda tudo com `node` + `pm2`. O que costuma estar no `pm2 list`:
+Arranjo em que tudo roda com `node` + `pm2`, e o projeto fica em qualquer pasta (ex.:
+`/root/projects/conecta-crm`). O `pm2 list` de referência:
 
-| Processo | O que é | Como sobe |
+| Processo | Script / cwd | O que é |
 | --- | --- | --- |
-| `conectacrm` | CRM Next.js em produção | `npm ci && npm run build && pm2 start npm --name conectacrm -- start` |
-| `conectacrm-cron` | agenda interna (outbox, **hermes-sync**, alertas, prospecção, lembretes) | `pm2 start scripts/container-cron.mjs --name conectacrm-cron` |
-| `whatsapp-manager` / `hermes` / `bridge` | atendimento no WhatsApp (bridge Baileys + persona + plugin) | instalado pelo template do Hermes |
+| `conecta-crm` | `.next/standalone/server.js` (cwd = pasta do projeto) | CRM Next.js em produção |
+| `crm-cron` | `scripts/container-cron.mjs` | agenda interna (outbox, **hermes-sync**, alertas, prospecção, lembretes) |
+| `whatsapp-bridge` | `$HERMES_HOME/plugins/whatsapp-manager/bridge.js` | **atendimento**: bridge Baileys + persona + plugins do Hermes |
+| (outros) | — | ex.: `vendedor-ia` roda `/root/projects/crm-client-backup` — **outro** projeto, não mexa |
+
+Dois caminhos precisam estar alinhados:
+
+```
+/opt/data/SOUL_WHATSAPP.md + /opt/data/support_rules.md   <- personas que o whatsapp_manager lê
+/root/.hermes/                                             <- home do Hermes: config.yaml, plugins/, state.db
+```
 
 Variáveis que o CRM precisa no ambiente do PM2 (`.env.local` ou `ecosystem.config.js`):
 
-- `HERMES_HOME=/opt/data` — é de onde o **hermes-sync** lê o `state.db` e onde ficam
-  `SOUL_WHATSAPP.md` e `support_rules.md`;
+- `HERMES_HOME=/root/.hermes` — home do Hermes, de onde o **hermes-sync** lê o `state.db`
+  (não é o `/opt/data` das personas: são coisas diferentes);
 - `HERMES_BIN=$(which hermes)` — CLI usado para pausar/retomar e gerar texto de prospecção;
 - `CRM_BASE_URL=http://127.0.0.1:8081` + `CRON_SECRET` no processo do cron;
 - `NEXT_PUBLIC_*` entram no bundle em tempo de **build**, não de runtime.
 
 ### Atualizar (git pull)
 
-O projeto pode estar em qualquer pasta — descubra a sua pelo PM2 (nada de `<>` nos comandos:
-o shell interpreta como redirecionamento):
-
 ```bash
 pm2 list
-pm2 describe conecta-crm | grep -iE "script path|exec cwd"   # mostra a pasta do projeto
+pm2 describe conecta-crm | grep -iE "script path|exec cwd"   # confirma a pasta do projeto
 
-PROJETO=/root/projects/conecta-crm     # a sua pasta, conforme a saída acima
+PROJETO=/root/projects/conecta-crm      # ajuste se for outra
 cd "$PROJETO"
 
 git pull
 
-./scripts/install-hermes-assets.sh          # personas + trava de saída no home do Hermes
-#   o script descobre a raiz sozinho e instala em /opt/data (ou no $HERMES_HOME)
-#   se faltar permissão em /opt/data:  sudo -E ./scripts/install-hermes-assets.sh
+./scripts/install-hermes-assets.sh      # personas -> /opt/data ; plugin -> $HERMES_HOME/plugins
+#   ele imprime os destinos, guarda backup do que sobrescrever e sugere os pm2 restart da máquina
+#   se faltar permissão:  sudo -E ./scripts/install-hermes-assets.sh
 
-npm ci && npm run build                     # o sync que limpa log é código do app
+npm ci && npm run build                 # o sync que limpa log é código do app
+# o build é `output: standalone`: o Next NÃO copia public/ e .next/static (no Docker isso é
+# feito no Dockerfile; aqui é na mão). Sem estes dois cp o CRM sobe sem CSS/JS:
+cp -r public .next/standalone/public 2>/dev/null || true
+mkdir -p .next/standalone/.next && cp -r .next/static .next/standalone/.next/static
 
-pm2 restart conecta-crm crm-cron --update-env      # CRM + agenda (pega o build novo)
-pm2 restart vendedor-ia --update-env               # atendimento: relê persona + trava de saída
-pm2 restart whatsapp-bridge --update-env           # bridge do WhatsApp (por último)
+pm2 restart conecta-crm crm-cron --update-env     # CRM + agenda (pega o build novo)
+pm2 restart whatsapp-bridge --update-env          # atendimento: relê persona + trava de saída
 ```
 
-> Os nomes vêm do seu `pm2 list` (aqui: `conecta-crm`, `crm-cron`, `vendedor-ia`,
-> `whatsapp-bridge`). O `whatsapp-bridge` é o mais sensível: reinicie por último e acompanhe
+> O `whatsapp-bridge` é o mais sensível: reinicie por último e acompanhe
 > `pm2 logs whatsapp-bridge --lines 30` — se pedir QR, escaneie (seção 4).
 
-Confira onde está o home do Hermes (os dois lados têm que apontar para o mesmo lugar):
+### Conferir
 
 ```bash
-ls -l /opt/data/SOUL.md /opt/data/SOUL_WHATSAPP.md /opt/data/support_rules.md
-grep -i '^HERMES_HOME=' .env.local          # no CRM: precisa ser o mesmo /opt/data
-```
+ls -l /opt/data/SOUL_WHATSAPP.md /opt/data/support_rules.md     # personas do manager
+ls -l /root/.hermes/SOUL.md /root/.hermes/plugins/crm-output-guard/   # home do Hermes
+grep -i '^HERMES_HOME=' .env.local                              # precisa ser /root/.hermes
 
-Confira que o sync está com o código novo (`noiseSkipped` só existe depois deste deploy):
-
-```bash
+# o sync está com o código novo? (noiseSkipped só existe depois deste deploy)
 curl -s "http://127.0.0.1:8081/api/cron/hermes-sync" -H "Authorization: Bearer $CRON_SECRET"
 ```
 

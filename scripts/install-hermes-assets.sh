@@ -1,40 +1,36 @@
 #!/usr/bin/env bash
-# install-hermes-assets.sh — instala no home do Hermes (= /opt/data no container) os ativos
-# que NÃO podem viver só no git do CRM:
+# install-hermes-assets.sh — instala os ativos do atendimento que NÃO podem viver só no git do CRM.
 #
-#   deploy/personas/*.md                     -> $HERMES_HOME/
-#       SOUL_WHATSAPP.md   persona do atendimento no WhatsApp
-#       support_rules.md   base de produtos/serviços (gerada)
-#       (o assistente de WhatsApp lê esses dois A CADA mensagem de cliente)
+# São DOIS destinos diferentes, e isso importa:
 #
-#   deploy/hermes/plugins/<nome>/            -> $HERMES_HOME/plugins/<nome>/
-#       crm-output-guard   trava de saída (hook transform_llm_output)
+#   1. PERSONAS (lidas pelo whatsapp_manager.py, que tem /opt/data CRAVADO no código):
+#        deploy/personas/SOUL_WHATSAPP.md  ->  /opt/data/SOUL_WHATSAPP.md   (persona do atendimento)
+#        deploy/personas/support_rules.md  ->  /opt/data/support_rules.md   (base de produtos, gerada)
 #
-# Por que as personas importam: se `support_rules.md` não existe, o `whatsapp_manager.py`
-# (template whatsappkit / hermes-whatsapp-mixed) usa um fallback HARDCODED de outro cliente
-# — "Responda de forma profissional e ajude com Chatkanban, Chatcommerce e Api Connector."
-# O boot tenta baixar os arquivos do GitHub e falha (404), e o bootstrap só baixa o que
-# está AUSENTE: instalar aqui encerra o problema de vez.
+#   2. PLUGIN (carregado pelo Hermes a partir do home dele, $HERMES_HOME):
+#        deploy/hermes/plugins/<nome>/     ->  $HERMES_HOME/plugins/<nome>/
+#        crm-output-guard = trava de saída (hook transform_llm_output)
 #
-# Por que o plugin importa: o log do boot do `whatsapp_manager` estava sendo colado NA
-# FRENTE da resposta entregue ao lead (caminho interno, URL de repo, nome de skill).
-# A trava corta isso antes de persistir e de entregar.
+# Por que as personas importam: sem `support_rules.md`, o whatsapp_manager usa um fallback
+# HARDCODED de outro cliente — "Responda de forma profissional e ajude com Chatkanban,
+# Chatcommerce e Api Connector." O boot tenta baixar os arquivos do GitHub, falha (404) e,
+# como o bootstrap só baixa o que está AUSENTE, o fallback assume. Instalar aqui encerra isso.
+#
+# Por que o plugin importa: o log do boot do manager estava sendo colado NA FRENTE da resposta
+# entregue ao lead (caminho interno, URL de repo, nome de skill). A trava corta antes de entregar.
 #
 # Uso:
 #   ./scripts/install-hermes-assets.sh            # instala/atualiza
 #   ./scripts/install-hermes-assets.sh --check    # só verifica (sai 1 se algo falta/difere)
 #
-# Rode de dentro do projeto — o script descobre a raiz sozinho (pode estar em /opt,
-# /projects, /home/…; nada aqui depende do caminho do repositório).
+# Rode de dentro do projeto: a raiz é descoberta sozinha (funciona em /root/projects, /opt, …).
 #
-# Destino (home do Hermes), em ordem de preferência:
-#   1. $HERMES_HOME                  (defina explicitamente quando quiser)
-#   2. /opt/data                     (home do Hermes em VPS/container — é o path que o
-#                                     whatsapp_manager do template usa, cravado no script dele)
-#   3. <repo>/.hermes-home/.hermes   (home do Hermes local, usado no docker compose)
+# Destinos (nesta ordem):
+#   PERSONAS: $WHATSAPP_DATA_DIR -> /opt/data (se parecer o data dir do WhatsApp) -> $HERMES_HOME
+#   PLUGIN:   $HERMES_HOME/plugins  ($HERMES_HOME vem do ambiente ou do HERMES_HOME do .env.local)
 #
-# No fim ele confere se o HERMES_HOME do CRM (.env.local) aponta para o MESMO lugar —
-# se divergir, a persona ficaria num home e o hermes-sync espelharia o state.db de outro.
+# No fim ele confere o que foi instalado contra o que o CRM e o bridge realmente usam, e
+# imprime o `pm2 restart` com os nomes reais dos processos desta máquina.
 
 set -euo pipefail
 
@@ -47,131 +43,158 @@ CHECK=0
 log()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 ok()   { printf '  \033[1;32m✓\033[0m %s\n' "$*"; }
 aviso(){ printf '  \033[1;33m!\033[0m %s\n' "$*"; }
-erro() { printf '\033[1;31m!!\033[0m %s\n' "$*" >&2; }
+erro() { printf '  \033[1;31m!!\033[0m %s\n' "$*" >&2; }
 
 [[ -d "$PERSONAS" ]] || { erro "não achei $PERSONAS"; exit 1; }
 
-if [[ -n "${HERMES_HOME:-}" ]]; then
-  DESTINO="$HERMES_HOME"
-  if [[ ! -d "$DESTINO" ]]; then
-    erro "HERMES_HOME aponta para '$DESTINO', que não existe."
-    erro "Numa VPS sem Docker o home do Hermes costuma ser /opt/data (de onde o bridge lê o SOUL.md)."
-    exit 1
-  fi
-elif [[ -d /opt/data ]]; then
-  # Instalação sem Docker (Node + PM2): /opt/data é o home do Hermes, o mesmo path que o
-  # whatsapp_manager usa para ler SOUL_WHATSAPP.md e support_rules.md.
-  if [[ ! -w /opt/data ]]; then
-    erro "/opt/data existe, mas o usuário $(id -un) não pode escrever nele."
-    erro "Rode com permissão:  sudo -E $0 ${1:-}   (ou ajuste o dono do diretório)"
-    exit 1
-  fi
-  DESTINO="/opt/data"
+# ── Onde o Hermes mora (state.db, config.yaml, plugins/) ───────────────────────
+ENV_CRM="$RAIZ/.env.local"
+[[ -f "$ENV_CRM" ]] || ENV_CRM="$RAIZ/.env"
+home_crm=""
+if [[ -f "$ENV_CRM" ]]; then
+  home_crm="$(grep -E '^[[:space:]]*HERMES_HOME=' "$ENV_CRM" | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)"
+fi
+
+HERMES_DIR="${HERMES_HOME:-$home_crm}"
+[[ -n "$HERMES_DIR" && -d "$HERMES_DIR" ]] || HERMES_DIR=""
+
+# ── Onde o whatsapp_manager lê as personas (path cravado no script dele) ───────
+parece_data_dir() {
+  [[ -f "$1/SOUL_WHATSAPP.md" || -f "$1/SOUL.md" || -f "$1/SOUL_EMAIL.md" ||
+     -f "$1/support_rules.md" || -f "$1/config.yaml" || -f "$1/state.db" ]]
+}
+
+PERSONA_DIR=""
+if [[ -n "${WHATSAPP_DATA_DIR:-}" ]]; then
+  PERSONA_DIR="$WHATSAPP_DATA_DIR"
+elif [[ -d /opt/data ]] && parece_data_dir /opt/data; then
+  PERSONA_DIR="/opt/data"
+elif [[ -n "$HERMES_DIR" ]]; then
+  PERSONA_DIR="$HERMES_DIR"
 elif [[ -d "$RAIZ/.hermes-home/.hermes" ]]; then
-  DESTINO="$RAIZ/.hermes-home/.hermes"
+  PERSONA_DIR="$RAIZ/.hermes-home/.hermes"
 else
-  erro "não achei o home do Hermes (nem \$HERMES_HOME, nem /opt/data, nem .hermes-home/.hermes)."
-  erro "Numa VPS, o whatsapp_manager do template lê /opt/data (path cravado no script dele):"
-  erro "  sudo mkdir -p /opt/data && sudo chown \"\$(id -un)\" /opt/data"
-  erro "  HERMES_HOME=/opt/data $0"
+  erro "não achei onde instalar as personas."
+  erro "Numa VPS, o whatsapp_manager lê /opt/data (cravado):"
+  erro "  mkdir -p /opt/data   # ou rode:  WHATSAPP_DATA_DIR=/caminho $0"
   exit 1
 fi
 
-# ── O CRM e o bridge precisam apontar para o MESMO home do Hermes ─────────────
-# O whatsapp_manager lê /opt/data/SOUL_WHATSAPP.md e /opt/data/support_rules.md (path
-# cravado no script do template). O hermes-sync do CRM lê $HERMES_HOME/state.db. Se os dois
-# divergirem, a persona é instalada num lugar e o CRM espelha de outro — este aviso pega isso.
-ENV_CRM="$RAIZ/.env.local"
-[[ -f "$ENV_CRM" ]] || ENV_CRM="$RAIZ/.env"
-if [[ -f "$ENV_CRM" ]]; then
-  home_crm="$(grep -E '^[[:space:]]*HERMES_HOME=' "$ENV_CRM" | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)"
-  if [[ -n "$home_crm" && "$home_crm" != "$DESTINO" ]]; then
-    aviso "o CRM aponta HERMES_HOME=$home_crm (em $(basename "$ENV_CRM")), mas instalei em $DESTINO."
-    aviso "O whatsapp_manager lê /opt/data (cravado). Aponte o CRM para o mesmo home, senão"
-    aviso "a persona fica num lugar e o sync espelha o state.db de outro."
-  elif [[ -n "$home_crm" ]]; then
-    ok "CRM e instalador apontam para o mesmo home ($home_crm)"
-  fi
-fi
+PLUGIN_DIR="${HERMES_DIR:-$PERSONA_DIR}/plugins"
+CFG_HERMES="$(dirname "$PLUGIN_DIR")/config.yaml"
 
-log "origem : $PERSONAS + $PLUGINS"
-log "destino: $DESTINO$([[ $CHECK == 1 ]] && echo '  (--check: nada será escrito)')"
+log "origem      : $PERSONAS + $PLUGINS"
+log "personas em : $PERSONA_DIR$([[ $CHECK == 1 ]] && echo '   (--check: nada será escrito)')"
+log "plugin em   : $PLUGIN_DIR"
+
+# ── Avisos de coerência (o que o bridge e o CRM realmente usam) ────────────────
+if [[ "$PERSONA_DIR" == "$RAIZ/.hermes-home/.hermes" ]]; then
+  ok "personas em .hermes-home/.hermes (no docker isso é montado como /opt/data)"
+elif [[ "$PERSONA_DIR" != "/opt/data" ]]; then
+  aviso "as personas vão para $PERSONA_DIR, mas o whatsapp_manager do template lê /opt/data."
+  aviso "Se é essa a sua instalação, use:  WHATSAPP_DATA_DIR=/opt/data $0"
+fi
+if [[ -d /opt/data ]] && ! parece_data_dir /opt/data && [[ "$PERSONA_DIR" != "/opt/data" ]]; then
+  aviso "/opt/data existe mas parece vazio (sem SOUL_WHATSAPP.md/config.yaml) — ignorado."
+fi
+if [[ -n "$home_crm" && -n "$HERMES_DIR" && "$home_crm" != "$HERMES_DIR" ]]; then
+  aviso "o CRM aponta HERMES_HOME=$home_crm (em $(basename "$ENV_CRM")), mas o home em uso é $HERMES_DIR."
+  aviso "O sync do CRM lê $home_crm/state.db — alinhe os dois ou o espelho fica vazio."
+elif [[ -n "$home_crm" ]]; then
+  ok "CRM e Hermes apontam para o mesmo home ($home_crm)"
+fi
 
 faltando=0
 desatualizado=0
 
-# ── 1. Personas ───────────────────────────────────────────────────────────────
 instalar_arquivo() { # $1=origem $2=destino $3=rótulo
   local src="$1" dst="$2" rotulo="$3"
   if [[ ! -e "$dst" ]]; then
     if [[ $CHECK == 1 ]]; then aviso "FALTA  $rotulo"; faltando=$((faltando + 1))
     else install -D -m 0644 "$src" "$dst"; ok "instalado  $rotulo"; fi
   elif ! cmp -s "$src" "$dst"; then
-    if [[ $CHECK == 1 ]]; then aviso "DIFERE $rotulo"; desatualizado=$((desatualizado + 1))
-    else cp -p "$src" "$dst"; ok "atualizado $rotulo"; fi
+    if [[ $CHECK == 1 ]]; then
+      aviso "DIFERE $rotulo"; desatualizado=$((desatualizado + 1))
+    else
+      # Nunca sobrescreve sem guardar o que estava lá (pode ser edição sua, feita direto no servidor).
+      local bak_dir; bak_dir="$(dirname "$dst")/.backups-install"
+      mkdir -p "$bak_dir"
+      cp -p "$dst" "$bak_dir/$(basename "$dst").$(date +%Y%m%d-%H%M%S)"
+      ok "backup     $rotulo -> .backups-install/"
+      cp -p "$src" "$dst"; ok "atualizado $rotulo"
+    fi
   else ok "ok         $rotulo"; fi
 }
 
+# ── 1. Personas → PERSONA_DIR ─────────────────────────────────────────────────
+echo
+log "personas"
 for src in "$PERSONAS"/*.md; do
   [[ -e "$src" ]] || continue
   nome="$(basename "$src")"
   [[ "$nome" == "README.md" ]] && continue
-  instalar_arquivo "$src" "$DESTINO/$nome" "$nome"
+  instalar_arquivo "$src" "$PERSONA_DIR/$nome" "$nome"
 done
 
-# ── 2. Plugins do Hermes ──────────────────────────────────────────────────────
+# ── 2. Plugins → HERMES/plugins ───────────────────────────────────────────────
 if [[ -d "$PLUGINS" ]]; then
+  echo
+  log "plugins do Hermes"
   for dir in "$PLUGINS"/*/; do
     [[ -d "$dir" ]] || continue
     nome="$(basename "$dir")"
     for src in "$dir"*; do
       [[ -f "$src" ]] || continue
-      instalar_arquivo "$src" "$DESTINO/plugins/$nome/$(basename "$src")" "plugins/$nome/$(basename "$src")"
+      instalar_arquivo "$src" "$PLUGIN_DIR/$nome/$(basename "$src")" "$nome/$(basename "$src")"
     done
     # pycache velho faria o Python reler bytecode antigo
-    if [[ $CHECK == 0 && -d "$DESTINO/plugins/$nome/__pycache__" ]]; then
-      rm -rf "$DESTINO/plugins/$nome/__pycache__"
-      ok "limpei   plugins/$nome/__pycache__"
+    if [[ $CHECK == 0 && -d "$PLUGIN_DIR/$nome/__pycache__" ]]; then
+      rm -rf "$PLUGIN_DIR/$nome/__pycache__"
+      ok "limpei   $nome/__pycache__"
     fi
   done
 fi
 
 # ── 3. Guarda-corpos ──────────────────────────────────────────────────────────
+echo
 if [[ $CHECK == 0 ]]; then
   for nome in support_rules.md SOUL_WHATSAPP.md; do
-    dst="$DESTINO/$nome"
+    dst="$PERSONA_DIR/$nome"
     if [[ -f "$dst" ]] && grep -qi -e "Chatkanban" -e "Chatcommerce" -e "Api Connector" "$dst"; then
       erro "$nome contém o fallback do template (Chatkanban/Chatcommerce/Api Connector)."
       erro "Reescreva o arquivo antes de subir — o bot vai oferecer produto de terceiro."
       exit 1
     fi
   done
-  log "nenhum fallback de terceiro nas personas"
+  ok "nenhum fallback de terceiro nas personas"
 
-  guard="$DESTINO/plugins/crm-output-guard/__init__.py"
+  guard="$PLUGIN_DIR/crm-output-guard/__init__.py"
   if [[ -f "$guard" ]]; then
-    if python3 -m py_compile "$guard" 2>/dev/null; then
+    if ! command -v python3 >/dev/null 2>&1; then
+      aviso "python3 não está no PATH — não validei a trava de saída"
+    elif python3 -m py_compile "$guard" 2>/dev/null; then
       ok "trava de saída compila"
       rm -rf "$(dirname "$guard")/__pycache__"
     else
       erro "a trava de saída ($guard) não compila em Python — corrija antes de reiniciar"
       exit 1
     fi
-    if ! grep -q "crm-output-guard" "$DESTINO/config.yaml" 2>/dev/null; then
-      aviso "config.yaml não habilita crm-output-guard em plugins.enabled — a trava não roda"
+    if [[ ! -f "$CFG_HERMES" ]]; then
+      aviso "não achei $CFG_HERMES — confira se o Hermes carrega plugins desse home."
+    elif ! grep -q "crm-output-guard" "$CFG_HERMES"; then
+      aviso "$CFG_HERMES não habilita crm-output-guard em plugins.enabled — a trava não roda."
     else
-      ok "trava de saída habilitada no config.yaml"
+      ok "trava de saída habilitada em $(basename "$(dirname "$CFG_HERMES")")/config.yaml"
     fi
   fi
 fi
 
-[[ -f "$DESTINO/SOUL_EMAIL.md" ]] || aviso "SOUL_EMAIL.md ausente (canal de e-mail fica sem persona própria)"
+[[ -f "$PERSONA_DIR/SOUL_EMAIL.md" ]] || aviso "SOUL_EMAIL.md ausente (canal de e-mail fica sem persona própria)"
 
-# O prompt mestre (SOUL.md) NÃO é versionado: viaja pelo rsync do ship.sh. Se ele faltar, o
-# Hermes roda sem a persona mestre e o boot tenta baixar do GitHub (e falha se o repo não existe).
-if [[ ! -f "$DESTINO/SOUL.md" ]]; then
-  aviso "SOUL.md ausente em $DESTINO — prompt mestre do Hermes, sem fallback bom no boot."
-  aviso "Copie o seu (máquina local: .hermes-home/.hermes/SOUL.md) ou rode ./deploy/ship.sh."
+# Prompt mestre: vive no home do Hermes (é o agente que lê) e NÃO é versionado.
+if [[ -n "$HERMES_DIR" && ! -f "$HERMES_DIR/SOUL.md" ]]; then
+  aviso "SOUL.md ausente em $HERMES_DIR — prompt mestre do Hermes, sem fallback bom no boot."
+  aviso "Copie o seu (local: .hermes-home/.hermes/SOUL.md) ou rode ./deploy/ship.sh."
 fi
 
 echo
@@ -184,33 +207,52 @@ if [[ $CHECK == 1 ]]; then
   exit 0
 fi
 
+# ── Próximos passos: nomes reais dos processos (PM2) ─────────────────────────
 echo "Próximos passos:"
-
-# Ambiente detectado: PM2 (VPS com Node puro) e/ou Docker (stack local/compose).
 TEM_PM2=0
 if command -v pm2 >/dev/null 2>&1; then
   TEM_PM2=1
-  # Nomes reais dos processos desta máquina (não adivinhe: o PM2 responde).
-  nomes="$(pm2 jlist 2>/dev/null | grep -o '"name":"[^"]*"' | cut -d'"' -f4 | sort -u | tr '\n' ' ' || true)"
-  if [[ -n "${nomes// /}" ]]; then
-    atendimento=""; crms=""; crons=""
-    for n in $nomes; do
+  todos=""
+  atendimento=""
+  if command -v node >/dev/null 2>&1; then
+    info="$(pm2 jlist 2>/dev/null | HERMES_DIR="$HERMES_DIR" node --input-type=module -e '
+      import { readFileSync } from "node:fs";
+      let raw = "";
+      try { raw = readFileSync(0, "utf8"); } catch { process.exit(0); }
+      let procs = [];
+      try { procs = JSON.parse(raw); } catch { process.exit(0); }
+      const home = (process.env.HERMES_DIR || "").replace(/\/+$/, "");
+      const nomes = procs.map((p) => p.name).filter(Boolean);
+      const dentro = procs.filter((p) => {
+        const e = p.pm2_env || {};
+        const caminhos = [e.pm_cwd, e.cwd, e.pm_exec_path].filter(Boolean).map(String);
+        return home && caminhos.some((c) => c === home || c.startsWith(home + "/"));
+      }).map((p) => p.name);
+      console.log("TODOS=" + nomes.join(" "));
+      console.log("ATENDIMENTO=" + dentro.join(" "));
+    ' 2>/dev/null || true)"
+    todos="$(printf '%s\n' "$info" | sed -n 's/^TODOS=//p')"
+    atendimento="$(printf '%s\n' "$info" | sed -n 's/^ATENDIMENTO=//p')"
+  fi
+
+  if [[ -n "${todos// /}" ]]; then
+    echo "  • PM2 nesta máquina: $todos"
+    if [[ -n "${atendimento// /}" ]]; then
+      echo "        pm2 restart ${atendimento% } --update-env     # roda dentro de ${HERMES_DIR:-o home do Hermes}: relê persona + trava"
+    else
+      echo "        pm2 restart <processo do WhatsApp> --update-env   # quem roda dentro de ${HERMES_DIR:-$PLUGIN_DIR}"
+    fi
+    # CRM/cron por nome (heurística): exclui quem já é do atendimento
+    crms=""
+    for n in $todos; do
+      case " $atendimento " in *" $n "*) continue ;; esac
       case "${n,,}" in
-        *whats*|*bridge*|*hermes*|*manager*|*vendedor*|*agente*|*atendimento*|*bot*) atendimento+="$n " ;;
-        *cron*|*agenda*|*scheduler*) crons+="$n " ;;
-        *crm*|*conecta*|*web*|*site*) crms+="$n " ;;
+        *cron*|*agenda*|*scheduler*|*crm*|*conecta*|*web*|*site*) crms+="$n " ;;
       esac
     done
-    echo "  • PM2 nesta máquina: $nomes"
-    if [[ -n "$atendimento" ]]; then
-      echo "        pm2 restart ${atendimento% } --update-env     # relê persona + trava de saída"
-    fi
-    if [[ -n "${crms}${crons}" ]]; then
-      echo "        pm2 restart ${crms}${crons% } --update-env$(printf '%*s' 3 '')# pega o build novo do CRM/cron"
-    fi
-    echo "    (confirme os nomes com 'pm2 list' — a divisão acima é heurística)"
+    [[ -n "${crms// /}" ]] && echo "        pm2 restart ${crms% } --update-env$(printf '%*s' 3 '')# CRM/cron: pega o build novo"
   else
-    echo "  • PM2: reinicie o processo do atendimento e o do CRM/cron (veja 'pm2 list')"
+    echo "  • PM2: reinicie o processo que roda dentro de ${HERMES_DIR:-$PLUGIN_DIR} (atendimento) e o do CRM/cron"
   fi
 fi
 if command -v docker >/dev/null 2>&1 && [[ -f "$RAIZ/docker-compose.yml" ]]; then

@@ -1,18 +1,39 @@
-# Ativos do Hermes (home `/opt/data`) — personas e trava de saída
+# Ativos do Hermes (personas e trava de saída)
 
 Estes arquivos não são documentação: são **prompt e código de produção** do atendimento.
-Eles vivem no home do Hermes, não no git do CRM, então precisam ser instalados.
+Eles vivem fora do git do CRM, então precisam ser instalados — e vão para **dois lugares
+diferentes**, porque quem lê cada um é um processo diferente:
+
+| Origem no repo | Destino real | Quem lê | O que faz |
+| --- | --- | --- | --- |
+| `deploy/personas/SOUL_WHATSAPP.md` | **`/opt/data/SOUL_WHATSAPP.md`** | `whatsapp_manager` | persona do atendimento no WhatsApp |
+| `deploy/personas/support_rules.md` | **`/opt/data/support_rules.md`** | `whatsapp_manager` | base de produtos/serviços (**gerada**) |
+| `deploy/hermes/plugins/crm-output-guard/` | **`$HERMES_HOME/plugins/crm-output-guard/`** | Hermes (`$HERMES_HOME`, ex.: `/root/.hermes`) | trava de saída (hook `transform_llm_output`) |
+
+O `whatsapp_manager.py` tem **`/opt/data` cravado** no código para as personas
+(`soul_path = "/opt/data/SOUL_WHATSAPP.md"`), enquanto o Hermes carrega plugins do **home dele**
+(e o CRM lê o `state.db` desse mesmo home, via `HERMES_HOME` do `.env.local`). Na VPS isso dá:
+
+```
+/opt/data/SOUL_WHATSAPP.md          <- persona lida pelo manager
+/opt/data/support_rules.md          <- base lida pelo manager
+/root/.hermes/plugins/crm-output-guard/   <- trava carregada pelo Hermes
+/root/.hermes/state.db              <- histórico que o CRM espelha
+```
 
 ```bash
-./scripts/install-hermes-assets.sh          # instala/atualiza tudo
+./scripts/install-hermes-assets.sh          # instala/atualiza os dois destinos
 ./scripts/install-hermes-assets.sh --check  # só verifica (sai 1 se falta ou difere)
 ```
 
-| Origem no repo | Destino (`$HERMES_HOME` = `/opt/data`) | O que faz |
-| --- | --- | --- |
-| `deploy/personas/SOUL_WHATSAPP.md` | `SOUL_WHATSAPP.md` | persona do atendimento no WhatsApp |
-| `deploy/personas/support_rules.md` | `support_rules.md` | base de produtos/serviços (**gerada**) |
-| `deploy/hermes/plugins/crm-output-guard/` | `plugins/crm-output-guard/` | trava de saída (hook `transform_llm_output`) |
+O script decide assim:
+
+- **personas**: `$WHATSAPP_DATA_DIR` → `/opt/data` (se parecer o data dir do WhatsApp) → `$HERMES_HOME`.
+  Se o seu `/opt/data` for outro caminho, force: `WHATSAPP_DATA_DIR=/caminho ./scripts/install-hermes-assets.sh`;
+- **plugin**: `$HERMES_HOME/plugins`, com o `$HERMES_HOME` vindo do ambiente ou do `HERMES_HOME=`
+  do seu `.env.local` (é o mesmo home que o CRM usa para o sync — o script avisa se divergirem);
+- antes de sobrescrever qualquer arquivo existente, ele guarda uma cópia em
+  `<destino>/.backups-install/<arquivo>.<data>`.
 
 ---
 
@@ -96,16 +117,20 @@ git pull
 
 # 2. build novo do CRM (a limpeza do log no sync é código do app)
 npm ci && npm run build
+# o build é `output: standalone` — o Next não copia public/ e .next/static (no Docker o
+# Dockerfile faz isso). Sem estes dois cp o CRM sobe sem CSS/JS:
+cp -r public .next/standalone/public 2>/dev/null || true
+mkdir -p .next/standalone/.next && cp -r .next/static .next/standalone/.next/static
 
 # 3. reinicie os processos (nomes deste deployment)
 pm2 restart conecta-crm crm-cron --update-env    # CRM + agenda
-pm2 restart vendedor-ia --update-env             # atendimento: relê persona + trava
-pm2 restart whatsapp-bridge --update-env         # bridge do WhatsApp (por último)
+pm2 restart whatsapp-bridge --update-env         # atendimento: relê persona + trava de saída
 ```
 
-> O `whatsapp-bridge` é o mais sensível: reinicie por último e acompanhe
-> `pm2 logs whatsapp-bridge --lines 30` — se pedir QR, escaneie.
-> O instalador imprime essa mesma lista já com os nomes que ele encontrou no `pm2 jlist`.
+> O processo do atendimento é o que roda **dentro do home do Hermes** — na sua VPS,
+> `whatsapp-bridge` (`/root/.hermes/plugins/whatsapp-manager/bridge.js`). O instalador acha
+> esse nome sozinho pelo `pm2 jlist` e imprime o comando pronto. Reinicie por último e
+> acompanhe `pm2 logs whatsapp-bridge --lines 30` — se pedir QR, escaneie.
 
 Confirme que o sync está com o código novo (deve aparecer `noiseSkipped`):
 
@@ -131,10 +156,15 @@ docker compose --env-file .env.local up -d --build   # para valer o build do CRM
 ### Conferir que instalou
 
 ```bash
-HOME_HERMES="${HERMES_HOME:-/opt/data}"      # local: .hermes-home/.hermes
-ls -l "$HOME_HERMES"/{SOUL_WHATSAPP.md,support_rules.md}
-grep -ril "chatkanban\|chatcommerce" "$HOME_HERMES"/*.md "$HOME_HERMES"/plugins || echo limpo
-./scripts/install-hermes-assets.sh --check   # compara repo x instalado
+# personas (lidas pelo whatsapp_manager)
+ls -l /opt/data/SOUL_WHATSAPP.md /opt/data/support_rules.md 2>&1
+grep -ril "chatkanban\|chatcommerce" /opt/data/*.md 2>/dev/null || echo "personas limpas"
+
+# plugin (carregado pelo Hermes)
+ls -l "${HERMES_HOME:-$HOME/.hermes}"/plugins/crm-output-guard/
+
+# o instalador compara repo x instalado nos dois destinos
+./scripts/install-hermes-assets.sh --check
 ```
 
 Depois mande um "oi" para o número: a resposta não pode citar produto de terceiro nem trazer
