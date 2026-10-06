@@ -52,8 +52,8 @@ function resumoHorarios(horarios: unknown): string | null {
   const parte = faixas.length === 1
     ? abertos.length >= 6
       ? `todos os dias, ${faixas[0][0]}`
-      : `${faixas[0][0]} (${abertos.length} dias/semana)`
-    : faixas.slice(0, 2).map(([faixa, n]) => `${faixa} (${n} dias)`).join(" e ");
+      : `${faixas[0][0]} (${abertos.length} ${abertos.length === 1 ? "dia" : "dias"}/semana)`
+    : faixas.slice(0, 2).map(([faixa, n]) => `${faixa} (${n} ${n === 1 ? "dia" : "dias"})`).join(" e ");
 
   return fechados.length ? `${parte} — fechado ${fechados.slice(0, 3).join(", ")}` : parte;
 }

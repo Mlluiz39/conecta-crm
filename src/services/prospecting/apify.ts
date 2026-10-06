@@ -35,7 +35,9 @@ export async function searchCompaniesApify(params: {
         maxCrawledPlacesPerSearch: max,
         language: "pt-BR",
         skipClosedPlaces: true,
-        maxReviews: 0,
+        // 0 = não traz textos de avaliação (mais barato/rápido).
+        // APIFY_MAX_REVIEWS=5 traz os comentários, ótimos para personalizar a abordagem.
+        maxReviews: Number(process.env.APIFY_MAX_REVIEWS ?? 0) || 0,
         maxImages: 0,
       }),
       // Google Maps com poucos itens leva ~40s; damos folga para lotes maiores.
