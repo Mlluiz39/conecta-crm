@@ -59,6 +59,7 @@ export async function searchCompaniesApify(params: {
         name: item.title,
         phone: item.phone,
         website: item.website,
+        mapsUrl: item.url,
         address: item.address,
         city: item.city,
         state: item.state,

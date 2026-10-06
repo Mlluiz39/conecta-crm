@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Building2, Search, RotateCcw, Phone, Globe, Star, CheckCircle2, Trash2 } from "lucide-react";
+import { Building2, Search, RotateCcw, Phone, Globe, Star, CheckCircle2, Trash2, MapPin } from "lucide-react";
 import { deleteContactsByFilter } from "@/lib/data/actions";
 import { useConfirm, useNotify } from "@/components/ui/dialog-provider";
 import type { RecentSearch } from "@/lib/data/queries";
@@ -11,6 +11,7 @@ type Lead = {
   phone: string | null;
   email: string | null;
   website: string | null;
+  mapsUrl: string | null;
   city: string | null;
   state: string | null;
   category: string | null;
@@ -172,6 +173,14 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
           <p className="text-sm font-semibold text-emerald-600">
             {result.found} encontrado(s) · <strong>{result.saved} salvo(s) no CRM</strong>
             {result.duplicates ? ` · ${result.duplicates} já existia(m)` : ""}
+            {result.leads.some((l) => !l.website) ? (
+              <>
+                {" · "}
+                <span className="text-amber-600">
+                  {result.leads.filter((l) => !l.website).length} sem site (melhor prospecto)
+                </span>
+              </>
+            ) : null}
           </p>
 
           <div className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
@@ -198,6 +207,14 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
                           sem telefone
                         </span>
                       )}
+                      {!lead.website && (
+                        <span
+                          className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-bold text-blue-600"
+                          title="Não tem site no Google Maps — é o perfil que mais precisa do seu serviço"
+                        >
+                          sem site
+                        </span>
+                      )}
                     </span>
                     <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-muted-foreground">
                       {lead.phone && (
@@ -213,6 +230,17 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
                           className="inline-flex items-center gap-1 underline"
                         >
                           <Globe size={10} /> site
+                        </a>
+                      )}
+                      {lead.mapsUrl && (
+                        <a
+                          href={lead.mapsUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 underline"
+                          title="Abrir no Google Maps"
+                        >
+                          <MapPin size={10} /> Maps
                         </a>
                       )}
                       {lead.rating !== null && (

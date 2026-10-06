@@ -83,6 +83,7 @@ export async function searchCompaniesAisa(params: {
         name: org.name,
         phone: phoneRaw,
         website: org.website_url,
+        mapsUrl: null,
         city: org.city,
         state: org.state,
         category: org.industry,

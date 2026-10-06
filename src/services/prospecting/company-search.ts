@@ -11,6 +11,8 @@ export type CompanyLead = {
   phone: string | null;
   email: string | null;
   website: string | null;
+  /** Link do Google Maps da empresa (o actor devolve em `url`). */
+  mapsUrl: string | null;
   address: string | null;
   city: string | null;
   state: string | null;
@@ -64,6 +66,7 @@ export function buildLead(
     phone?: unknown;
     email?: unknown;
     website?: unknown;
+    mapsUrl?: unknown;
     address?: unknown;
     city?: unknown;
     state?: unknown;
@@ -84,6 +87,7 @@ export function buildLead(
     phone,
     email,
     website,
+    mapsUrl: clean(raw.mapsUrl),
     address: clean(raw.address),
     city: clean(raw.city),
     state: clean(raw.state),
