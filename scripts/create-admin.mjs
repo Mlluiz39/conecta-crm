@@ -35,8 +35,15 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
-const EMAIL = "admin@conectacrm.com.br";
-const PASSWORD = "TROCAR-ESTA-SENHA";
+function gerarSenha() {
+  const { randomBytes } = require("node:crypto");
+  return randomBytes(18).toString("base64url");
+}
+
+const EMAIL = process.env.ADMIN_EMAIL || "admin@conectacrm.com.br";
+// NUNCA deixe senha fixa aqui: o repositório pode ser público.
+// Use ADMIN_PASSWORD=... ou o script gera uma senha forte e mostra uma vez.
+const PASSWORD = process.env.ADMIN_PASSWORD || gerarSenha();
 const ORG_ID = "00000000-0000-0000-0000-000000000001";
 
 async function main() {

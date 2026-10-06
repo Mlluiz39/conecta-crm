@@ -20,8 +20,8 @@ const args = Object.fromEntries(
 const BASE = args.url ?? "http://127.0.0.1:8081";
 const SHOTS = (args.shots ?? ".probe").replace(/\/$/, "");
 const IMG = (name) => `${SHOTS}/${name}`;
-const EMAIL = "admin@conectacrm.com.br";
-const PASSWORD = "TROCAR-ESTA-SENHA";
+const EMAIL = process.env.CRM_TEST_EMAIL || "admin@conectacrm.com.br";
+const PASSWORD = process.env.CRM_TEST_PASSWORD || process.env.ADMIN_PASSWORD || "";
 
 mkdirSync(SHOTS, { recursive: true });
 

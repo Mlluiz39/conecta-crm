@@ -17,3 +17,6 @@ coverage/
 
 # env file da VPS (tem segredos)
 .env.vps
+
+# backups com dados reais de conversa/contato — nunca versionar
+.backups/
