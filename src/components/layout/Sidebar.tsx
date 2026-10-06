@@ -3,34 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import {
-  LayoutDashboard,
-  MessagesSquare,
-  Users,
-  KanbanSquare,
-  CalendarDays,
-  BarChart3,
-  Bot,
-  Cable,
-  Megaphone,
-  Settings,
-  ChevronsLeft,
-  ChevronsRight,
-} from "lucide-react";
+import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const NAV = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/conversas", label: "Conversas", icon: MessagesSquare },
-  { href: "/contatos", label: "Contatos", icon: Users },
-  { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
-  { href: "/calendario", label: "Calendário", icon: CalendarDays },
-  { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
-  { href: "/agentes", label: "Agentes de IA", icon: Bot },
-  { href: "/prospeccao", label: "Prospecção", icon: Megaphone },
-  { href: "/conexoes", label: "Conexões", icon: Cable },
-  { href: "/configuracoes", label: "Configurações", icon: Settings },
-];
+import { NAV_ITEMS } from "@/components/layout/nav-items";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -59,7 +34,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 px-2 py-2">
-        {NAV.map(({ href, label, icon: Icon }) => {
+        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname.startsWith(href);
           return (
             <Link
