@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth/session";
 import { normalizePhone, parseLeadLine, stripHeader } from "@/lib/data/lead-parser";
+import { mergeContext } from "@/services/prospecting/enrichment";
 import {
   ensureEmailConversation,
   ensureProspectConversation,
@@ -1355,6 +1356,14 @@ export async function prospectManualLead(input: {
   if (!contactId) throw new Error("Não foi possível resolver o contato");
   const targetContactId: string = contactId;
 
+  // enriquecimento salvo na busca (Google Maps): entra no contexto da abordagem
+  const { data: contatoEnriquecido } = await supabase
+    .from("contacts")
+    .select("custom_fields")
+    .eq("organization_id", organizationId)
+    .eq("id", targetContactId)
+    .maybeSingle();
+
   // Etiqueta de temperatura + oportunidade com o valor do serviço
   if (input.temperature) {
     await setLeadTemperature(targetContactId, input.temperature).catch((e) =>
@@ -1373,7 +1382,12 @@ export async function prospectManualLead(input: {
     if (mail.configured) {
       const { generateFirstTouchEmail } = await import("@/services/prospecting/agent-outreach");
       const mailContent = await generateFirstTouchEmail(
-        { id: targetContactId, name, email, context: input.notes ?? null },
+        {
+          id: targetContactId,
+          name,
+          email,
+          context: mergeContext(input.notes ?? null, contatoEnriquecido?.custom_fields ?? null),
+        },
         { offer: input.offer, goal: input.goal, notes: input.notes },
       );
       const sent = await sendEmailViaHermes({
@@ -1447,7 +1461,13 @@ export async function prospectManualLead(input: {
 
   const { generateFirstTouch } = await import("@/services/prospecting/agent-outreach");
   const { text, source } = await generateFirstTouch(
-    { id: targetContactId, name, phone, email, context: input.notes ?? null },
+    {
+      id: targetContactId,
+      name,
+      phone,
+      email,
+      context: mergeContext(input.notes ?? null, contatoEnriquecido?.custom_fields ?? null),
+    },
     { offer: input.offer, goal: input.goal, notes: input.notes },
   );
 

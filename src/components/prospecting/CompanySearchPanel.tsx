@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Building2, Search, RotateCcw, Phone, Globe, Star, CheckCircle2, Trash2, MapPin } from "lucide-react";
+import { Building2, Search, RotateCcw, Phone, Globe, Star, CheckCircle2, Trash2, MapPin, Clock } from "lucide-react";
 import { deleteContactsByFilter } from "@/lib/data/actions";
 import { useConfirm, useNotify } from "@/components/ui/dialog-provider";
 import type { RecentSearch } from "@/lib/data/queries";
@@ -12,6 +12,23 @@ type Lead = {
   email: string | null;
   website: string | null;
   mapsUrl: string | null;
+  neighborhood: string | null;
+  street: string | null;
+  postalCode: string | null;
+  reviewsCount: number | null;
+  price: string | null;
+  unclaimed: boolean;
+  permanentlyClosed: boolean;
+  temporarilyClosed: boolean;
+  openingHours: { day: string; hours: string }[];
+  description: string | null;
+  categories: string[];
+  reviewTags: string[];
+  imageUrl: string | null;
+  placeId: string | null;
+  lat: number | null;
+  lng: number | null;
+  raw: Record<string, unknown>;
   city: string | null;
   state: string | null;
   category: string | null;
@@ -215,6 +232,24 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
                           sem site
                         </span>
                       )}
+                      {lead.unclaimed && (
+                        <span
+                          className="rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-bold text-violet-600"
+                          title="O dono não reclamou o perfil no Google — costuma indicar descuido com a presença digital"
+                        >
+                          perfil não reclamado
+                        </span>
+                      )}
+                      {lead.price && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          {lead.price}
+                        </span>
+                      )}
+                      {lead.temporarilyClosed && (
+                        <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold text-amber-600">
+                          fechado agora
+                        </span>
+                      )}
                     </span>
                     <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-muted-foreground">
                       {lead.phone && (
@@ -244,8 +279,36 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
                         </a>
                       )}
                       {lead.rating !== null && (
-                        <span className="inline-flex items-center gap-1">
+                        <span
+                          className="inline-flex items-center gap-1"
+                          title={lead.reviewsCount ? `${lead.reviewsCount} avaliações no Google` : undefined}
+                        >
                           <Star size={10} /> {lead.rating}
+                          {lead.reviewsCount ? (
+                            <span className="text-[10px]">({lead.reviewsCount.toLocaleString("pt-BR")})</span>
+                          ) : null}
+                        </span>
+                      )}
+                      {(lead.neighborhood || lead.street) && (
+                        <span
+                          className="inline-flex items-center gap-1"
+                          title={[lead.street, lead.neighborhood, lead.postalCode].filter(Boolean).join(" · ")}
+                        >
+                          <MapPin size={10} />
+                          {[lead.neighborhood, lead.city].filter(Boolean).join(" / ") || lead.street}
+                        </span>
+                      )}
+                      {lead.openingHours.length > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1 cursor-help"
+                          title={lead.openingHours.map((h) => `${h.day}: ${h.hours}`).join("\n")}
+                        >
+                          <Clock size={10} /> horários
+                        </span>
+                      )}
+                      {lead.reviewTags.length > 0 && (
+                        <span className="cursor-help" title={`O que os clientes citam: ${lead.reviewTags.join(", ")}`}>
+                          {lead.reviewTags.slice(0, 3).join(" · ")}
                         </span>
                       )}
                       {(lead.city || lead.state) && (
@@ -253,6 +316,11 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
                       )}
                       {lead.category && <span>{lead.category}</span>}
                     </span>
+                    {lead.description && (
+                      <span className="mt-1 line-clamp-2 text-[11px] italic text-muted-foreground">
+                        “{lead.description}”
+                      </span>
+                    )}
                   </span>
                 </div>
               </div>

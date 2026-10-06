@@ -21,6 +21,38 @@ export type CompanyLead = {
   source: CompanyProvider;
   /** Chave estável para dedupe na tela (telefone, e-mail, domínio ou nome). */
   key: string;
+
+  // ── enriquecimento (tudo o que o provedor devolve, sem perder nada) ──
+  /** Bairro (Google Maps). */
+  neighborhood: string | null;
+  /** Rua com número. */
+  street: string | null;
+  /** CEP. */
+  postalCode: string | null;
+  /** Quantidade de avaliações — prova social para a abordagem. */
+  reviewsCount: number | null;
+  /** Faixa de preço quando o Google informa (ex.: "$$"). */
+  price: string | null;
+  /** true = o dono NÃO reclamou o perfil no Google (sinal de descuido com presença digital). */
+  unclaimed: boolean;
+  permanentlyClosed: boolean;
+  temporarilyClosed: boolean;
+  /** Horários de funcionamento: [{ dia, horas }]. */
+  openingHours: { day: string; hours: string }[];
+  /** Descrição que o próprio negócio escreveu (ótimo para personalizar a abordagem). */
+  description: string | null;
+  /** Todas as categorias do Google. */
+  categories: string[];
+  /** O que os clientes mais citam nas avaliações. */
+  reviewTags: string[];
+  imageUrl: string | null;
+  /** Identificadores estáveis do Google (úteis para dedupe/enriquecer depois). */
+  placeId: string | null;
+  /** Coordenadas. */
+  lat: number | null;
+  lng: number | null;
+  /** Item cru completo do provedor (guardado no CRM para não perder nada). */
+  raw: Record<string, unknown>;
 };
 
 export type CompanySearchResult = {
@@ -29,6 +61,11 @@ export type CompanySearchResult = {
   leads: CompanyLead[];
   error?: string;
 };
+
+function num(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
 
 function clean(value: unknown): string | null {
   const s = String(value ?? "").trim();
@@ -67,6 +104,24 @@ export function buildLead(
     email?: unknown;
     website?: unknown;
     mapsUrl?: unknown;
+    neighborhood?: unknown;
+    street?: unknown;
+    postalCode?: unknown;
+    reviewsCount?: unknown;
+    price?: unknown;
+    unclaimed?: unknown;
+    permanentlyClosed?: unknown;
+    temporarilyClosed?: unknown;
+    openingHours?: unknown;
+    description?: unknown;
+    ownerDescription?: unknown;
+    categories?: unknown;
+    reviewTags?: unknown;
+    imageUrl?: unknown;
+    placeId?: unknown;
+    lat?: unknown;
+    lng?: unknown;
+    raw?: unknown;
     address?: unknown;
     city?: unknown;
     state?: unknown;
@@ -95,6 +150,27 @@ export function buildLead(
     rating: Number.isFinite(ratingNum) && ratingNum > 0 ? ratingNum : null,
     source,
     key: "",
+    neighborhood: clean(raw.neighborhood),
+    street: clean(raw.street),
+    postalCode: clean(raw.postalCode),
+    reviewsCount: num(raw.reviewsCount),
+    price: clean(raw.price),
+    unclaimed: raw.unclaimed === true,
+    permanentlyClosed: raw.permanentlyClosed === true,
+    temporarilyClosed: raw.temporarilyClosed === true,
+    openingHours: Array.isArray(raw.openingHours)
+      ? (raw.openingHours as { day?: unknown; hours?: unknown }[])
+          .map((h) => ({ day: String(h?.day ?? ""), hours: String(h?.hours ?? "") }))
+          .filter((h) => h.day && h.hours)
+      : [],
+    description: clean(raw.description) ?? clean(raw.ownerDescription),
+    categories: Array.isArray(raw.categories) ? raw.categories.map((c) => String(c)) : [],
+    reviewTags: Array.isArray(raw.reviewTags) ? raw.reviewTags.map((t) => String(t)) : [],
+    imageUrl: clean(raw.imageUrl),
+    placeId: clean(raw.placeId),
+    lat: num(raw.lat),
+    lng: num(raw.lng),
+    raw: (raw.raw && typeof raw.raw === "object" ? (raw.raw as Record<string, unknown>) : {}),
   };
   lead.key = leadKey(lead);
   return lead;

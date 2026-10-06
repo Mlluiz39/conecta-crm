@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { serverEnv } from "@/lib/env";
 import { generateFirstTouch, generateFirstTouchEmail } from "@/services/prospecting/agent-outreach";
 import { holidayName } from "./holidays";
+import { mergeContext } from "./enrichment";
 import {
   ensureEmailConversation,
   ensureProspectConversation,
@@ -195,7 +196,13 @@ async function sendOne(
     id: string;
     contact_id: string;
     briefing: OutreachBriefing | null;
-    contact: { id: string; name: string | null; phone: string | null; email: string | null } | null;
+    contact: {
+      id: string;
+      name: string | null;
+      phone: string | null;
+      email: string | null;
+      custom_fields?: Record<string, unknown> | null;
+    } | null;
   },
 ): Promise<{ ok: boolean; channel: string; messageId?: string; conversationId?: string; error?: string }> {
   const supabase = createAdminClient();
@@ -207,7 +214,8 @@ async function sendOne(
     name: contact.name,
     phone: contact.phone,
     email: contact.email,
-    context: null as string | null,
+    // o enriquecimento do Google Maps entra aqui: um detalhe real para personalizar a abordagem
+    context: mergeContext(null, contact.custom_fields ?? null),
   };
   const briefing = item.briefing ?? {};
 
@@ -387,7 +395,13 @@ export async function runOutreachCycle(params: {
       id: string;
       contact_id: string;
       briefing: OutreachBriefing | null;
-      contact: { id: string; name: string | null; phone: string | null; email: string | null } | null;
+      contact: {
+      id: string;
+      name: string | null;
+      phone: string | null;
+      email: string | null;
+      custom_fields?: Record<string, unknown> | null;
+    } | null;
     };
     const outcome = await sendOne(params.organizationId, typed);
     const name = typed.contact?.name ?? "(sem nome)";

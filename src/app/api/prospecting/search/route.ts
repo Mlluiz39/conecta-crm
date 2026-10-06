@@ -101,6 +101,25 @@ export async function POST(request: NextRequest) {
         nota: lead.rating,
         origem: provider,
         busca: { provider, nicho, local, at: batch },
+        // ── enriquecimento completo do provedor ──
+        bairro: lead.neighborhood,
+        rua: lead.street,
+        cep: lead.postalCode,
+        avaliacoes: lead.reviewsCount,
+        faixa_preco: lead.price,
+        perfil_nao_reclamado: lead.unclaimed,
+        fechado_definitivo: lead.permanentlyClosed,
+        fechado_temporario: lead.temporarilyClosed,
+        horarios: lead.openingHours,
+        descricao: lead.description,
+        categorias: lead.categories,
+        tags_avaliacoes: lead.reviewTags,
+        foto: lead.imageUrl,
+        place_id: lead.placeId,
+        localizacao: lead.lat !== null && lead.lng !== null ? { lat: lead.lat, lng: lead.lng } : null,
+        maps: lead.mapsUrl,
+        // item cru do provedor inteiro: 3 KB por empresa, não perdemos nada
+        bruto: lead.raw,
       },
     });
     leads.push({ ...lead, saved: true });
