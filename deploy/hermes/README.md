@@ -78,24 +78,67 @@ node scripts/build-support-rules.mjs       # regenera support_rules.md (se a bas
 docker compose --env-file .env.local restart hermes
 ```
 
-### Na VPS (via git pull)
+### VPS com Node puro + PM2 (sem Docker)
+
+O home do Hermes é **`/opt/data`** — o mesmo path que o `whatsapp_manager` usa para ler
+`SOUL_WHATSAPP.md` e `support_rules.md`. O script detecta isso sozinho.
 
 ```bash
-cd /opt/conectacrm
+pm2 list                                                     # nomes dos processos
+pm2 describe conecta-crm | grep -iE "script path|exec cwd"   # acha a pasta do projeto
+PROJETO=/root/projects/conecta-crm                           # ajuste para a sua
+cd "$PROJETO"
+git pull
+
+# 1. personas + trava de saída no home do Hermes (precisa poder escrever em /opt/data)
+./scripts/install-hermes-assets.sh
+#    se der erro de permissão:  sudo -E ./scripts/install-hermes-assets.sh
+
+# 2. build novo do CRM (a limpeza do log no sync é código do app)
+npm ci && npm run build
+
+# 3. reinicie os processos (nomes deste deployment)
+pm2 restart conecta-crm crm-cron --update-env    # CRM + agenda
+pm2 restart vendedor-ia --update-env             # atendimento: relê persona + trava
+pm2 restart whatsapp-bridge --update-env         # bridge do WhatsApp (por último)
+```
+
+> O `whatsapp-bridge` é o mais sensível: reinicie por último e acompanhe
+> `pm2 logs whatsapp-bridge --lines 30` — se pedir QR, escaneie.
+> O instalador imprime essa mesma lista já com os nomes que ele encontrou no `pm2 jlist`.
+
+Confirme que o sync está com o código novo (deve aparecer `noiseSkipped`):
+
+```bash
+curl -s "http://127.0.0.1:8081/api/cron/hermes-sync" -H "Authorization: Bearer $CRON_SECRET"
+# {"ok":true,"sessions":..,"contacts":..,"conversations":..,"messages":0,"noiseSkipped":0}
+```
+
+> O CRM lê o `state.db` pelo `HERMES_HOME` do processo. Numa VPS sem Docker, confira no
+> `.env.local` do CRM (ou no `ecosystem.config.js` do PM2): `HERMES_HOME=/opt/data` e
+> `HERMES_BIN` apontando para o CLI do Hermes (`which hermes`).
+
+### Docker / VPS com compose
+
+```bash
+cd "$PROJETO"
 git pull
 ./scripts/install-hermes-assets.sh
 docker compose --env-file .env.local restart hermes
+docker compose --env-file .env.local up -d --build   # para valer o build do CRM
 ```
 
-Se o WhatsApp na VPS roda em outro container/serviço, reinicie **esse**. Depois confirme:
+### Conferir que instalou
 
 ```bash
-ls -l /opt/conectacrm/.hermes-home/.hermes/{SOUL_WHATSAPP.md,support_rules.md}
-grep -ril "chatkanban\|chatcommerce" /opt/conectacrm/.hermes-home/.hermes/plugins /opt/conectacrm/.hermes-home/.hermes/*.md || echo limpo
+HOME_HERMES="${HERMES_HOME:-/opt/data}"      # local: .hermes-home/.hermes
+ls -l "$HOME_HERMES"/{SOUL_WHATSAPP.md,support_rules.md}
+grep -ril "chatkanban\|chatcommerce" "$HOME_HERMES"/*.md "$HOME_HERMES"/plugins || echo limpo
+./scripts/install-hermes-assets.sh --check   # compara repo x instalado
 ```
 
-e mande um "oi" para o número: a resposta não pode citar produto de terceiro nem trazer linha
-`[whatsapp-manager] ...` na frente.
+Depois mande um "oi" para o número: a resposta não pode citar produto de terceiro nem trazer
+linha `[whatsapp-manager] ...` na frente.
 
 ### Limpar o histórico que já está no CRM
 
@@ -134,8 +177,21 @@ python3 scripts/test-output-guard.py                      # trava de saída (inc
 O teste da trava roda contra a **fonte versionada** e ainda confere que a cópia instalada está
 idêntica (sem drift).
 
-## Pendência conhecida
+## Pendências conhecidas
 
-`SOUL_EMAIL.md` não existe (o canal de e-mail fica sem persona própria, mas não há fallback de
-produto nesse caminho). Se quiser a mesma proteção no e-mail, crie `deploy/personas/SOUL_EMAIL.md`
-— o script de instalação já copia qualquer `.md` que estiver naquela pasta.
+**`SOUL_EMAIL.md`** não existe: o canal de e-mail fica sem persona própria (não há fallback de
+produto nesse caminho, então não há risco de vazar oferta de terceiro). Para cobrir, crie
+`deploy/personas/SOUL_EMAIL.md` — o instalador copia qualquer `.md` daquela pasta.
+
+**`SOUL.md` (prompt mestre) não é versionado.** Ele vive só no home do Hermes e viaja pelo rsync
+do `deploy/ship.sh` — numa VPS atualizada por `git pull` ele **não** chega. O instalador avisa
+quando ele falta. Se o boot não encontrá-lo, o `whatsapp_manager` tenta baixar do GitHub
+(`raw.githubusercontent.com/<github_user>/whatsappkit/main/deploy/SOUL.md`) e, se esse repo não
+existe, o Hermes fica sem persona mestre. Para versionar de vez:
+
+```bash
+cp .hermes-home/.hermes/SOUL.md deploy/personas/SOUL.md   # a partir daí vale o --check também
+./scripts/install-hermes-assets.sh
+```
+
+Confira na VPS: `ls -l "${HERMES_HOME:-/opt/data}"/SOUL.md` — se não existir, copie o seu.

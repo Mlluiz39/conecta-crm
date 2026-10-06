@@ -23,6 +23,9 @@ import sqlite3
 import sys
 from pathlib import Path
 
+# Importar o plugin não deve deixar __pycache__ no repositório.
+sys.dont_write_bytecode = True
+
 ROOT = Path(__file__).resolve().parent.parent
 # a trava usa HERMES_HOME para logar; no Hermes isso já vem do ambiente
 os.environ.setdefault("HERMES_HOME", str(ROOT / ".hermes-home/.hermes"))

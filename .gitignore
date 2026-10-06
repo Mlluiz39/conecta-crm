@@ -20,3 +20,7 @@ coverage/
 
 # backups com dados reais de conversa/contato — nunca versionar
 .backups/
+
+# bytecode do Python (o plugin da trava de saída é importado pelos testes)
+__pycache__/
+*.pyc

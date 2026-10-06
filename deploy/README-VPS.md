@@ -2,6 +2,12 @@
 
 Guia para tirar a stack da sua máquina e deixar rodando 24/7 num servidor.
 
+> **A VPS roda Node puro + PM2, sem Docker?** Vá direto para a [seção 10](#10-vps-com-node-puro--pm2-sem-docker).
+> O passo que não pode faltar depois de cada `git pull` é `./scripts/install-hermes-assets.sh`
+> (personas + trava de saída no home do Hermes) seguido de `npm run build` e `pm2 restart`.
+> O projeto pode estar em qualquer pasta (ex.: `/root/projects/conecta-crm`) — o instalador acha a raiz
+> sozinho; só entre na pasta do repo antes de rodar.
+
 ## 1. Que VPS contratar
 
 | Item | Mínimo | Recomendado |
@@ -224,10 +230,75 @@ o diretório `platforms/whatsapp/session` guarda o vínculo do WhatsApp — sem 
 | Bot oferece produto/marca que não é nosso | faltam `SOUL_WHATSAPP.md`/`support_rules.md` no `/opt/data` e o script de WhatsApp usou o fallback do template | `./scripts/install-hermes-assets.sh && docker compose restart hermes` — ver [`hermes/README.md`](hermes/README.md) |
 | Logo após subir, o lead recebe `[whatsapp-manager] Inicializando /opt/data/...` na frente da resposta | log do boot do bridge colado na resposta do agente | `./scripts/install-hermes-assets.sh && docker compose restart hermes` (a trava de saída passa a cortar); limpe o histórico com `node scripts/clean-hermes-noise.mjs --apply` |
 
-## 10. Alternativa: sem Docker na VPS
+## 10. VPS com Node puro + PM2 (sem Docker)
 
-Se preferir Vercel para o CRM (com os crons do `vercel.json`) e a VPS só para o Hermes, use só o serviço
-`hermes` deste compose — mas atenção: o CRM chamava o **CLI do Hermes** localmente. Nesse arranjo, ou a
-VPS expõe o API server do Hermes (porta 8642, exige `API_SERVER_KEY`) e o CRM passa a usar HTTP, ou os
-recursos de pausar/retomar e gerar texto de prospecção ficam limitados. O caminho suportado hoje é o
-pacote completo em Docker, como descrito acima.
+Arranjo suportado quando a VPS já roda tudo com `node` + `pm2`. O que costuma estar no `pm2 list`:
+
+| Processo | O que é | Como sobe |
+| --- | --- | --- |
+| `conectacrm` | CRM Next.js em produção | `npm ci && npm run build && pm2 start npm --name conectacrm -- start` |
+| `conectacrm-cron` | agenda interna (outbox, **hermes-sync**, alertas, prospecção, lembretes) | `pm2 start scripts/container-cron.mjs --name conectacrm-cron` |
+| `whatsapp-manager` / `hermes` / `bridge` | atendimento no WhatsApp (bridge Baileys + persona + plugin) | instalado pelo template do Hermes |
+
+Variáveis que o CRM precisa no ambiente do PM2 (`.env.local` ou `ecosystem.config.js`):
+
+- `HERMES_HOME=/opt/data` — é de onde o **hermes-sync** lê o `state.db` e onde ficam
+  `SOUL_WHATSAPP.md` e `support_rules.md`;
+- `HERMES_BIN=$(which hermes)` — CLI usado para pausar/retomar e gerar texto de prospecção;
+- `CRM_BASE_URL=http://127.0.0.1:8081` + `CRON_SECRET` no processo do cron;
+- `NEXT_PUBLIC_*` entram no bundle em tempo de **build**, não de runtime.
+
+### Atualizar (git pull)
+
+O projeto pode estar em qualquer pasta — descubra a sua pelo PM2 (nada de `<>` nos comandos:
+o shell interpreta como redirecionamento):
+
+```bash
+pm2 list
+pm2 describe conecta-crm | grep -iE "script path|exec cwd"   # mostra a pasta do projeto
+
+PROJETO=/root/projects/conecta-crm     # a sua pasta, conforme a saída acima
+cd "$PROJETO"
+
+git pull
+
+./scripts/install-hermes-assets.sh          # personas + trava de saída no home do Hermes
+#   o script descobre a raiz sozinho e instala em /opt/data (ou no $HERMES_HOME)
+#   se faltar permissão em /opt/data:  sudo -E ./scripts/install-hermes-assets.sh
+
+npm ci && npm run build                     # o sync que limpa log é código do app
+
+pm2 restart conecta-crm crm-cron --update-env      # CRM + agenda (pega o build novo)
+pm2 restart vendedor-ia --update-env               # atendimento: relê persona + trava de saída
+pm2 restart whatsapp-bridge --update-env           # bridge do WhatsApp (por último)
+```
+
+> Os nomes vêm do seu `pm2 list` (aqui: `conecta-crm`, `crm-cron`, `vendedor-ia`,
+> `whatsapp-bridge`). O `whatsapp-bridge` é o mais sensível: reinicie por último e acompanhe
+> `pm2 logs whatsapp-bridge --lines 30` — se pedir QR, escaneie (seção 4).
+
+Confira onde está o home do Hermes (os dois lados têm que apontar para o mesmo lugar):
+
+```bash
+ls -l /opt/data/SOUL.md /opt/data/SOUL_WHATSAPP.md /opt/data/support_rules.md
+grep -i '^HERMES_HOME=' .env.local          # no CRM: precisa ser o mesmo /opt/data
+```
+
+Confira que o sync está com o código novo (`noiseSkipped` só existe depois deste deploy):
+
+```bash
+curl -s "http://127.0.0.1:8081/api/cron/hermes-sync" -H "Authorization: Bearer $CRON_SECRET"
+```
+
+Detalhes dos dois problemas que esse passo resolve (produto de terceiro e log do bridge colado
+na resposta): [`hermes/README.md`](hermes/README.md).
+
+> **Só um gateway por sessão do WhatsApp.** Local e VPS não podem atender o mesmo número ao
+> mesmo tempo — pare o gateway local antes de subir o da VPS (seção 6).
+
+### Variante: CRM em Vercel, Hermes na VPS
+
+Se preferir o CRM na Vercel (com os crons do `vercel.json`) e a VPS só para o Hermes, o CRM
+precisa alcançar o Hermes por rede: exponha o API server (porta 8642, exige `API_SERVER_KEY`) e
+aponte o CRM para ele. Nesse arranjo, `HERMES_HOME` do sync deixa de ser local — o espelho do
+`state.db` precisa vir por HTTP ou de um compartilhamento de arquivos.
