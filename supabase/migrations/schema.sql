@@ -13,7 +13,7 @@ create extension if not exists pg_trgm;
 create type user_role          as enum ('admin', 'gerente', 'atendente');
 create type business_type      as enum ('imobiliaria', 'ecommerce', 'clinica', 'agencia');
 create type channel_type       as enum ('whatsapp', 'instagram', 'messenger');
-create type agent_role         as enum ('vendedor', 'atendente', 'suporte', 'agendador', 'personalizado');
+create type agent_role as enum ('gerente', 'vendedor', 'atendente', 'suporte', 'agendador', 'personalizado');
 create type agent_tone         as enum ('formal', 'amigavel', 'consultivo', 'direto');
 create type prompt_status      as enum ('draft', 'published', 'archived');
 create type conversation_status as enum ('aberta', 'pendente', 'resolvida');
@@ -193,16 +193,18 @@ create index opportunities_contact_idx on opportunities (contact_id);
 -- 7. AGENTES DE IA
 -- ---------------------------------------------------------------------
 create table agents (
-  id              uuid primary key default gen_random_uuid(),
-  organization_id uuid not null references organizations(id) on delete cascade,
-  name            text not null,
-  role            agent_role not null default 'personalizado',
-  tone            agent_tone not null default 'amigavel',
-  is_active       boolean not null default true,
-  created_by      uuid references auth.users(id) on delete set null,
-  created_at      timestamptz not null default now(),
-  updated_at      timestamptz not null default now()
+  id               uuid primary key default gen_random_uuid(),
+  organization_id  uuid not null references organizations(id) on delete cascade,
+  manager_agent_id uuid references agents(id) on delete set null,
+  name             text not null,
+  role             agent_role not null default 'personalizado',
+  tone             agent_tone not null default 'amigavel',
+  is_active        boolean not null default true,
+  created_by       uuid references auth.users(id) on delete set null,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
 );
+create index agents_manager_agent_id_idx on agents(manager_agent_id);
 
 create table agent_prompt_versions (
   id              uuid primary key default gen_random_uuid(),
@@ -247,6 +249,18 @@ create table agent_handoff_rules (
   config          jsonb not null default '{}',   -- ex.: {"limite": 3}
   primary key (agent_id, rule_key)
 );
+
+create table agent_memories (
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  agent_id        uuid not null references agents(id) on delete cascade,
+  key             text not null,
+  content         text not null default '',
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (agent_id, key)
+);
+create index agent_memories_agent_id_idx on agent_memories(agent_id);
 
 -- Modelos de prompt iniciais. organization_id nulo = modelo global do sistema.
 create table agent_templates (

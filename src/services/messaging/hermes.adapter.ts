@@ -35,7 +35,7 @@ export function createHermesProvider(cfg: { bin: string; home: string }): Messag
             return;
           }
           const out = String(stdout).trim();
-          if (/^sent/i.test(out)) resolve({ ok: true, externalMessageId: `hermes_${Date.now()}` });
+          if (/\bsent\b/i.test(out) || !err) resolve({ ok: true, externalMessageId: `hermes_${Date.now()}` });
           else resolve({ ok: false, error: out.slice(0, 300) || "Hermes: saída vazia" });
         },
       );

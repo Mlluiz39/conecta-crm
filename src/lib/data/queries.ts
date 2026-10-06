@@ -310,19 +310,40 @@ export async function getAgents() {
 export async function getAgentDetail(agentId: string) {
   const { organizationId } = await requireProfile();
   const supabase = createClient();
-  const [agent, versions, channels, tools, rules] = await Promise.all([
+  const [agent, versions, channels, tools, rules, knowledgeMemories] = await Promise.all([
     supabase.from("agents").select("*").eq("id", agentId).eq("organization_id", organizationId).single(),
     supabase.from("agent_prompt_versions").select("id, version, prompt, status, created_at").eq("agent_id", agentId).order("version", { ascending: false }),
     supabase.from("agent_channels").select("channel, is_active").eq("agent_id", agentId),
     supabase.from("agent_tools").select("tool_key, enabled, config").eq("agent_id", agentId),
     supabase.from("agent_handoff_rules").select("rule_key, enabled, config").eq("agent_id", agentId),
+    supabase.from("knowledge_base_items").select("id, title, content, updated_at").eq("organization_id", organizationId).eq("category", `agent_memory:${agentId}`).order("updated_at", { ascending: false }),
   ]);
+
+  const fallbackRuleMemory = (rules.data ?? []).find((r: any) => r.rule_key === "fora_do_horario")?.config?.agent_memory as string | undefined;
+
+  const memories = (knowledgeMemories.data ?? []).map((m: any) => ({
+    id: m.id,
+    key: m.title.replace(/^Memória:\s*/i, "") || "perfil",
+    content: m.content,
+    updated_at: m.updated_at,
+  }));
+
+  if (memories.length === 0 && fallbackRuleMemory) {
+    memories.push({
+      id: "fallback-memory",
+      key: "perfil",
+      content: fallbackRuleMemory,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
   return {
     agent: agent.data,
     versions: versions.data ?? [],
     channels: channels.data ?? [],
     tools: tools.data ?? [],
     rules: rules.data ?? [],
+    memories,
   };
 }
 

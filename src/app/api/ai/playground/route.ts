@@ -48,11 +48,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `sem versão ${version}` }, { status: 404 });
   }
 
-  const [{ data: toolRows }, { data: org }] = await Promise.all([
+  const [{ data: toolRows }, { data: org }, { data: knowledgeMemories }, { data: subagents }] = await Promise.all([
     supabase.from("agent_tools").select("tool_key").eq("agent_id", agentId).eq("enabled", true),
     supabase.from("organizations").select("name, business_hours, timezone").eq("id", profile.organizationId).single(),
+    supabase.from("knowledge_base_items").select("title, content").eq("organization_id", profile.organizationId).eq("category", `agent_memory:${agentId}`),
+    supabase
+      .from("agents")
+      .select("id, name, role, is_active")
+      .eq("organization_id", profile.organizationId)
+      .eq("is_active", true)
+      .order("created_at"),
   ]);
   const enabledTools = (toolRows ?? []).map((r: any) => r.tool_key as AgentToolKey);
+  const memoryText = (knowledgeMemories ?? [])
+    .map((m: any) => `- ${m.title.replace(/^Memória:\s*/i, "")}: ${m.content}`)
+    .join("\n");
+  const subagentsText = (subagents ?? [])
+    .filter((a: any) => a.id !== agentId)
+    .map((a: any) => `- ${a.name} (${AGENT_ROLE_LABEL[a.role as AgentRole] ?? a.role})`)
+    .join("\n");
 
   const renderedBase = renderPrompt(promptVersion.prompt, {
     nome_empresa: org?.name ?? "",
@@ -67,6 +81,9 @@ export async function POST(request: NextRequest) {
     basePrompt: renderedBase,
     role: agent.role,
     agentName: agent.name,
+    tone: agent.tone,
+    memory: memoryText,
+    subagents: subagentsText,
   });
 
   const messages = [

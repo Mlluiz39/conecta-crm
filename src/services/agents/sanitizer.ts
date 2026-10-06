@@ -55,6 +55,13 @@ function getRoleSpecificGuideline(roleRaw: string): string {
   const role = (roleRaw || "").toLowerCase().trim();
 
   switch (role) {
+    case "gerente":
+      return `
+[FUNÇÃO: GERENTE / ORQUESTRADOR]
+- Você é o agente central. Entenda a demanda, escolha o subagente certo e coordene a execução.
+- Não execute venda, suporte ou agenda quando houver subagente adequado; delegue mentalmente e responda como gerente.
+- Mantenha visão geral: prioridade, próximo passo, responsável e status.`;
+
     case "vendedor":
       return `
 [FUNÇÃO: VENDEDOR CONSULTIVO]
@@ -128,9 +135,17 @@ export function buildAgentSystemInstruction(params: {
   role: string;
   agentName: string;
   tone?: string;
+  memory?: string;
+  subagents?: string;
 }): string {
   const roleGuideline = getRoleSpecificGuideline(params.role);
   const toneGuideline = getToneGuideline(params.tone);
+  const memoryGuideline = params.memory?.trim()
+    ? `\n[MEMÓRIA PRÓPRIA DO AGENTE]\n${params.memory.trim()}`
+    : "";
+  const subagentGuideline = params.subagents?.trim()
+    ? `\n[SUBAGENTES DISPONÍVEIS]\n${params.subagents.trim()}`
+    : "";
 
   const formatGuideline = `
 [REGRA ABSOLUTA DE FORMATO DA MENSAGEM]
@@ -143,6 +158,8 @@ export function buildAgentSystemInstruction(params: {
 ${roleGuideline.trim()}
 
 ${toneGuideline.trim()}
+${memoryGuideline}
+${subagentGuideline}
 
 ${HUMANITY_GUIDELINE.trim()}
 

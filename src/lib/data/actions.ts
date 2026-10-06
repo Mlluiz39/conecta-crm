@@ -1577,9 +1577,23 @@ export async function createAgent(formData: FormData) {
       agent_id: agent.id,
       rule_key,
       enabled: rule_key === "cliente_pede_humano",
-      config: rule_key === "falhas_seguidas" ? { limite: 3 } : {},
+      config:
+        rule_key === "falhas_seguidas"
+          ? { limite: 3 }
+          : rule_key === "fora_do_horario"
+            ? {
+                agent_memory: `Subagente ${role}: atua com autonomia no próprio papel de ${role}.`,
+              }
+            : {},
     })),
   );
+
+  await supabase.from("knowledge_base_items").insert({
+    organization_id: organizationId,
+    title: "Memória: perfil",
+    category: `agent_memory:${agent.id}`,
+    content: `Subagente ${role}: atua com autonomia no próprio papel de ${role}.`,
+  });
 
   // Desativa canal ativo anterior do canal se houver
   await supabase
@@ -1607,6 +1621,52 @@ export async function toggleAgentActive(agentId: string, active: boolean) {
     .update({ is_active: active })
     .eq("organization_id", organizationId)
     .eq("id", agentId);
+  revalidatePath("/agentes");
+}
+
+export async function updateAgentMemory(agentId: string, key: string, content: string) {
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+  const cleanKey = key.trim() || "perfil";
+  const category = `agent_memory:${agentId}`;
+  const title = `Memória: ${cleanKey}`;
+
+  const { data: existing } = await supabase
+    .from("knowledge_base_items")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("category", category)
+    .maybeSingle();
+
+  if (existing) {
+    await supabase
+      .from("knowledge_base_items")
+      .update({ title, content, updated_at: new Date().toISOString() })
+      .eq("id", existing.id);
+  } else {
+    await supabase
+      .from("knowledge_base_items")
+      .insert({ organization_id: organizationId, title, category, content });
+  }
+
+  // Backup persistente nas configs de handoff do agente
+  const { data: currentRule } = await supabase
+    .from("agent_handoff_rules")
+    .select("config")
+    .eq("agent_id", agentId)
+    .eq("rule_key", "fora_do_horario")
+    .maybeSingle();
+
+  await supabase.from("agent_handoff_rules").upsert(
+    {
+      organization_id: organizationId,
+      agent_id: agentId,
+      rule_key: "fora_do_horario",
+      config: { ...(currentRule?.config ?? {}), agent_memory: content },
+    },
+    { onConflict: "agent_id,rule_key" },
+  );
+
   revalidatePath("/agentes");
 }
 

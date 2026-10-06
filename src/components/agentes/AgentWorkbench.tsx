@@ -15,6 +15,7 @@ import {
   createAgent,
   updateAgentRole,
   updateAgentName,
+  updateAgentMemory,
 } from "@/lib/data/actions";
 import { Badge, Card } from "@/components/ui/primitives";
 import { AGENT_ROLE_LABEL, AGENT_TONE_LABEL, CHANNEL_LABEL, HANDOFF_RULE_LABEL, TOOL_LABEL } from "@/types/domain";
@@ -26,11 +27,13 @@ type Agent = {
   role: AgentRole;
   tone: AgentTone;
   is_active: boolean;
+  manager_agent_id?: string | null;
 };
 type Version = { id: string; version: number; prompt: string; status: string; created_at: string };
 type Channel = { channel: ChannelType; is_active: boolean };
 type Tool = { tool_key: AgentToolKey; enabled: boolean };
 type Rule = { rule_key: HandoffRuleKey; enabled: boolean };
+type Memory = { id: string; key: string; content: string; updated_at: string };
 
 const CHANNELS: ChannelType[] = ["whatsapp", "instagram", "messenger"];
 const ALL_TOOLS: AgentToolKey[] = [
@@ -56,10 +59,10 @@ export function AgentWorkbench({
   agents: Agent[];
   selectedId: string | null;
   detail:
-    | { versions: Version[]; channels: Channel[]; tools: Tool[]; rules: Rule[] }
+    | { versions: Version[]; channels: Channel[]; tools: Tool[]; rules: Rule[]; memories: Memory[] }
     | null;
 }) {
-  const [tab, setTab] = useState<"prompt" | "canais" | "ferramentas" | "handoff" | "playground">("prompt");
+  const [tab, setTab] = useState<"prompt" | "memoria" | "canais" | "ferramentas" | "handoff" | "playground">("prompt");
   const [creating, setCreating] = useState(false);
 
   return (
@@ -106,6 +109,7 @@ export function AgentWorkbench({
               {(
                 [
                   ["prompt", "Prompt"],
+                  ["memoria", "Memória"],
                   ["canais", "Canais"],
                   ["ferramentas", "Ferramentas"],
                   ["handoff", "Handoff"],
@@ -130,6 +134,7 @@ export function AgentWorkbench({
                 versions={detail.versions}
               />
             )}
+            {tab === "memoria" && <MemoryTab agentId={selectedId} memories={detail.memories ?? []} />}
             {tab === "canais" && <ChannelsTab agentId={selectedId} channels={detail.channels} />}
             {tab === "ferramentas" && <ToolsTab agentId={selectedId} tools={detail.tools} />}
             {tab === "handoff" && <RulesTab agentId={selectedId} rules={detail.rules} />}
@@ -153,16 +158,20 @@ export function AgentWorkbench({
 /* ─────────────────────────── Prompt ─────────────────────────── */
 
 function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Agent[]; versions: Version[] }) {
-  const agent = agents.find((a) => a.id === agentId)!;
+  const agent = agents.find((a) => a.id === agentId);
   const router = useRouter();
-  const published = versions.find((v) => v.status === "published");
-  const draft = versions.find((v) => v.status === "draft");
+  const published = (versions ?? []).find((v) => v.status === "published");
+  const draft = (versions ?? []).find((v) => v.status === "draft");
   const [text, setText] = useState(draft?.prompt ?? published?.prompt ?? "");
   const [saving, startSaving] = useTransition();
   const [note, setNote] = useState("");
   const [improving, setImproving] = useState(false);
-  const [agentName, setAgentName] = useState(agent.name);
-  const dirtyName = agentName.trim().length > 0 && agentName.trim() !== agent.name;
+  const [agentName, setAgentName] = useState(agent?.name ?? "");
+  const dirtyName = agentName.trim().length > 0 && agentName.trim() !== (agent?.name ?? "");
+
+  if (!agent) {
+    return <div className="text-xs text-muted-foreground p-3">Agente não encontrado.</div>;
+  }
 
   function saveName() {
     if (!dirtyName || saving) return;
@@ -401,9 +410,10 @@ function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Age
 
 /* ─────────────────────────── Canais ─────────────────────────── */
 
-function ChannelsTab({ agentId, channels }: { agentId: string; channels: Channel[] }) {
+function ChannelsTab({ agentId, channels }: { agentId: string; channels?: Channel[] }) {
   const [, start] = useTransition();
-  const active = channels.find((c) => c.is_active)?.channel;
+  const list = channels ?? [];
+  const active = list.find((c) => c.is_active)?.channel;
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
@@ -429,9 +439,10 @@ function ChannelsTab({ agentId, channels }: { agentId: string; channels: Channel
 
 /* ─────────────────────── Ferramentas / Regras ───────────────── */
 
-function ToolsTab({ agentId, tools }: { agentId: string; tools: Tool[] }) {
+function ToolsTab({ agentId, tools }: { agentId: string; tools?: Tool[] }) {
   const [, start] = useTransition();
-  const map = new Map(tools.map((t) => [t.tool_key, t.enabled]));
+  const list = tools ?? [];
+  const map = new Map(list.map((t) => [t.tool_key, t.enabled]));
   return (
     <div className="space-y-2">
       {ALL_TOOLS.map((t) => (
@@ -447,9 +458,10 @@ function ToolsTab({ agentId, tools }: { agentId: string; tools: Tool[] }) {
   );
 }
 
-function RulesTab({ agentId, rules }: { agentId: string; rules: Rule[] }) {
+function RulesTab({ agentId, rules }: { agentId: string; rules?: Rule[] }) {
   const [, start] = useTransition();
-  const map = new Map(rules.map((r) => [r.rule_key, r.enabled]));
+  const list = rules ?? [];
+  const map = new Map(list.map((r) => [r.rule_key, r.enabled]));
   return (
     <div className="space-y-2">
       {ALL_RULES.map((r) => (
@@ -611,6 +623,43 @@ function Playground({
   );
 }
 
+function MemoryTab({ agentId, memories }: { agentId: string; memories?: Memory[] }) {
+  const router = useRouter();
+  const list = memories ?? [];
+  const memory = list.find((m) => m.key === "perfil") ?? list[0];
+  const [content, setContent] = useState(memory?.content ?? "");
+  const [saving, startSaving] = useTransition();
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">
+          Memória própria do agente
+        </label>
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows={10}
+          placeholder="Preferências, missão, contexto fixo e regras específicas deste funcionário..."
+          className="w-full rounded-xl border bg-background px-3 py-2 text-xs leading-relaxed outline-none focus:ring-2 focus:ring-ring"
+        />
+      </div>
+      <button
+        disabled={saving}
+        onClick={() =>
+          startSaving(async () => {
+            await updateAgentMemory(agentId, "perfil", content);
+            router.refresh();
+          })
+        }
+        className="rounded-xl bg-primary px-3 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50"
+      >
+        {saving ? "Salvando..." : "Salvar memória"}
+      </button>
+    </div>
+  );
+}
+
 /* ─────────────────────── Novo agente ─────────────────────── */
 
 function NewAgentModal({ onClose }: { onClose: () => void }) {
@@ -624,7 +673,7 @@ function NewAgentModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-lg rounded-2xl border bg-card p-6 shadow-xl">
-        <h3 className="text-base font-bold">Novo Agente de IA</h3>
+        <h3 className="text-base font-bold">Novo Funcionário de IA</h3>
         <div className="mt-4 space-y-3">
           <input
             value={name}
