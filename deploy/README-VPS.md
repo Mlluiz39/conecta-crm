@@ -96,9 +96,16 @@ cd /caminho/do/repo
 ./deploy/make-vps-env.sh crm.seudominio.com.br
 ENV_FILE=.env.vps ./deploy/ship.sh usuario@IP_DA_VPS --assets-only
 
-# 3) atualizar depois: git pull na VPS + reconstruir
-ssh usuario@IP_DA_VPS 'cd /opt/conectacrm && git pull && CONECTA_ROOT=$PWD docker compose --env-file .env.local up -d --build'
+# 3) atualizar depois: git pull na VPS + personas + reconstruir
+ssh usuario@IP_DA_VPS 'cd /opt/conectacrm && git pull && ./scripts/install-hermes-assets.sh && CONECTA_ROOT=$PWD docker compose --env-file .env.local up -d --build'
 ```
+
+> **Personas do atendimento (obrigatório).** `deploy/personas/SOUL_WHATSAPP.md` e
+> `support_rules.md` são o prompt do bot de WhatsApp e ficam no volume, não no git.
+> Depois de cada `git pull`, rode `./scripts/install-hermes-assets.sh` (ou
+> `./scripts/install-hermes-assets.sh --check` para só verificar). Sem esses arquivos o script de
+> WhatsApp cai num fallback hardcoded que oferece produto de terceiro — detalhes em
+> [`hermes/README.md`](hermes/README.md).
 
 > Para o `git clone` funcionar, a chave SSH da VPS precisa estar cadastrada no GitHub
 > (Settings → SSH keys) ou use HTTPS com um token.
@@ -181,8 +188,12 @@ segundo de qualquer forma). Para ter os dois, use sessões diferentes (outro nú
 # da sua máquina
 ./deploy/ship.sh usuario@ip                 # envia o código e reconstrói
 # ou, direto na VPS, se o código estiver num git:
-cd /opt/conectacrm && git pull && CONECTA_ROOT=$PWD docker compose --env-file .env.local up -d --build
+cd /opt/conectacrm && git pull && ./scripts/install-hermes-assets.sh && CONECTA_ROOT=$PWD docker compose --env-file .env.local up -d --build
 ```
+
+> `./scripts/install-hermes-assets.sh` recoloca `SOUL_WHATSAPP.md`, `support_rules.md` e o plugin
+> `crm-output-guard` (trava de saída) no home do Hermes. Rode sempre depois de um `git pull` e
+> reinicie o serviço do WhatsApp. Detalhes: [`hermes/README.md`](hermes/README.md).
 
 Mudou só variável de runtime? `docker compose --env-file .env.local up -d` resolve. Mudou
 `NEXT_PUBLIC_*`? Precisa de `--build`.
@@ -210,6 +221,8 @@ o diretório `platforms/whatsapp/session` guarda o vínculo do WhatsApp — sem 
 | Alerta do Telegram não chega | cota do modelo primário estourou e o vigia avisou | normal: `docker compose logs conectacrm-watchdog` mostra o estado |
 | Build falha por memória | VPS com 2 GB | adicione swap (`fallocate -l 2G /swapfile && mkswap /swapfile && swapon /swapfile`) ou faça o build na sua máquina e envie a imagem (`docker save` + `ssh docker load`) |
 | `EACCES` nos scripts do cron/vigia | `/app` não pertence ao usuário que roda o container | já tratado no `Dockerfile` (chown); confirme `HERMES_UID`/`HERMES_GID` no env file |
+| Bot oferece produto/marca que não é nosso | faltam `SOUL_WHATSAPP.md`/`support_rules.md` no `/opt/data` e o script de WhatsApp usou o fallback do template | `./scripts/install-hermes-assets.sh && docker compose restart hermes` — ver [`hermes/README.md`](hermes/README.md) |
+| Logo após subir, o lead recebe `[whatsapp-manager] Inicializando /opt/data/...` na frente da resposta | log do boot do bridge colado na resposta do agente | `./scripts/install-hermes-assets.sh && docker compose restart hermes` (a trava de saída passa a cortar); limpe o histórico com `node scripts/clean-hermes-noise.mjs --apply` |
 
 ## 10. Alternativa: sem Docker na VPS
 

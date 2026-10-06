@@ -2,12 +2,15 @@ import "server-only";
 import { DatabaseSync } from "node:sqlite";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { serverEnv } from "@/lib/env";
+import { stripLogLines } from "./hermes-noise";
 
 export type HermesSyncResult = {
   sessions: number;
   contacts: number;
   conversations: number;
   messages: number;
+  /** Mensagens de saída que eram só log do bridge/plugin e não viraram conversa. */
+  noiseSkipped: number;
 };
 
 const MESSAGE_CHUNK = 200;
@@ -30,7 +33,13 @@ export async function syncHermesState(): Promise<HermesSyncResult> {
 
   const db = new DatabaseSync(`${home}/state.db`, { readOnly: true });
   const supabase = createAdminClient();
-  const result: HermesSyncResult = { sessions: 0, contacts: 0, conversations: 0, messages: 0 };
+  const result: HermesSyncResult = {
+    sessions: 0,
+    contacts: 0,
+    conversations: 0,
+    messages: 0,
+    noiseSkipped: 0,
+  };
 
   try {
     const { data: org } = await supabase.from("organizations").select("id").limit(1).single();
@@ -279,14 +288,22 @@ export async function syncHermesState(): Promise<HermesSyncResult> {
       for (const m of rows) {
         const externalId = `hermes_${m.message_uid ?? m.id}`;
         if (known.has(externalId) || queued.has(externalId)) continue;
-        queued.add(externalId);
         const isIn = m.role === "user";
+        // Saída do agente passa pela limpeza de log: o bridge já entregou o bootstrap do
+        // plugin colado na frente da resposta (ver hermes-noise.ts). Mensagem que era só
+        // log não é conversa — não espelha.
+        const raws: string = isIn ? m.content : stripLogLines(m.content);
+        if (!raws) {
+          result.noiseSkipped++;
+          continue;
+        }
+        queued.add(externalId);
         bucket.push({
           organization_id: organizationId,
           conversation_id: convId,
           direction: isIn ? "in" : "out",
           sender_type: isIn ? "contact" : "agent_ai",
-          content: m.content,
+          content: raws,
           external_id: externalId,
           status: isIn ? "entregue" : "enviada",
           created_at: new Date(m.timestamp * 1000).toISOString(),

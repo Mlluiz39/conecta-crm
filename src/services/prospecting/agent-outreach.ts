@@ -10,6 +10,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { serverEnv } from "@/lib/env";
 import { generateText } from "@/services/agents/claude";
+import { stripLogLines } from "@/services/messaging/hermes-noise";
 
 const execFileAsync = promisify(execFile);
 
@@ -64,12 +65,8 @@ function firstName(name: string | null | undefined): string {
 
 /** Remove ruído do CLI (session_id, avisos, logs de plugins, fences de código). */
 function cleanGenerated(raw: string): string {
-  let text = (raw ?? "").toString();
-  text = text
-    .split("\n")
-    .filter((line) => !/^\s*\[(whatsapp-manager|owner-status|turn-dedup|contacts-cache|bridge|debug|info|warning|error|code update).*?\]/i.test(line))
-    .join("\n");
-  text = text.replace(/^\s*session_id:.*$/gim, "");
+  // As regras de ruído de log vivem em um só lugar (também usado pelo hermes-sync).
+  let text = stripLogLines((raw ?? "").toString());
   text = text.replace(/```[a-z]*\n?/gi, "");
   text = text.replace(/^(mensagem|resposta|texto)\s*:\s*/i, "");
   text = text.trim();

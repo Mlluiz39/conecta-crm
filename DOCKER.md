@@ -59,7 +59,7 @@ hook é registrado mas falha ao executar (o arquivo não existe lá dentro).
 
 | Caminho no host | Dentro do container | Conteúdo |
 |---|---|---|
-| `./.hermes-home/.hermes` | `/opt/data` | config.yaml, `SOUL.md`, skills, plugins, `state.db`, sessão do WhatsApp, `.env` do Hermes (chaves de modelo) |
+| `./.hermes-home/.hermes` | `/opt/data` | config.yaml, `SOUL.md`, `SOUL_WHATSAPP.md`, `support_rules.md`, skills, plugins, `state.db`, sessão do WhatsApp, `.env` do Hermes (chaves de modelo) |
 | `./scripts` | mesmo caminho | hook do relógio (montado read-only no `hermes`) |
 | `.env.local` | — | segredos do CRM (Supabase, `CRON_SECRET`, …) via `env_file` |
 | Supabase (nuvem) | — | banco do CRM (fora do Docker) |
