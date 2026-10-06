@@ -74,6 +74,14 @@ for chave, valor in (
 ):
     texto = definir(texto, chave, valor)
 
+# token do túnel (opcional): fica vazio para você só colar
+if "CF_TUNNEL_TOKEN" not in texto:
+    texto = texto.rstrip("\n") + (
+        '\n\n# Cloudflare Tunnel (opcional): cole o token do túnel criado no painel\n'
+        '# e suba com: docker compose --env-file .env.local --profile tunnel up -d\n'
+        'CF_TUNNEL_TOKEN=""\n'
+    )
+
 cabecalho = (
     "# Gerado por deploy/make-vps-env.sh — este arquivo vai para a VPS como .env.local.\n"
     "# Contém segredos: está no .gitignore, não versione.\n"
