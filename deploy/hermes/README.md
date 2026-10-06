@@ -89,6 +89,20 @@ As regras de "o que é log" existem nos dois lados e **têm que andar juntas**:
 
 ---
 
+## Habilitar o plugin (uma vez)
+
+O Hermes só carrega um plugin que esteja em `plugins.enabled` do `config.yaml`. O instalador
+avisa quando falta; para habilitar sem editar YAML na mão (e sem risco de derrubar o agente):
+
+```bash
+python3 scripts/enable-hermes-plugin.py           # usa $HERMES_HOME/config.yaml
+python3 scripts/enable-hermes-plugin.py --check   # só verifica (sai 1 se não estiver habilitado)
+```
+
+Ele faz backup do `config.yaml`, insere a linha na lista certa, é idempotente e não toca em
+nada mais. Depois: `pm2 restart whatsapp-bridge --update-env` (plugin é registrado no boot —
+as personas, não: o manager lê a cada mensagem).
+
 ## Como aplicar
 
 ### Local (docker compose)
@@ -130,7 +144,7 @@ pm2 restart whatsapp-bridge --update-env         # atendimento: relê persona + 
 > O processo do atendimento é o que roda **dentro do home do Hermes** — na sua VPS,
 > `whatsapp-bridge` (`/root/.hermes/plugins/whatsapp-manager/bridge.js`). O instalador acha
 > esse nome sozinho pelo `pm2 jlist` e imprime o comando pronto. Reinicie por último e
-> acompanhe `pm2 logs whatsapp-bridge --lines 30` — se pedir QR, escaneie.
+> acompanhe `pm2 logs whatsapp-bridge --lines 30 --timestamp --nostream` — se pedir QR, escaneie.
 
 Confirme que o sync está com o código novo (deve aparecer `noiseSkipped`):
 
@@ -154,6 +168,11 @@ docker compose --env-file .env.local up -d --build   # para valer o build do CRM
 ```
 
 ### Conferir que instalou
+
+> **Leia log com data, sempre.** `pm2 logs` mostra o **fim do arquivo**, não o que acabou de
+> acontecer: um `Cannot find module` de horas atrás parece atual e assusta à toa. Use
+> `--timestamp --nostream` e confira o `ls -l /root/.pm2/logs/whatsapp-bridge-error.log`
+> (se o mtime é antigo, o erro é antigo).
 
 ```bash
 # personas (lidas pelo whatsapp_manager)
@@ -202,6 +221,7 @@ node --test src/services/messaging/hermes-noise.test.ts   # regras de ruído (TS
 node --test "src/**/*.test.ts"                            # toda a suíte TS (Node 24; no 22 use --experimental-strip-types)
 python3 scripts/test-output-guard.py                      # trava de saída (inclui o caso real do vazamento)
 ./scripts/install-hermes-assets.sh --check                # personas + plugin em dia
+python3 scripts/enable-hermes-plugin.py --check           # plugin habilitado no config.yaml
 ```
 
 O teste da trava roda contra a **fonte versionada** e ainda confere que a cópia instalada está

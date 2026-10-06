@@ -283,9 +283,22 @@ pm2 restart whatsapp-bridge --update-env          # atendimento: relê persona +
 ```
 
 > O `whatsapp-bridge` é o mais sensível: reinicie por último e acompanhe
-> `pm2 logs whatsapp-bridge --lines 30` — se pedir QR, escaneie (seção 4).
+> `pm2 logs whatsapp-bridge --lines 30 --timestamp --nostream` — se pedir QR, escaneie (seção 4).
 
 ### Conferir
+
+O **bridge** (é ele que fala com o WhatsApp): a porta depende de como o processo foi subido —
+não presuma. Aqui ele roda com `--port 3000`, e o `3005` é de **outro** serviço (`vendedor-ia`,
+"Proxy Vendas IA"). Descubra antes de testar:
+
+```bash
+pm2 describe whatsapp-bridge | grep -iE "script args|exec cwd"
+ss -ltnp | grep -i node                                  # quem escuta o quê
+curl -s -m 5 http://127.0.0.1:3000/health; echo          # status "open" = sessão conectada
+```
+
+Se o `status` não for `open`, o bridge está de pé mas sem sessão do WhatsApp: escaneie o QR
+(`pm2 logs whatsapp-bridge --lines 40 --timestamp --nostream`).
 
 ```bash
 ls -l /opt/data/SOUL_WHATSAPP.md /opt/data/support_rules.md     # personas do manager
@@ -301,6 +314,17 @@ na resposta): [`hermes/README.md`](hermes/README.md).
 
 > **Só um gateway por sessão do WhatsApp.** Local e VPS não podem atender o mesmo número ao
 > mesmo tempo — pare o gateway local antes de subir o da VPS (seção 6).
+
+### Backup (PM2)
+
+O home do Hermes guarda o que **não** se recupera por git: `config.yaml`, `state.db` (histórico)
+e `platforms/whatsapp/session` (o vínculo do WhatsApp — sem ele, só com QR novo).
+
+```bash
+pm2 stop whatsapp-bridge
+tar czf ~/backup-hermes-$(date +%F).tgz -C /root .hermes
+pm2 start whatsapp-bridge
+```
 
 ### Variante: CRM em Vercel, Hermes na VPS
 
