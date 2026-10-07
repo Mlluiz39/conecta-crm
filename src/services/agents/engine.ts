@@ -54,15 +54,16 @@ export async function resolveChannelAgent(
 
 
 /**
- * Rede de segurança do roteamento: se o gerente não chamar `delegar_para`, classificamos a
- * intenção por palavras-chave para a conversa não ficar sem especialista.
- * (Modelos pequenos às vezes ignoram ferramentas; isto garante a hierarquia de qualquer forma.)
+ * Rede de segurança do roteamento: o pedido explícito de um setor ("quero falar com vendas",
+ * "me passa para o suporte") transfere a conversa para o agente daquele papel — e o bot
+ * continua respondendo, agora com o especialista. Também cobre a classificação por intenção
+ * quando o gerente não chamar `delegar_para` (modelos pequenos às vezes ignoram ferramentas).
  */
 const REGRAS_ROTA: { role: AgentRole; termos: RegExp }[] = [
-  { role: "suporte", termos: /\b(erro|problema|parou|n[ãa]o funciona|n[ãa]o est[áa] funcionando|bug|quebrou|fora do ar|caiu|inst[áa]vel)\b/i },
-  { role: "agendador", termos: /\b(agendar|agenda|remarcar|desmarcar|cancelar|marcar|reuni[ãa]o|visita|hor[áa]rio dispon[íi]vel)\b/i },
-  { role: "vendedor", termos: /\b(or[çc]amento|pre[çc]o|valor|quanto custa|proposta|contratar|site|sistema|aplicativo|app|automa[çc][ãa]o|integra[çc][ãa]o|agente de ia|chatbot|landing)\b/i },
-  { role: "atendente", termos: /\b(d[úu]vida|informa[çc][ãa]o|como funciona|endere[çc]o|contato|pagamento|suporte)\b/i },
+  { role: "suporte", termos: /\b(erro|problema|parou|n[ãa]o funciona|n[ãa]o est[áa] funcionando|bug|quebrou|fora do ar|caiu|inst[áa]vel|suporte|t[ée]cnico|n[ãa]o consigo acessar)\b/i },
+  { role: "agendador", termos: /\b(agendar|agenda|agendamento|remarcar|desmarcar|cancelar|marcar|reuni[ãa]o|visita|hor[áa]rio dispon[íi]vel)\b/i },
+  { role: "vendedor", termos: /\b(vendas?|vendedor|comercial|or[çc]amento|pre[çc]o|valor|quanto custa|proposta|contratar|site|sistema|aplicativo|app|automa[çc][ãa]o|integra[çc][ãa]o|agente de ia|chatbot|landing)\b/i },
+  { role: "atendente", termos: /\b(atendente|recep[çc][ãa]o|d[úu]vida|informa[çc][ãa]o|como funciona|endere[çc]o|contato|pagamento)\b/i },
 ];
 
 function classificarIntencao(texto: string): AgentRole | null {
@@ -214,6 +215,52 @@ export async function runAgentForConversation(params: {
     agentId = resolved?.agentId ?? null;
   }
   if (!agentId) return { handled: false, reason: "sem_agente_no_canal" };
+
+  /**
+   * Transferência entre agentes — o caminho normal quando o lead pede um setor.
+   *
+   * "Quero falar com vendas/atendente/suporte" NÃO é motivo para desligar a IA: a conversa
+   * passa para o agente daquele papel e ele responde esta mensagem. Desligar é outro caminho
+   * (insatisfação — ver `evaluateHandoff`).
+   */
+  if (!interno) {
+    const papelPedido = classificarIntencao(inboundText);
+    if (papelPedido) {
+      const { data: atual } = await supabase
+        .from("agents")
+        .select("role")
+        .eq("id", agentId)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+
+      if (atual && String(atual.role) !== papelPedido) {
+        const { data: alvo } = await supabase
+          .from("agents")
+          .select("id, name, role")
+          .eq("organization_id", organizationId)
+          .eq("role", papelPedido)
+          .eq("is_active", true)
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        if (alvo) {
+          agentId = alvo.id as string;
+          await supabase
+            .from("conversations")
+            .update({ agent_id: alvo.id })
+            .eq("id", conversationId)
+            .eq("organization_id", organizationId);
+          await supabase.from("conversation_notes").insert({
+            organization_id: organizationId,
+            conversation_id: conversationId,
+            content: `Transferido para ${alvo.name} (${alvo.role}) — o lead pediu esse setor.`,
+          });
+          console.log(`[agents] transferência → ${alvo.role} (${alvo.name})`);
+        }
+      }
+    }
+  }
 
   const { data: agent } = await supabase
     .from("agents")
@@ -431,40 +478,9 @@ export async function runAgentForConversation(params: {
     .eq("id", conversationId)
     .single();
 
-  // Roteamento de segurança (Fase 2): gerente sem delegação explícita. Não vale no modo dono —
-  // a conversa do CEO não pode ser "repassada" para um vendedor.
-  if (!interno && String(agent.role) === "gerente") {
-    const { data: depois } = await supabase
-      .from("conversations")
-      .select("agent_id")
-      .eq("id", conversationId)
-      .single();
-    // Sem intenção clara NÃO roteia: o próprio gerente segue atendendo (antes caía sempre no
-    // primeiro irmão da lista, o que jogava conversa genérica no agendador).
-    const papel = classificarIntencao(inboundText);
-    if (!depois?.agent_id && papel) {
-      const { data: irmaos } = await supabase
-        .from("agents")
-        .select("id, name, role")
-        .eq("organization_id", organizationId)
-        .eq("manager_agent_id", agentId)
-        .eq("is_active", true);
-      const escolhido = (irmaos ?? []).find((a: any) => String(a.role) === papel) ?? null;
-      if (escolhido) {
-        await supabase
-          .from("conversations")
-          .update({ agent_id: escolhido.id })
-          .eq("id", conversationId)
-          .eq("organization_id", organizationId);
-        await supabase.from("conversation_notes").insert({
-          organization_id: organizationId,
-          conversation_id: conversationId,
-          content: `Roteado automaticamente para ${escolhido.name} (${escolhido.role}) — o gerente não delegou explicitamente.`,
-        });
-        console.log(`[agents] roteamento automático → ${escolhido.role} (${escolhido.name})`);
-      }
-    }
-  }
+  // O roteamento por setor acontece ANTES do modelo (ver `classificarIntencao` no início):
+  // assim quem responde já é o especialista, em vez de o gerente responder e só depois passar
+  // a conversa. Aqui não há mais nada a fazer.
 
   // Falha do LLM NUNCA vai para o cliente: registra e deixa o alerta/handoff cuidarem.
   if (result.error) {

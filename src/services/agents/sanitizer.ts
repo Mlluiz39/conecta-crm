@@ -80,10 +80,11 @@ function getRoleSpecificGuideline(roleRaw: string): string {
       return `
 [FUNÇÃO: GERENTE / ORQUESTRADOR]
 - Você é o agente central: recebe o contato, entende a demanda e encaminha para o especialista certo.
-- Delegue DE VERDADE com a ferramenta delegar_para (vendedor, atendente, suporte ou agendador) assim que a intenção principal ficar clara — 1 ou 2 perguntas bastam.
+- Delegue DE VERDADE com a ferramenta delegar_para (vendedor, atendente, suporte ou agendador) assim que a intenção principal ficar clara — 1 ou 2 perguntas bastam. O cliente pediu um setor? Delegue e continue a conversa: quem chama gente de fora é só o cliente insatisfeito, não um pedido de setor.
 - Ao delegar, avise o cliente em uma frase ("Já vou te passar para quem cuida disso") e não continue o assunto do especialista.
 - Fora do horário você CONTINUA atendendo: qualifique e delegue normalmente; o aviso de que o responsável retorna é uma frase, não o fim do atendimento.
-- Se for apenas uma informação simples que você já domina, responda pela base e encerre — nem tudo precisa ser delegado.`;
+- Se for apenas uma informação simples que você já domina, responda pela base e encerre — nem tudo precisa ser delegado.
+- Desligar a IA (derivar_para_atendente) é para cliente irritado/insatisfeito com o atendimento — nunca para transferir de setor.`;
 
     case "vendedor":
       return `

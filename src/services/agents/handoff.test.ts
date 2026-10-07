@@ -1,86 +1,138 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { evaluateHandoff, mensagemDeTransbordo, pedeHumano } from "./handoff.ts";
+import { avaliarSentimento, clienteInsatisfeito } from "./sentiment.ts";
 
 /**
- * Caso real (07/10/2026): o lead escrevia "quero falar com um atendente" e a IA era desligada
- * na hora — sem responder nada. Pior: palavras do dia a dia ("gerente", "pessoa") também
- * desligavam o atendimento, e o lead ficava esperando alguém que nunca era avisado.
+ * Regra do negócio (dita pelo dono em 07/10/2026):
+ *  * pedir para falar com outro SETOR é transferência entre agentes — o bot continua;
+ *  * desligar a IA só quando o cliente está muito irritado/insatisfeito/frustrado.
+ *
+ * Antes disso, a lista de palavras ("atendente", "humano", "gerente", "pessoa") desligava o
+ * atendimento por qualquer menção e deixava o lead sem resposta.
  */
-const base = {
-  enabledRules: ["cliente_pede_humano"] as const,
-  consecutiveFailures: 0,
-  withinBusinessHours: true,
-};
+const base = { consecutiveFailures: 0, withinBusinessHours: true };
+const todasRegras = ["cliente_pede_humano", "sentimento_negativo"] as const;
 
-test("uma menção NÃO desliga mais o atendimento", () => {
+test("pedido de setor NÃO desliga o atendimento", () => {
   const r = evaluateHandoff({
     ...base,
-    enabledRules: [...base.enabledRules],
-    message: "vocês têm atendente disponível?",
+    enabledRules: [...todasRegras],
+    message: "quero falar com o time de vendas",
   });
-  assert.equal(r, null, "a IA deve responder essa mensagem normalmente");
+  assert.equal(r, null, "quem atende isso é a transferência para o agente de vendas");
 });
 
-test("o pedido repetido desliga (conta o histórico)", () => {
+test("pedir um atendente uma vez também não desliga", () => {
   const r = evaluateHandoff({
     ...base,
-    enabledRules: [...base.enabledRules],
-    message: "quero falar com um humano agora",
-    historicoInbound: ["oi", "preciso falar com um atendente"],
-  });
-  assert.equal(r, "cliente_pede_humano");
-});
-
-test("duas palavras-gatilho na MESMA mensagem contam como um pedido só", () => {
-  // "atendente" + "humano" na mesma frase é uma pessoa pedindo uma vez, não duas.
-  const r = evaluateHandoff({
-    ...base,
-    enabledRules: [...base.enabledRules],
-    message: "quero falar com um atendente humano",
+    enabledRules: [...todasRegras],
+    message: "vocês têm atendente disponível agora?",
   });
   assert.equal(r, null);
 });
 
-test("HANDOFF_HUMANO_PEDIDOS=1 restaura o comportamento antigo", () => {
+test("cliente irritado com o atendimento desliga (sentimento forte)", () => {
   const r = evaluateHandoff({
     ...base,
-    enabledRules: [...base.enabledRules],
-    message: "tem atendente?",
-    pedidosNecessarios: 1,
+    enabledRules: [...todasRegras],
+    message: "que atendimento péssimo, ninguém me responde há dois dias",
+  });
+  assert.equal(r, "sentimento_negativo");
+});
+
+test("duas reclamações leves na conversa também desligam", () => {
+  const r = evaluateHandoff({
+    ...base,
+    enabledRules: [...todasRegras],
+    message: "de novo isso, tá demorando",
+    historicoInbound: ["a demora está grande", "oi"],
+  });
+  assert.equal(r, "sentimento_negativo");
+});
+
+test("rejeitar o robô passa para humano mesmo sem xingamento", () => {
+  const r = evaluateHandoff({
+    ...base,
+    enabledRules: [...todasRegras],
+    message: "não quero falar com robô, quero uma pessoa",
   });
   assert.equal(r, "cliente_pede_humano");
 });
 
-test("'gerente' e 'pessoa' não são mais gatilho", () => {
+test("sem a regra de sentimento ligada, reclamação não desliga", () => {
+  const r = evaluateHandoff({
+    ...base,
+    enabledRules: ["cliente_pede_humano"],
+    message: "que atendimento péssimo",
+  });
+  assert.equal(r, null, "quem decide é a configuração de regras do agente");
+});
+
+test("pedido de humano repetido três vezes desliga (mínimo é 2)", () => {
+  const r = evaluateHandoff({
+    ...base,
+    enabledRules: ["cliente_pede_humano"],
+    message: "quero falar com um atendente",
+    historicoInbound: ["me passa para um atendente", "falar com um atendente, por favor"],
+  });
+  assert.equal(r, "cliente_pede_humano");
+});
+
+test("HANDOFF_HUMANO_PEDIDOS nunca fica abaixo de 2", () => {
+  const r = evaluateHandoff({
+    ...base,
+    enabledRules: ["cliente_pede_humano"],
+    message: "tem atendente?",
+    pedidosNecessarios: 1,
+  });
+  assert.equal(r, null);
+});
+
+test("'gerente' e 'pessoa' soltos não pedem humano", () => {
   assert.equal(pedeHumano("o gerente da minha empresa pediu um orçamento"), false);
   assert.equal(pedeHumano("uma pessoa me indicou vocês"), false);
-  assert.equal(pedeHumano("quero falar com uma pessoa do time"), false);
   assert.equal(pedeHumano("me passa para um atendente"), true);
 });
 
-test("outras regras seguem valendo (fora do horário)", () => {
-  const r = evaluateHandoff({
-    enabledRules: ["fora_do_horario"],
-    message: "bom dia",
-    consecutiveFailures: 0,
-    withinBusinessHours: false,
-  });
-  assert.equal(r, "fora_do_horario");
+test("outras regras seguem valendo (fora do horário / falhas)", () => {
+  assert.equal(
+    evaluateHandoff({
+      enabledRules: ["fora_do_horario"],
+      message: "bom dia",
+      consecutiveFailures: 0,
+      withinBusinessHours: false,
+    }),
+    "fora_do_horario",
+  );
+  assert.equal(
+    evaluateHandoff({
+      enabledRules: ["falhas_seguidas"],
+      message: "oi",
+      consecutiveFailures: 3,
+      withinBusinessHours: true,
+    }),
+    "falhas_seguidas",
+  );
 });
 
-test("falhas seguidas continuam transbordando no limite", () => {
-  const r = evaluateHandoff({
-    enabledRules: ["falhas_seguidas"],
-    message: "oi",
-    consecutiveFailures: 3,
-    withinBusinessHours: true,
-  });
-  assert.equal(r, "falhas_seguidas");
-});
-
-test("mensagem de espera existe e não fala de sistema interno", () => {
+test("mensagem de espera reconhece o problema sem falar de sistema", () => {
   const texto = mensagemDeTransbordo();
   assert.ok(texto.length > 20);
   assert.doesNotMatch(texto, /sistema|rob[oô]|IA|bot/i);
+});
+
+test("sentimento: leitura das mensagens do lead", () => {
+  assert.equal(avaliarSentimento("bom dia, tudo bem?").forte, false);
+  assert.equal(avaliarSentimento("quanto custa um site?").forte, false);
+  assert.equal(avaliarSentimento("estou muito irritado com essa demora").forte, true);
+  assert.equal(avaliarSentimento("NÃO ACREDITO, QUE ABSURDO!!!").forte, true);
+  assert.equal(avaliarSentimento("quero falar com uma pessoa de verdade").rejeitaBot, true);
+  assert.equal(avaliarSentimento("o prazo está demorando").leve, true);
+});
+
+test("sentimento da conversa: um forte basta, dois leves também", () => {
+  assert.equal(clienteInsatisfeito(["oi", "quero um orçamento"]).motivador, false);
+  assert.equal(clienteInsatisfeito(["oi", "isso é uma vergonha"]).motivador, true);
+  assert.equal(clienteInsatisfeito(["tá demorando", "de novo isso"]).motivador, true);
 });

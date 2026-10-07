@@ -1,38 +1,32 @@
 import type { HandoffRuleKey } from "@/types/domain";
+// Extensão explícita: os testes rodam com `node --test` (strip de tipos), que não resolve
+// import sem extensão. `allowImportingTsExtensions` já está no tsconfig e o Next resolve igual.
+import { clienteInsatisfeito } from "./sentiment.ts";
 
 /**
- * Palavras que sinalizam pedido de humano.
+ * Quando a IA sai da conversa.
  *
- * "gerente" e "pessoa" saíram da lista: são palavras do dia a dia ("uma pessoa me indicou
- * vocês", "o gerente de vocês") e desligavam o atendimento por nada. Ficaram só as que
- * realmente pedem uma pessoa do time.
+ * Regra do negócio (dita pelo dono): pedir para falar com outro **setor/agente** é rotina —
+ * isso é transferência entre agentes (`delegar_para`/roteamento), e o bot continua atendendo.
+ * Desligar a IA e chamar um humano é para quando o cliente está muito irritado, insatisfeito
+ * ou frustrado com o atendimento (ver `sentiment.ts`).
+ *
+ * Foi a lista antiga de palavras ("atendente", "humano", "gerente", "pessoa") que fazia o
+ * atendimento cair por qualquer menção — inclusive em conversa normal.
  */
-const HUMAN_KEYWORDS = [
-  "atendente",
-  "humano",
-  "atendimento humano",
-  "falar com alguém",
-  "falar com alguem",
-  "supervisor",
-];
 
-/** Quem pede humano uma vez está perguntando; quem pede duas está pedindo. */
+/** Quem pede humano uma vez está perguntando; quem pede repedidamente está pedindo. */
 export const PEDIDOS_ATE_TRANSBORDAR = 2;
-
-export function pedeHumano(texto: string): boolean {
-  const lower = String(texto ?? "").toLowerCase();
-  return HUMAN_KEYWORDS.some((k) => lower.includes(k));
-}
 
 /**
  * Mensagem de espera enviada ao lead quando o transbordo automático acontece.
  *
- * Transbordar sem avisar deixava o lead no vácuo (silêncio depois de pedir uma pessoa) —
- * e é isso que trava a conversa na cabeça dele. Ele recebe isto e a conversa vai para o
- * humano, que é avisado no Telegram.
+ * Transbordar sem avisar deixava o lead no vácuo (silêncio depois de reclamar) — e é isso
+ * que trava a conversa na cabeça dele. Ele recebe isto e a conversa vai para o humano, que é
+ * avisado no Telegram pelo alerta `pediu_humano`.
  */
 export function mensagemDeTransbordo(): string {
-  return "Já chamei uma pessoa do time para continuar daqui — só um instante, por favor.";
+  return "Sinto muito por isso. Já chamei uma pessoa do time para cuidar de você — só um instante, por favor.";
 }
 
 export function evaluateHandoff(params: {
@@ -41,11 +35,11 @@ export function evaluateHandoff(params: {
   consecutiveFailures: number;
   withinBusinessHours: boolean;
   /**
-   * Mensagens anteriores do lead nesta conversa (mais antiga primeiro), sem a atual.
-   * Serve para contar quantas vezes ele já pediu humano.
+   * Mensagens anteriores do lead nesta conversa (mais antiga primeiro), **sem a atual**.
+   * Serve para ler o sentimento da conversa e contar pedidos repetidos.
    */
   historicoInbound?: string[];
-  /** Quantas menções disparam o transbordo (1 = desliga na primeira, como era antes). */
+  /** Quantos pedidos repetidos disparam o transbordo (1 = desliga na primeira menção). */
   pedidosNecessarios?: number;
 }): HandoffRuleKey | null {
   const {
@@ -57,12 +51,28 @@ export function evaluateHandoff(params: {
     pedidosNecessarios,
   } = params;
 
+  const conversa = [...(historicoInbound ?? []), message].filter(Boolean);
+  const sentimento = clienteInsatisfeito(conversa);
+
+  // 1. Rejeitou o atendimento automático ("não quero falar com robô") → passa para uma pessoa.
+  //    Vem antes do sentimento geral porque é o sinal mais específico (e o motivo registrado
+  //    fica certo). Pedir "falar com vendas/atendente" NÃO entra aqui: isso é transferência de
+  //    setor e o roteamento resolve — o bot continua respondendo.
+  if (enabledRules.includes("cliente_pede_humano") && sentimento.rejeitaBot) {
+    return "cliente_pede_humano";
+  }
+
+  // 2. Cliente muito irritado/insatisfeito com o atendimento → passa para uma pessoa.
+  if (enabledRules.includes("sentimento_negativo") && sentimento.motivador) {
+    return "sentimento_negativo";
+  }
+
+  // 3. Pedido de humano que se repete muito, mesmo sem irritação explícita.
+  //    O mínimo é 2: uma menção isolada é pergunta, não pedido.
   if (enabledRules.includes("cliente_pede_humano")) {
-    // Só transborda quando o pedido se repete: na primeira menção a IA continua atendendo
-    // (e pode resolver), em vez de calar a conversa. Config: HANDOFF_HUMANO_PEDIDOS.
-    const necessarios = Math.max(1, pedidosNecessarios ?? PEDIDOS_ATE_TRANSBORDAR);
-    const mencoes = [...(historicoInbound ?? []), message].filter(pedeHumano).length;
-    if (mencoes >= necessarios) return "cliente_pede_humano";
+    const necessarios = Math.max(PEDIDOS_ATE_TRANSBORDAR, pedidosNecessarios ?? PEDIDOS_ATE_TRANSBORDAR);
+    const pedidos = conversa.filter(pedeHumano).length;
+    if (pedidos >= necessarios) return "cliente_pede_humano";
   }
 
   if (enabledRules.includes("fora_do_horario") && !withinBusinessHours) {
@@ -74,6 +84,30 @@ export function evaluateHandoff(params: {
   }
 
   return null;
+}
+
+/**
+ * Pedido explícito de uma pessoa do time (usado só como reforço do transbordo; o roteamento
+ * para outro agente acontece antes, no motor).
+ */
+const HUMANO = [
+  "falar com um atendente",
+  "falar com atendente",
+  "falar com um humano",
+  "falar com humano",
+  "atendimento humano",
+  "quero um atendente",
+  "quero atendente",
+  "me passa para um atendente",
+  "falar com alguém",
+  "falar com alguem",
+  "falar com uma pessoa",
+  "supervisor",
+];
+
+export function pedeHumano(texto: string): boolean {
+  const lower = String(texto ?? "").toLowerCase();
+  return HUMANO.some((k) => lower.includes(k));
 }
 
 /**
