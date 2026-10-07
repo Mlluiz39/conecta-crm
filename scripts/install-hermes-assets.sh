@@ -146,6 +146,25 @@ for src in "$PERSONAS"/*.md; do
   instalar_arquivo "$src" "$PERSONA_DIR/$nome" "$nome"
 done
 
+# ── 1b. Personas nos PERFIS ───────────────────────────────────────────────────
+# Cada perfil (ex.: profiles/whatsapp) tem CÓPIA PRÓPRIA das personas, e é DELA que o agente
+# daquele perfil lê. Sem este passo o perfil continua com a persona que veio do template —
+# foi assim que "Chatkanban, Chatcommerce e Api Connector" sobreviveu a todas as correções.
+if [[ -n "$HERMES_DIR" && -d "$HERMES_DIR/profiles" ]]; then
+  echo
+  log "personas nos perfis"
+  for perfil in "$HERMES_DIR"/profiles/*/; do
+    [[ -d "$perfil" ]] || continue
+    nome_perfil="$(basename "$perfil")"
+    # SOUL.md (identidade) vale para todo perfil; as personas de canal só no perfil do canal
+    instalar_arquivo "$PERSONAS/SOUL.md" "$perfil/SOUL.md" "profiles/$nome_perfil/SOUL.md"
+    if [[ "$nome_perfil" == "whatsapp" ]]; then
+      instalar_arquivo "$PERSONAS/SOUL_WHATSAPP.md" "$perfil/SOUL_WHATSAPP.md" "profiles/$nome_perfil/SOUL_WHATSAPP.md"
+      instalar_arquivo "$PERSONAS/support_rules.md" "$perfil/support_rules.md" "profiles/$nome_perfil/support_rules.md"
+    fi
+  done
+fi
+
 # ── 2. Plugins → HERMES/plugins ───────────────────────────────────────────────
 if [[ -d "$PLUGINS" ]]; then
   echo
@@ -183,15 +202,21 @@ fi
 # ── 4. Guarda-corpos ──────────────────────────────────────────────────────────
 echo
 if [[ $CHECK == 0 ]]; then
-  for nome in support_rules.md SOUL_WHATSAPP.md; do
-    dst="$PERSONA_DIR/$nome"
-    if [[ -f "$dst" ]] && grep -qi -e "Chatkanban" -e "Chatcommerce" -e "Api Connector" "$dst"; then
-      erro "$nome contém o fallback do template (Chatkanban/Chatcommerce/Api Connector)."
-      erro "Reescreva o arquivo antes de subir — o bot vai oferecer produto de terceiro."
-      exit 1
+  achou_terceiro=0
+  for dst in "$PERSONA_DIR/support_rules.md" "$PERSONA_DIR/SOUL_WHATSAPP.md" \
+             "$HERMES_DIR"/profiles/*/Support*.md "$HERMES_DIR"/profiles/*/support_rules.md \
+             "$HERMES_DIR"/profiles/*/SOUL.md; do
+    [[ -f "$dst" ]] || continue
+    if grep -qi -e "Chatkanban" -e "Chatcommerce" -e "Api Connector" "$dst"; then
+      erro "produto de terceiro (Chatkanban/Chatcommerce/Api Connector) em: $dst"
+      achou_terceiro=1
     fi
   done
-  ok "nenhum fallback de terceiro nas personas"
+  if (( achou_terceiro == 1 )); then
+    erro "Reescreva esses arquivos antes de subir — o bot vai oferecer produto que não é nosso."
+    exit 1
+  fi
+  ok "nenhum fallback de terceiro nas personas (home e perfis)"
 
   guard="$PLUGIN_DIR/crm-output-guard/__init__.py"
   if [[ -f "$guard" ]]; then
