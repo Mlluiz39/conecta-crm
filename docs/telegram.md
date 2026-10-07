@@ -17,9 +17,30 @@ O CRM usa **um bot do Telegram** com dois papéis:
 | `ALERTS_TELEGRAM_CHAT_ID` | chat que recebe os alertas (fale `/start` com o bot antes) |
 | `TELEGRAM_WEBHOOK_SECRET` | `secret_token` do `setWebhook`; sem ele o webhook recusa tudo (`openssl rand -hex 24`) |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | chat ids que podem conversar com o bot; **vazio = qualquer pessoa** que achar o @ do bot |
+| `TELEGRAM_OWNER_CHAT_IDS` | chat do dono (CEO) — cai para `ALERTS_TELEGRAM_CHAT_ID` se vazio. Ver "modo dono" abaixo |
 
 O alerta passou a ler **só** essas variáveis do CRM: antes havia um fallback para o `.env` do
 Hermes (`$HERMES_HOME/.env`), o que fazia o alerta sair do bot errado sem ninguém perceber.
+
+## Modo dono (CEO falando com o Gerente)
+
+O chat do dono **não é um lead**: nada de funil, alerta de "lead respondeu", regra de
+transbordo ou discurso de vendas. O que muda:
+
+| | Lead (cliente) | Dono (CEO) |
+|---|---|---|
+| Conversa | inbox de Conversas | `conversations.is_internal = true` — fora do inbox e dos alertas |
+| Prompt | prompt publicado do agente | instrução de modo interno (`src/services/agents/internal.ts`) |
+| Agente | o do canal (gerente → especialistas) | sempre o **gerente** |
+| Ferramentas | agendar, mover funil, transbordar… | **só leitura**: `buscar_informacoes` (base de conhecimento), `panorama_crm`, `situacao_lead`, `agenda` |
+| Transbordo | regra pode desligar a IA | nunca |
+
+É assim que ele responde "quais serviços vocês oferecem?" (base de conhecimento) e "como está
+o lead da Odonto X?" / "como foi o dia?" (dados reais do CRM, calculados na hora).
+
+Quem entra nesse modo: os chats de `TELEGRAM_OWNER_CHAT_IDS` (ou `ALERTS_TELEGRAM_CHAT_ID`).
+A migration `20261010_conversa_interna.sql` é que cria o `is_internal` — sem ela o upsert da
+conversa falha.
 
 ## Ligar o atendimento (uma vez)
 

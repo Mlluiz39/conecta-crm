@@ -266,6 +266,8 @@ export async function getConversations(limit = 50) {
       "id, channel_id, channel_type, status, bot_active, unread_count, last_message_at, agent_id, assigned_to, contact:contacts(id, name, phone, telegram_chat_id), agent:agents(id, name)",
     )
     .eq("organization_id", organizationId)
+    // Conversa interna (dono falando com um agente) não é atendimento: fica fora do inbox.
+    .eq("is_internal", false)
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .limit(limit);
   return data ?? [];

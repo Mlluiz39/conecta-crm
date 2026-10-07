@@ -12,6 +12,8 @@ import { AGENT_ROLE_LABEL, CHANNEL_LABEL } from "@/types/domain";
 import { serverEnv } from "@/lib/env";
 import { runAgentLoop } from "./claude";
 import { avaliarRetomadaAutomatica, avisoRetomada, evaluateHandoff } from "./handoff";
+import { buildInternalSystemInstruction } from "./internal";
+import { executeInternalTool, internalToolsForClaude } from "./internal-tools";
 import { contextoAtual, formatBusinessHours, isWithinBusinessHours } from "./business-hours";
 import { renderPrompt } from "./prompt";
 import { executeTool, toolsForClaude } from "./tools";
@@ -152,7 +154,7 @@ export async function runAgentForConversation(params: {
   const { data: conv } = await supabase
     .from("conversations")
     .select(
-      "id, contact_id, channel_type, agent_id, bot_active, assigned_to, bot_disabled_at, handoff_reason, contact:contacts(id, name)",
+      "id, contact_id, channel_type, agent_id, bot_active, assigned_to, bot_disabled_at, handoff_reason, is_internal, contact:contacts(id, name)",
     )
     .eq("id", conversationId)
     .eq("organization_id", organizationId)
@@ -176,8 +178,27 @@ export async function runAgentForConversation(params: {
     minutosDeRetomada = retomada.minutosParados;
   }
 
+  /**
+   * Conversa interna = o dono falando com o agente (ex.: Telegram do CEO). Não é lead:
+   * outro prompt, outras ferramentas (só leitura) e nenhuma regra comercial.
+   */
+  const interno = Boolean((conv as any).is_internal);
+
   let agentId = conv.agent_id as string | null;
-  if (!agentId) {
+  if (interno) {
+    // Modo dono é sempre com o gerente: nada de cair em vendedor/agendador por delegação.
+    const { data: gerente } = await supabase
+      .from("agents")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("role", "gerente")
+      .eq("is_active", true)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    agentId = gerente?.id ?? null;
+    if (!agentId) return { handled: false, reason: "sem_agente_gerente" };
+  } else if (!agentId) {
     const resolved = await resolveChannelAgent(supabase, organizationId, conv.channel_type);
     agentId = resolved?.agentId ?? null;
   }
@@ -191,13 +212,16 @@ export async function runAgentForConversation(params: {
     .single();
   if (!agent || !agent.is_active) return { handled: false, reason: "agente_inativo" };
 
-  const { data: promptVersion } = await supabase
-    .from("agent_prompt_versions")
-    .select("id, prompt")
-    .eq("agent_id", agentId)
-    .eq("status", "published")
-    .maybeSingle();
-  if (!promptVersion) return { handled: false, reason: "sem_prompt_publicado" };
+  // O modo interno monta a instrução em código; não depende de prompt publicado.
+  const { data: promptVersion } = interno
+    ? { data: null }
+    : await supabase
+        .from("agent_prompt_versions")
+        .select("id, prompt")
+        .eq("agent_id", agentId)
+        .eq("status", "published")
+        .maybeSingle();
+  if (!interno && !promptVersion) return { handled: false, reason: "sem_prompt_publicado" };
 
   const [{ data: toolRows }, { data: ruleRows }, { data: org }] = await Promise.all([
     supabase.from("agent_tools").select("tool_key, enabled").eq("agent_id", agentId).eq("enabled", true),
@@ -208,13 +232,16 @@ export async function runAgentForConversation(params: {
   const enabledTools = (toolRows ?? []).map((r: any) => r.tool_key as AgentToolKey);
   const enabledRules = (ruleRows ?? []).map((r: any) => r.rule_key as HandoffRuleKey);
 
-  // Regra de handoff antes de chamar a IA
-  const rule = evaluateHandoff({
-    enabledRules,
-    message: inboundText,
-    consecutiveFailures: 0,
-    withinBusinessHours: isWithinBusinessHours(org?.business_hours, org?.timezone || "America/Sao_Paulo"),
-  });
+  // Regra de handoff antes de chamar a IA — nunca numa conversa interna: "transbordar para
+  // humano" não faz sentido quando quem escreve É o dono.
+  const rule = interno
+    ? null
+    : evaluateHandoff({
+        enabledRules,
+        message: inboundText,
+        consecutiveFailures: 0,
+        withinBusinessHours: isWithinBusinessHours(org?.business_hours, org?.timezone || "America/Sao_Paulo"),
+      });
   if (rule) {
     await supabase
       .from("conversations")
@@ -230,7 +257,7 @@ export async function runAgentForConversation(params: {
   // Horário real de atendimento (organizations.business_hours)
   const horario = formatBusinessHours(org?.business_hours);
 
-  // Variáveis do prompt
+  // Variáveis do prompt (só o atendimento a lead usa o prompt publicado)
   const variables: PromptVariables = {
     nome_empresa: org?.name ?? "",
     nome_contato: (conv as any).contact?.name ?? "",
@@ -239,17 +266,23 @@ export async function runAgentForConversation(params: {
     nome_agente: agent.name,
     funcao_agente: AGENT_ROLE_LABEL[agent.role as AgentRole] ?? agent.role,
   };
-  const renderedBase = renderPrompt(promptVersion.prompt, variables);
+  const renderedBase = promptVersion ? renderPrompt(promptVersion.prompt, variables) : "";
 
   // ── Fase 2: memória própria + subagentes (hierarquia gerente → especialistas) ──
-  const [{ data: memoriaRows }, { data: subRows }] = await Promise.all([
+  // No modo interno não há subagentes: quem responde ao dono é sempre o gerente.
+  const [{ data: memoriaRows }, { data: subRows }, { data: kbRows }] = await Promise.all([
     supabase.from("agent_memories").select("key, content").eq("agent_id", agentId),
-    supabase
-      .from("agents")
-      .select("id, name, role, tone")
-      .eq("organization_id", organizationId)
-      .eq("manager_agent_id", agentId)
-      .eq("is_active", true),
+    interno
+      ? Promise.resolve({ data: [] as any[] })
+      : supabase
+          .from("agents")
+          .select("id, name, role, tone")
+          .eq("organization_id", organizationId)
+          .eq("manager_agent_id", agentId)
+          .eq("is_active", true),
+    interno
+      ? supabase.from("knowledge_base_items").select("title").eq("organization_id", organizationId).limit(30)
+      : Promise.resolve({ data: [] as any[] }),
   ]);
 
   const memoria = (memoriaRows ?? [])
@@ -261,20 +294,30 @@ export async function runAgentForConversation(params: {
     .map((a: any) => `- ${a.role} → ${a.name}${a.tone ? ` (tom ${a.tone})` : ""}`)
     .join("\n");
 
-  const system = buildAgentSystemInstruction({
-    basePrompt: renderedBase,
-    role: agent.role,
-    agentName: agent.name,
-    tone: agent.tone,
-    context: [
-      contextoAtual(org),
-      minutosDeRetomada !== null ? avisoRetomada(minutosDeRetomada) : "",
-    ]
-      .filter(Boolean)
-      .join("\n"),
-    memory: memoria,
-    subagents: subagentes,
-  });
+  const system = interno
+    ? buildInternalSystemInstruction({
+        empresa: org?.name ?? "a empresa",
+        dono: (conv as any).contact?.name ?? "o dono",
+        agente: agent.name,
+        topicos: (kbRows ?? []).map((k: any) => String(k.title ?? "")).filter(Boolean),
+        contexto: contextoAtual(org),
+        memoria,
+        aviso: minutosDeRetomada !== null ? avisoRetomada(minutosDeRetomada) : undefined,
+      })
+    : buildAgentSystemInstruction({
+        basePrompt: renderedBase,
+        role: agent.role,
+        agentName: agent.name,
+        tone: agent.tone,
+        context: [
+          contextoAtual(org),
+          minutosDeRetomada !== null ? avisoRetomada(minutosDeRetomada) : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        memory: memoria,
+        subagents: subagentes,
+      });
 
   // Histórico recente em ordem cronológica
   const { data: historyRows } = await supabase
@@ -300,25 +343,28 @@ export async function runAgentForConversation(params: {
     .order("created_at", { ascending: false })
     .maybeSingle();
 
+  const toolCtx = {
+    supabase,
+    organizationId,
+    conversationId,
+    contactId: conv.contact_id,
+    opportunityId: opp?.id ?? null,
+    agentId,
+  };
+
   const result = await runAgentLoop({
     model: serverEnv().defaultModel,
     system,
     messages: [...history, { role: "user", content: inboundText }],
-    tools: toolsForClaude(enabledTools),
+    // Modo dono: base de conhecimento + ferramentas de leitura do CRM (nada de
+    // agendar/mover funil/transbordar — o dono não é lead e o agente não age sozinho).
+    tools: interno
+      ? internalToolsForClaude(toolsForClaude(["buscar_informacoes"]))
+      : toolsForClaude(enabledTools),
     executeTool: (key, input) =>
-      executeTool(
-        {
-          supabase,
-          organizationId,
-          conversationId,
-          contactId: conv.contact_id,
-          opportunityId: opp?.id ?? null,
-          agentId,
-        },
-        enabledTools,
-        key,
-        input,
-      ),
+      interno && key !== "buscar_informacoes"
+        ? executeInternalTool(toolCtx, key, input)
+        : executeTool(toolCtx, interno ? ["buscar_informacoes"] : enabledTools, key, input),
   });
 
   // Registra as chamadas de ferramentas no agent_tool_calls do schema
@@ -340,8 +386,9 @@ export async function runAgentForConversation(params: {
     .eq("id", conversationId)
     .single();
 
-  // Roteamento de segurança (Fase 2): gerente sem delegação explícita.
-  if (String(agent.role) === "gerente") {
+  // Roteamento de segurança (Fase 2): gerente sem delegação explícita. Não vale no modo dono —
+  // a conversa do CEO não pode ser "repassada" para um vendedor.
+  if (!interno && String(agent.role) === "gerente") {
     const { data: depois } = await supabase
       .from("conversations")
       .select("agent_id")

@@ -106,8 +106,10 @@ export async function detectAlerts(organizationId: string): Promise<DetectResult
   // ── dados base ───────────────────────────────────────────────────────
   const { data: conversations } = await supabase
     .from("conversations")
-    .select("id, channel_type, contact:contacts(id, name, phone, email)")
-    .eq("organization_id", organizationId);
+    .select("id, channel_type, is_internal, contact:contacts(id, name, phone, email)")
+    .eq("organization_id", organizationId)
+    // Conversa interna (dono falando com o agente pelo Telegram) não gera alerta de lead.
+    .eq("is_internal", false);
   const convById = new Map((conversations ?? []).map((c) => [String(c.id), c]));
 
   const { data: messages } = await supabase
@@ -147,6 +149,9 @@ export async function detectAlerts(organizationId: string): Promise<DetectResult
 
   for (const [convId, msgs] of byConversation) {
     const conv = convById.get(convId);
+    // Conversa que não está no mapa é interna (a query acima filtra `is_internal`) ou de outra
+    // origem: sem conversa não há lead — antes isso virava alerta "Contato" fantasma.
+    if (!conv) continue;
     const contact = (conv as { contact?: { id?: string; name?: string; phone?: string | null; email?: string | null } } | null)
       ?.contact;
     const contactName = contact?.name ?? contact?.phone ?? contact?.email ?? "Contato";

@@ -77,6 +77,15 @@ export function serverEnv() {
         .split(",")
         .map((v) => v.trim())
         .filter(Boolean),
+      /**
+       * Chat do dono (CEO). Cai para `ALERTS_TELEGRAM_CHAT_ID` quando não configurado — é o
+       * mesmo número que já recebe os alertas. Mensagem do dono vira conversa interna e o
+       * agente responde em modo interno (serviços + andamento do CRM, só leitura).
+       */
+      ownerChatIds: (process.env.TELEGRAM_OWNER_CHAT_IDS ?? process.env.ALERTS_TELEGRAM_CHAT_ID ?? "")
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean),
     },
     apify: {
       apiKey: process.env.APIFY_API_KEY ?? "",

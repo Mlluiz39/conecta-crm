@@ -18,6 +18,12 @@ export interface InboundMessage {
   text?: string;
   mediaUrl?: string;
   timestamp: string; // ISO
+  /**
+   * Conversa interna: quem escreveu é o dono da empresa (não um lead). O canal marca isso
+   * (ex.: o chat do CEO no Telegram) e o CRM grava `conversations.is_internal` — a conversa
+   * sai do inbox de leads e dos alertas, e o agente responde em modo interno.
+   */
+  internal?: boolean;
   raw: unknown;
 }
 

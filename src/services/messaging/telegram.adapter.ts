@@ -30,6 +30,12 @@ export function createTelegramProvider(cfg: {
   webhookSecret?: string;
   /** Chats autorizados a conversar (vazio = qualquer um; em produção sempre preencher). */
   allowedChatIds?: string[];
+  /**
+   * Chats do DONO da empresa (CEO). Mensagem vinda deles não é lead: a conversa nasce interna
+   * (`conversations.is_internal`), fora do inbox e dos alertas, e o agente responde em modo
+   * interno — falando de serviços e do andamento do CRM, sem discurso de vendas.
+   */
+  ownerChatIds?: string[];
   /** Override da base da API (só para teste). */
   apiBase?: string;
 }): MessageProvider {
@@ -37,6 +43,7 @@ export function createTelegramProvider(cfg: {
   const botId = String(cfg.token || "").split(":")[0] || "default";
   const base = (cfg.apiBase || API).replace(/\/+$/, "");
   const permitidos = new Set((cfg.allowedChatIds ?? []).map((v) => String(v).trim()).filter(Boolean));
+  const donos = new Set((cfg.ownerChatIds ?? []).map((v) => String(v).trim()).filter(Boolean));
 
   async function api(
     method: string,
@@ -180,6 +187,8 @@ export function createTelegramProvider(cfg: {
           fromName: nome(m.from),
           kind,
           text: texto || undefined,
+          // Dono da empresa = conversa interna (não é lead). Ver `conversations.is_internal`.
+          internal: donos.has(chatId) || undefined,
           timestamp: m.date ? new Date(Number(m.date) * 1000).toISOString() : new Date().toISOString(),
           raw: update,
         },

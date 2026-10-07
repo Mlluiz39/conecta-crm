@@ -201,6 +201,9 @@ export async function handleInboundWebhook(params: {
           channel_type: msg.channel,
           external_id: externalConvId,
           status: "aberta",
+          // Chat do dono (ex.: Telegram do CEO): conversa interna — fora do inbox de leads,
+          // dos alertas e do funil; o agente responde em modo interno.
+          is_internal: Boolean(msg.internal),
         },
         { onConflict: "channel_id,external_id" },
       )

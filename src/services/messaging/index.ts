@@ -19,6 +19,7 @@ function telegramProvider(): MessageProvider {
     token: cfg.botToken,
     webhookSecret: cfg.webhookSecret,
     allowedChatIds: cfg.allowedChatIds,
+    ownerChatIds: cfg.ownerChatIds,
   });
 }
 
