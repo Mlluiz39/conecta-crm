@@ -2,6 +2,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AgentToolKey } from "@/types/domain";
 import type { ToolSchema } from "./claude";
+import { clienteInsatisfeito } from "./sentiment.ts";
+import { mensagemDeTransbordo } from "./handoff.ts";
 
 /** Contexto server-side disponível para os handlers das ferramentas. */
 export type AgentToolContext = {
@@ -162,26 +164,72 @@ const registry: Record<AgentToolKey, ToolDef> = {
       },
     },
     async handler(ctx, input) {
+      /**
+       * Guarda determinística (regra do dono): o transbordo é para cliente insatisfeito.
+       *
+       * O modelo lê o histórico e tende a "resolver" o assunto chamando um humano quando o
+       * cliente só pediu outro setor — foi o que aconteceu em 07/10/2026, numa conversa em que
+       * o lead dizia "quero falar com vendas" e a IA desligou o atendimento três vezes.
+       * Aqui a decisão não fica só no prompt: sem sinal de irritação/frustração/rejeição ao
+       * atendimento automático, a ferramenta não desliga nada e devolve a instrução de
+       * continuar (transferir de setor é `delegar_para`).
+       */
+      const { data: entradas } = await ctx.supabase
+        .from("messages")
+        .select("content")
+        .eq("conversation_id", ctx.conversationId)
+        .eq("direction", "in")
+        .order("created_at", { ascending: false })
+        .limit(6);
+
+      const leitura = clienteInsatisfeito(
+        (entradas ?? []).reverse().map((m: any) => String(m.content ?? "")),
+      );
+
+      if (!leitura.motivador && !leitura.rejeitaBot) {
+        console.log(
+          "[agents] derivar_para_atendente bloqueado: cliente sem sinal de insatisfação — a IA continua",
+        );
+        return {
+          transferido: false,
+          aviso:
+            "Transbordo NÃO feito: o cliente não demonstrou insatisfação com o atendimento. " +
+            "Continue você mesmo (se o pedido foi outro setor, use delegar_para).",
+        };
+      }
+
+      const motivo = input?.motivo ?? null;
       const { error } = await ctx.supabase
         .from("conversations")
         .update({
           bot_active: false,
-          handoff_reason: "cliente_pede_humano",
+          handoff_reason: leitura.rejeitaBot ? "cliente_pede_humano" : "sentimento_negativo",
           bot_disabled_at: new Date().toISOString(),
         })
         .eq("id", ctx.conversationId)
         .eq("organization_id", ctx.organizationId);
       if (error) throw new Error(error.message);
 
-      if (input?.motivo) {
-        await ctx.supabase.from("conversation_notes").insert({
-          organization_id: ctx.organizationId,
-          conversation_id: ctx.conversationId,
-          content: `Transbordo para humano: ${input.motivo}`,
-        });
-      }
+      await ctx.supabase.from("conversation_notes").insert({
+        organization_id: ctx.organizationId,
+        conversation_id: ctx.conversationId,
+        content: `Transbordo para humano${motivo ? `: ${motivo}` : ""}${
+          leitura.evidencias.length ? ` (sinais: ${leitura.evidencias.slice(0, 4).join(", ")})` : ""
+        }`,
+      });
 
-      return { transferido: true, motivo: input?.motivo ?? null };
+      // Avisa o cliente que alguém do time vai continuar — silêncio aqui é o que trava a conversa.
+      await ctx.supabase.from("messages").insert({
+        organization_id: ctx.organizationId,
+        conversation_id: ctx.conversationId,
+        direction: "out",
+        sender_type: "system",
+        content: mensagemDeTransbordo(),
+        status: "pendente",
+        media: { typing: true },
+      });
+
+      return { transferido: true, motivo, sinais: leitura.evidencias.slice(0, 4) };
     },
   },
 
