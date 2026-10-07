@@ -9,6 +9,11 @@
  * Também aceita a string como 2º argumento ou pela variável DATABASE_URL do ambiente.
  * A connection string fica em Supabase → Project Settings → Database → Connection string (URI).
  *
+ * ⚠ O host `db.<ref>.supabase.co` (conexão direta) responde **só em IPv6**: em rede sem rota
+ * IPv6 a conexão fica pendurada até o timeout. Nesse caso use a URI do **pooler** (IPv4) —
+ * `...aws-0-<região>.pooler.supabase.com:5432` com usuário `postgres.<ref>` — em
+ * DATABASE_URL_POOLER no .env.local: é ela que este script tenta depois da direta.
+ *
  * Roda statement por statement (DDL como ALTER TYPE ... ADD VALUE não aceita transação)
  * e é idempotente: erros de "já existe" são apenas avisados.
  */
@@ -18,20 +23,22 @@ import { resolve } from "node:path";
 
 const file = process.argv[2];
 
-/** Lê DATABASE_URL do .env.local (arquivo ignorado pelo git) — evita colar senha no chat. */
-function dsnFromEnvFile() {
+/** Lê uma variável do .env.local (arquivo ignorado pelo git) — evita colar senha no chat. */
+function doEnvFile(nome) {
   try {
     const raw = readFileSync(resolve(".env.local"), "utf8");
-    const line = raw.split(/\r?\n/).find((l) => l.startsWith("DATABASE_URL="));
+    const line = raw.split(/\r?\n/).find((l) => l.startsWith(`${nome}=`));
     if (!line) return null;
-    const value = line.slice("DATABASE_URL=".length).trim().replace(/^["']|["']$/g, "");
+    const value = line.slice(nome.length + 1).trim().replace(/^["']|["']$/g, "");
     return value || null;
   } catch {
     return null;
   }
 }
 
-const dsn = process.argv[3] ?? process.env.DATABASE_URL ?? dsnFromEnvFile();
+const direta = process.argv[3] ?? process.env.DATABASE_URL ?? doEnvFile("DATABASE_URL");
+/** Pooler (IPv4): o caminho que funciona onde a conexão direta (IPv6) não passa. */
+const pooler = process.env.DATABASE_URL_POOLER ?? doEnvFile("DATABASE_URL_POOLER");
 
 if (!file) {
   console.error(
@@ -39,7 +46,7 @@ if (!file) {
   );
   process.exit(1);
 }
-if (!dsn) {
+if (!direta && !pooler) {
   console.error(
     "Faltou a connection string do Postgres.\n" +
       "  • mais seguro: cole a URI em DATABASE_URL=\"...\" no .env.local (fora do git) e rode:\n" +
@@ -61,10 +68,12 @@ const sql = readFileSync(resolve(file), "utf8");
 
 /** Tenta TLS primeiro; se o servidor não completar o handshake, cai para conexão direta. */
 async function connectWithFallback() {
-  const attempts = [
-    { label: "TLS", config: { connectionString: dsn, ssl: { rejectUnauthorized: false } } },
-    { label: "sem TLS", config: { connectionString: dsn } },
-  ];
+  const attempts = [direta, pooler]
+    .filter(Boolean)
+    .flatMap((connectionString, i) => [
+      { label: i === 0 ? "TLS (direta)" : "TLS (pooler)", config: { connectionString, ssl: { rejectUnauthorized: false } } },
+      { label: i === 0 ? "sem TLS (direta)" : "sem TLS (pooler)", config: { connectionString } },
+    ]);
   let lastError = null;
   for (const { label, config } of attempts) {
     const client = new pg.Client({ ...config, connectionTimeoutMillis: 12000 });
@@ -125,5 +134,6 @@ try {
   console.error("falhou:", err.message);
   process.exitCode = 1;
 } finally {
-  await client.end().catch(() => {});
+  // `client` fica undefined quando NENHUMA tentativa conectou
+  await client?.end().catch(() => {});
 }

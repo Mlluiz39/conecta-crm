@@ -122,7 +122,9 @@ await rest(`agent_channels?organization_id=eq.${org}&channel=eq.telegram&agent_i
   method: "PATCH",
   body: JSON.stringify({ is_active: false }),
 });
-const vinculoRes = await rest("agent_channels?on_conflict=organization_id,agent_id,channel", {
+// A chave de conflito é a PK (agent_id, channel) — o índice do "um ativo por canal" é
+// PARCIAL (where is_active) e o PostgREST/Postgres não aceita usá-lo como arbiter de upsert.
+const vinculoRes = await rest("agent_channels?on_conflict=agent_id,channel", {
   method: "POST",
   headers: { prefer: "resolution=merge-duplicates,return=representation" },
   body: JSON.stringify({
