@@ -38,6 +38,55 @@ export function createEvolutionProvider(cfg: {
     return n;
   }
 
+  /**
+   * A conta do WhatsApp está em modo LID: envio para `@s.whatsapp.net` volta com ack ERROR e
+   * não chega no celular; envio para o `@lid` correspondente entrega (SERVER_ACK/DELIVERY_ACK/READ).
+   * O webhook do 2.3.7 esconde o LID (manda o PN), mas o `findMessages` devolve: as mensagens
+   * recebidas têm `remoteJid` = LID e `remoteJidAlt` = telefone — é esse par que dá o mapeamento.
+   */
+  const lidCache = new Map<string, { lid: string | null; at: number }>();
+  const LID_TTL_MS = 10 * 60 * 1000;
+
+  async function resolveLid(instance: string, pnJid: string): Promise<string | null> {
+    const cached = lidCache.get(pnJid);
+    if (cached && Date.now() - cached.at < LID_TTL_MS) return cached.lid;
+    let lid: string | null = null;
+    try {
+      const res = await api(`/chat/findMessages/${encodeURIComponent(instance)}`, {
+        method: "POST",
+        body: JSON.stringify({ where: { key: { remoteJidAlt: pnJid } } }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        const records: any[] = data?.messages?.records ?? (Array.isArray(data) ? data : []);
+        for (const r of records) {
+          const rj = String(r?.key?.remoteJid ?? "");
+          if (rj.endsWith("@lid")) {
+            lid = rj;
+            break;
+          }
+        }
+      }
+    } catch {
+      lid = null;
+    }
+    lidCache.set(pnJid, { lid, at: Date.now() });
+    return lid;
+  }
+
+  /** Destino efetivo: jid explícito vai como está; telefone tenta o LID antes do PN. */
+  async function resolveTo(instance: string, to: string): Promise<string> {
+    const v = toNumber(to);
+    if (v.includes("@")) return v;
+    const digits = v.replace(/\D/g, "");
+    const lid = await resolveLid(instance, `${digits}@s.whatsapp.net`);
+    if (lid) {
+      console.log(`[evolution] destino ${digits} → LID ${lid}`);
+      return lid;
+    }
+    return digits;
+  }
+
   async function sendText(accountId: string, to: string, text: string): Promise<SendResult> {
     if (!cfg.apiKey) {
       return { ok: false, error: "Evolution: API key não configurada" };
@@ -48,9 +97,10 @@ export function createEvolutionProvider(cfg: {
     }
 
     try {
+      const alvo = await resolveTo(instance, to);
       const res = await api(`/message/sendText/${encodeURIComponent(instance)}`, {
         method: "POST",
-        body: JSON.stringify({ number: toNumber(to), text }),
+        body: JSON.stringify({ number: alvo, text }),
       });
       if (!res.ok) {
         return { ok: false, error: `HTTP ${res.status}: ${await res.text()}` };
