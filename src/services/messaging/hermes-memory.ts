@@ -27,25 +27,33 @@ export function hermesMessageId(externalId: string | null | undefined): number |
  * Também reconstrói os índices de busca: os triggers ignoram mensagens antigas por design,
  * então sem isso o texto continuaria aparecendo em `session_search`.
  */
-export async function deleteHermesMessages(externalIds: (string | null | undefined)[]): Promise<number> {
+export async function deleteHermesMessages(
+  externalIds: (string | null | undefined)[],
+): Promise<{ encontradas: number; apagadas: number }> {
   const ids = externalIds.map(hermesMessageId).filter((n): n is number => n !== null);
-  if (ids.length === 0) return 0;
+  if (ids.length === 0) return { encontradas: 0, apagadas: 0 };
 
   const home = serverEnv().hermes.home;
-  if (!home) return 0;
+  if (!home) return { encontradas: 0, apagadas: 0 };
 
   let db: DatabaseSync;
   try {
     db = new DatabaseSync(`${home}/state.db`);
   } catch (err) {
     console.error("[hermes-memory] não abri o state.db:", (err as Error).message);
-    return 0;
+    return { encontradas: 0, apagadas: 0 };
   }
 
   try {
+    const existe = db.prepare("SELECT 1 FROM messages WHERE id = ?");
     const apagar = db.prepare("DELETE FROM messages WHERE id = ?");
+    let encontradas = 0;
     let apagadas = 0;
     for (const id of ids) {
+      // O CRM também usa `hermes_<timestamp>` nas mensagens que ELE enviou; essas não existem
+      // aqui. Contar só o que existe evita aviso falso na tela.
+      if (!existe.get(id)) continue;
+      encontradas++;
       const r = apagar.run(id) as { changes?: number | bigint };
       apagadas += Number(r.changes ?? 0);
     }
@@ -58,10 +66,10 @@ export async function deleteHermesMessages(externalIds: (string | null | undefin
         }
       }
     }
-    return apagadas;
+    return { encontradas, apagadas };
   } catch (err) {
     console.error("[hermes-memory] falha ao apagar:", (err as Error).message);
-    return 0;
+    return { encontradas: 0, apagadas: 0 };
   } finally {
     db.close();
   }

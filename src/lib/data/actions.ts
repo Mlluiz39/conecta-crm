@@ -787,13 +787,12 @@ export async function deleteMessage(
     .select("id, external_id");
   if (error) throw new Error(error.message);
 
-  const { deleteHermesMessages, hermesMessageId } = await import("@/services/messaging/hermes-memory");
+  const { deleteHermesMessages } = await import("@/services/messaging/hermes-memory");
   const linhas = data ?? [];
-  const mirrored = linhas.filter((m) => hermesMessageId(m.external_id as string | null) !== null).length;
-  const hermesDeleted = await deleteHermesMessages(linhas.map((m) => m.external_id as string | null));
+  const { encontradas, apagadas } = await deleteHermesMessages(linhas.map((m) => m.external_id as string | null));
 
   revalidatePath("/conversas");
-  return { deleted: linhas.length, mirrored, hermesDeleted };
+  return { deleted: linhas.length, mirrored: encontradas, hermesDeleted: apagadas };
 }
 
 /**
@@ -815,13 +814,12 @@ export async function clearConversationMessages(
     .select("id, external_id");
   if (error) throw new Error(error.message);
 
-  const { deleteHermesMessages, hermesMessageId } = await import("@/services/messaging/hermes-memory");
+  const { deleteHermesMessages } = await import("@/services/messaging/hermes-memory");
   const linhas = data ?? [];
-  const mirrored = linhas.filter((m) => hermesMessageId(m.external_id as string | null) !== null).length;
-  const hermesDeleted = await deleteHermesMessages(linhas.map((m) => m.external_id as string | null));
+  const { encontradas, apagadas } = await deleteHermesMessages(linhas.map((m) => m.external_id as string | null));
 
   revalidatePath("/conversas");
-  return { deleted: linhas.length, mirrored, hermesDeleted };
+  return { deleted: linhas.length, mirrored: encontradas, hermesDeleted: apagadas };
 }
 
 
