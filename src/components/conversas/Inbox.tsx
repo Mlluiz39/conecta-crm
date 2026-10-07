@@ -527,9 +527,9 @@ export function Inbox({
                   type="button"
                   onClick={() => void handleDeleteMessage(m)}
                   disabled={busyMsg === m.id}
-                  title="Apagar mensagem"
+                  title={inbound ? "Apagar do CRM (o celular do lead não é afetado)" : "Apagar aqui e no WhatsApp do lead"}
                   aria-label="Apagar mensagem"
-                  className="mb-4 shrink-0 rounded-lg border border-border/60 bg-background p-1 text-muted-foreground opacity-60 transition-opacity hover:border-destructive/40 hover:text-destructive md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 disabled:opacity-30"
+                  className="mb-4 shrink-0 rounded-lg border border-border/60 bg-background p-1 text-muted-foreground opacity-60 transition-opacity hover:border-destructive/40 hover:text-destructive hover:opacity-100 disabled:opacity-30"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
