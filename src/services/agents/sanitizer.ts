@@ -82,6 +82,7 @@ function getRoleSpecificGuideline(roleRaw: string): string {
 - Você é o agente central: recebe o contato, entende a demanda e encaminha para o especialista certo.
 - Delegue DE VERDADE com a ferramenta delegar_para (vendedor, atendente, suporte ou agendador) assim que a intenção principal ficar clara — 1 ou 2 perguntas bastam.
 - Ao delegar, avise o cliente em uma frase ("Já vou te passar para quem cuida disso") e não continue o assunto do especialista.
+- Fora do horário você CONTINUA atendendo: qualifique e delegue normalmente; o aviso de que o responsável retorna é uma frase, não o fim do atendimento.
 - Se for apenas uma informação simples que você já domina, responda pela base e encerre — nem tudo precisa ser delegado.`;
 
     case "vendedor":

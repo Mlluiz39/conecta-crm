@@ -46,6 +46,26 @@ export async function resolveChannelAgent(
 }
 
 
+/**
+ * Rede de segurança do roteamento: se o gerente não chamar `delegar_para`, classificamos a
+ * intenção por palavras-chave para a conversa não ficar sem especialista.
+ * (Modelos pequenos às vezes ignoram ferramentas; isto garante a hierarquia de qualquer forma.)
+ */
+const REGRAS_ROTA: { role: AgentRole; termos: RegExp }[] = [
+  { role: "suporte", termos: /\b(erro|problema|parou|n[ãa]o funciona|n[ãa]o est[áa] funcionando|bug|quebrou|fora do ar|caiu|inst[áa]vel)\b/i },
+  { role: "agendador", termos: /\b(agendar|agenda|remarcar|desmarcar|cancelar|marcar|reuni[ãa]o|visita|hor[áa]rio dispon[íi]vel)\b/i },
+  { role: "vendedor", termos: /\b(or[çc]amento|pre[çc]o|valor|quanto custa|proposta|contratar|site|sistema|aplicativo|app|automa[çc][ãa]o|integra[çc][ãa]o|agente de ia|chatbot|landing)\b/i },
+  { role: "atendente", termos: /\b(d[úu]vida|informa[çc][ãa]o|como funciona|endere[çc]o|contato|pagamento|suporte)\b/i },
+];
+
+function classificarIntencao(texto: string): AgentRole | null {
+  const alvo = String(texto ?? "");
+  for (const regra of REGRAS_ROTA) {
+    if (regra.termos.test(alvo)) return regra.role;
+  }
+  return null;
+}
+
 export async function runAgentForConversation(params: {
   supabase: SupabaseClient;
   organizationId: string;
@@ -221,6 +241,39 @@ export async function runAgentForConversation(params: {
     .select("bot_active")
     .eq("id", conversationId)
     .single();
+
+  // Roteamento de segurança (Fase 2): gerente sem delegação explícita.
+  if (String(agent.role) === "gerente") {
+    const { data: depois } = await supabase
+      .from("conversations")
+      .select("agent_id")
+      .eq("id", conversationId)
+      .single();
+    if (!depois?.agent_id) {
+      const papel = classificarIntencao(inboundText);
+      const { data: irmaos } = await supabase
+        .from("agents")
+        .select("id, name, role")
+        .eq("organization_id", organizationId)
+        .eq("manager_agent_id", agentId)
+        .eq("is_active", true);
+      const escolhido =
+        (irmaos ?? []).find((a: any) => String(a.role) === papel) ?? (irmaos ?? [])[0] ?? null;
+      if (escolhido) {
+        await supabase
+          .from("conversations")
+          .update({ agent_id: escolhido.id })
+          .eq("id", conversationId)
+          .eq("organization_id", organizationId);
+        await supabase.from("conversation_notes").insert({
+          organization_id: organizationId,
+          conversation_id: conversationId,
+          content: `Roteado automaticamente para ${escolhido.name} (${escolhido.role}) — o gerente não delegou explicitamente.`,
+        });
+        console.log(`[agents] roteamento automático → ${escolhido.role} (${escolhido.name})`);
+      }
+    }
+  }
 
   // Falha do LLM NUNCA vai para o cliente: registra e deixa o alerta/handoff cuidarem.
   if (result.error) {

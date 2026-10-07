@@ -69,6 +69,10 @@ services:
       context: .
       target: runtime
       args:
+        # /app precisa pertencer ao mesmo uid que roda o container (senão o Next não escreve
+        # o cache em /app/.next e loga EACCES a cada request).
+        APP_UID: "${HERMES_UID:-1000}"
+        APP_GID: "${HERMES_GID:-1000}"
         NEXT_PUBLIC_SUPABASE_URL: "${NEXT_PUBLIC_SUPABASE_URL:-}"
         NEXT_PUBLIC_SUPABASE_ANON_KEY: "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}"
         NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL:-http://localhost:8081}"
