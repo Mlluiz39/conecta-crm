@@ -288,9 +288,14 @@ export async function detectAlerts(organizationId: string): Promise<DetectResult
     const hits = commercialRiskHits(text);
     if (hits.length === 0) continue;
 
+    // Mesma regra do laço principal: sem conversa no mapa (interna ou fora da organização)
+    // não existe lead para alertar. Antes este laço ignorava o mapa e virava alerta
+    // "Contato" fantasma — inclusive na conversa do dono com o gerente.
     const conv = convById.get(String(m.conversation_id));
+    if (!conv) continue;
     const contact = (conv as { contact?: { id?: string; name?: string } } | null)?.contact;
     const nome = contact?.name ?? "Contato";
+    const canal = (conv as { channel_type?: string }).channel_type ?? "whatsapp";
 
     pending.push({
       type: "risco_comercial",
@@ -300,7 +305,7 @@ export async function detectAlerts(organizationId: string): Promise<DetectResult
       dedupeKey: `risco:${m.id}`,
       title: `🚨 Possível promessa indevida — ${nome}`,
       body: `${hits.join(", ")} → "${text.slice(0, 180).replace(/\s+/g, " ")}"`,
-      payload: { canal: "whatsapp", contacto: nome, termos: hits },
+      payload: { canal, contacto: nome, termos: hits },
       eventAt: String(m.created_at),
     });
   }
@@ -386,7 +391,7 @@ export async function notifyAlerts(
   const supabase = createAdminClient();
   const { data: pending } = await supabase
     .from("alerts")
-    .select("id, type, title, body, payload, created_at, contact_id")
+    .select("id, type, title, body, payload, created_at, contact_id, conversation:conversations(id, is_internal)")
     .eq("organization_id", organizationId)
     .is("notified_at", null)
     .order("created_at", { ascending: true })
@@ -394,9 +399,28 @@ export async function notifyAlerts(
 
   if (!pending || pending.length === 0) return { sent: 0, failed: 0, skipped: false };
 
+  /**
+   * Conversa interna (dono falando com o gerente pelo Telegram) nunca vira alerta no celular
+   * dele. Marcar como notificado aqui é a segunda barreira: se um alerta desses aparecer — o
+   * que acontece quando uma instância antiga do CRM ainda escreve no mesmo banco — ele morre
+   * aqui em vez de chegar no Telegram.
+   */
+  const daConversaInterna = (a: (typeof pending)[number]) =>
+    Boolean((a as { conversation?: { is_internal?: boolean } | null }).conversation?.is_internal);
+  const internos = pending.filter(daConversaInterna);
+  if (internos.length > 0) {
+    await supabase
+      .from("alerts")
+      .update({ notified_at: new Date().toISOString() })
+      .in("id", internos.map((a) => String(a.id)));
+    console.warn(`[alerts] ${internos.length} alerta(s) de conversa interna ignorado(s)`);
+  }
+  const paraEnviar = pending.filter((a) => !daConversaInterna(a));
+  if (paraEnviar.length === 0) return { sent: 0, failed: 0, skipped: false };
+
   // agrupa por contato (ou por id quando não houver contato)
   const groups = new Map<string, typeof pending>();
-  for (const alert of pending) {
+  for (const alert of paraEnviar) {
     const key = alert.contact_id ? String(alert.contact_id) : `alert:${alert.id}`;
     groups.set(key, [...(groups.get(key) ?? []), alert]);
   }
