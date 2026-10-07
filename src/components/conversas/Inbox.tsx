@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -11,6 +11,7 @@ import {
   sendHumanMessage,
   deleteMessage,
   clearConversationMessages,
+  getConversationMessages,
 } from "@/lib/data/actions";
 import { Badge } from "@/components/ui/primitives";
 import { useConfirm, useNotify } from "@/components/ui/dialog-provider";
@@ -163,6 +164,36 @@ export function Inbox({
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
   const activeMessages = activeId ? messages[activeId] ?? [] : [];
+
+  /**
+   * Carrega as mensagens da conversa escolhida. O servidor só manda a conversa aberta por
+   * padrão, então sem isso qualquer outra aparecia como "Sem mensagens" (e sem os botões de
+   * apagar de cada mensagem).
+   */
+  const carregadas = useRef<Set<string>>(new Set(Object.keys(initialMessages)));
+  const [carregandoConversa, setCarregandoConversa] = useState(false);
+  useEffect(() => {
+    if (!activeId || carregadas.current.has(activeId)) return;
+    carregadas.current.add(activeId);
+    let cancelado = false;
+    setCarregandoConversa(true);
+    void getConversationMessages(activeId)
+      .then(({ messages: lista, notes: notas }) => {
+        if (cancelado) return;
+        setExtraMessages((prev) => ({ ...prev, [activeId]: lista as Msg[] }));
+        if (notas.length) setExtraNotes((prev) => ({ ...prev, [activeId]: notas as Note[] }));
+      })
+      .catch((err) => {
+        carregadas.current.delete(activeId);
+        console.warn("[inbox] não carreguei a conversa:", (err as Error).message);
+      })
+      .finally(() => {
+        if (!cancelado) setCarregandoConversa(false);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [activeId, initialMessages]);
 
   // Supabase Realtime
   useEffect(() => {
@@ -517,7 +548,9 @@ export function Inbox({
 
           <div className="flex-1 space-y-3 overflow-y-auto bg-muted/20 p-4">
             {activeMessages.length === 0 && (
-              <p className="text-center text-xs text-muted-foreground">Sem mensagens.</p>
+              <p className="text-center text-xs text-muted-foreground">
+                {carregandoConversa ? "Carregando mensagens…" : "Sem mensagens."}
+              </p>
             )}
             {activeMessages.map((m) => {
               const inbound = m.direction === "in";

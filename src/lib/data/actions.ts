@@ -766,6 +766,50 @@ export async function sendHumanMessage(conversationId: string, text: string) {
 }
 
 /**
+ * Mensagens + notas de UMA conversa.
+ *
+ * A página `/conversas` carrega no servidor só a conversa aberta por padrão; ao clicar em
+ * outra, o cliente precisa buscar. Sem isso a conversa aparecia como "Sem mensagens" — o
+ * que também escondia o botão de apagar de cada mensagem.
+ */
+export async function getConversationMessages(conversationId: string): Promise<{
+  messages: Array<{
+    id: string;
+    direction: "in" | "out";
+    sender_type: string;
+    content: string;
+    created_at: string;
+    status: string;
+  }>;
+  notes: Array<{ id: string; content: string; created_at: string }>;
+}> {
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+
+  const [mensagens, notas] = await Promise.all([
+    supabase
+      .from("messages")
+      .select("id, direction, sender_type, content, created_at, status")
+      .eq("organization_id", organizationId)
+      .eq("conversation_id", conversationId)
+      .order("created_at")
+      .limit(100),
+    supabase
+      .from("conversation_notes")
+      .select("id, content, created_at")
+      .eq("organization_id", organizationId)
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(50),
+  ]);
+
+  return {
+    messages: (mensagens.data ?? []) as any,
+    notes: (notas.data ?? []) as any,
+  };
+}
+
+/**
  * Apaga UMA mensagem: sai do CRM e, quando foi enviada por nós, também é revogada no
  * WhatsApp do lead (o WhatsApp não permite apagar no aparelho dele o que ele mesmo escreveu).
  */
