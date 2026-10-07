@@ -215,20 +215,19 @@ export function Inbox({
     patchConversation(conversa.id, { bot_active: !assumindo });
 
     try {
+      // O flag nativo (`conversations.bot_active`) é a verdade: o motor respeita antes de
+      // responder. O Hermes, quando existe, é só um bônus (pausa o turno dele também).
       if (assumindo) {
         const res = await takeoverConversation(conversa.id);
-        if (res.hermesPaused) {
-          notify("Você assumiu a conversa. A IA está pausada.", "success");
-        } else {
-          notify("Assumido no CRM, mas a IA não pausou: " + (res.detail ?? "erro no Hermes"), "error");
-        }
+        notify(
+          res.hermesPaused
+            ? "Você assumiu a conversa. A IA está pausada."
+            : "Você assumiu a conversa. A IA nativa parou de responder este lead.",
+          "success",
+        );
       } else {
-        const res = await reactivateBot(conversa.id);
-        if (res.hermesResumed) {
-          notify("Bot de IA reativado. A IA voltou a responder.", "success");
-        } else {
-          notify("Reativado no CRM, mas o Hermes não retomou: " + (res.detail ?? "erro no Hermes"), "error");
-        }
+        await reactivateBot(conversa.id);
+        notify("Bot de IA reativado. A IA voltou a responder.", "success");
       }
     } catch (error) {
       patchConversation(conversa.id, { bot_active: assumindo });

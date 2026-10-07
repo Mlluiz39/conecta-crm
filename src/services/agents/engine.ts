@@ -14,7 +14,7 @@ import { runAgentLoop } from "./claude";
 import { evaluateHandoff } from "./handoff";
 import { renderPrompt } from "./prompt";
 import { executeTool, toolsForClaude } from "./tools";
-import { buildAgentSystemInstruction } from "./sanitizer";
+import { buildAgentSystemInstruction, sanitizeAiReply } from "./sanitizer";
 
 const HISTORY_LIMIT = 20;
 
@@ -219,13 +219,19 @@ export async function runAgentForConversation(params: {
     .single();
 
   if (after?.bot_active && result.reply) {
+    // TRAVA DE SAÍDA: o cliente recebe só a resposta final — corta monólogo interno,
+    // sintaxe de ferramenta, assinatura de spam/CTA e vazamento de log antes de gravar.
+    const limpo = sanitizeAiReply(result.reply);
+    if (limpo.trim() !== result.reply.trim()) {
+      console.log(`[agents] trava de saída ajustou a resposta (${result.reply.length} -> ${limpo.length} chars)`);
+    }
     await supabase.from("messages").insert({
       organization_id: organizationId,
       conversation_id: conversationId,
       direction: "out",
       sender_type: "agent_ai",
       agent_id: agentId,
-      content: result.reply,
+      content: limpo,
       // Fila de saída: flushOutbox envia e retenta; 'enviada' só após aceite do provider.
       status: "pendente",
     });
