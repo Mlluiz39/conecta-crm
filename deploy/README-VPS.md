@@ -367,7 +367,12 @@ docker compose exec hermes hermes whatsapp
 docker compose restart hermes
 ```
 
-Duas armadilhas encontradas:
+Três armadilhas encontradas:
+
+- **a ponte do WhatsApp não traz `node_modules` na imagem** e o CLI instala em runtime como
+  usuário `hermes` (uid 10000) — com o diretório root, o `npm install` morre com `EACCES` e o
+  QR não aparece. O `Dockerfile` já deixa `/opt/hermes/scripts/whatsapp-bridge` gravável;
+  se você mexer nisso, refaça a imagem;
 
 - **porta 3005 é de outro serviço nesta VPS** (`vendedor-ia`). O bridge do Hermes usa a porta
   de `platforms.whatsapp.extra.bridge_port` — deixamos **3000** no `config.yaml` do volume;

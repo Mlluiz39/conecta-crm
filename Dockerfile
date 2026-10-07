@@ -50,6 +50,15 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends nodejs ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# A ponte do WhatsApp (`/opt/hermes/scripts/whatsapp-bridge`) NÃO traz node_modules na imagem
+# base: quem instala é o CLI (`hermes whatsapp`) em runtime. Só que ele roda como o usuário
+# `hermes` do container (uid 10000) e o diretório vem root:root — o `npm install` morre com
+# EACCES e o pareamento por QR nunca acontece. No build somos root, então deixamos o
+# diretório gravável pelo usuário do container (e o node_modules pronto, quando existir).
+RUN HB_UID="$(id -u hermes 2>/dev/null || echo 10000)" \
+    && mkdir -p /opt/hermes/scripts/whatsapp-bridge/node_modules \
+    && chown -R "$HB_UID" /opt/hermes/scripts/whatsapp-bridge
+
 WORKDIR /app
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/scripts ./scripts
