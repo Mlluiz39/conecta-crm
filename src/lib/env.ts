@@ -59,5 +59,14 @@ export function serverEnv() {
       baseUrl: process.env.AISA_API_URL ?? "https://api.aisa.one/apis/v1",
     },
     cronSecret: process.env.CRON_SECRET ?? "",
+    voice: {
+      /** Voz do TTS quando o agente que atendeu não tem voz própria. */
+      defaultVoice: process.env.TTS_VOICE ?? "alloy",
+      /** `auto` deixa o proxy escolher o provedor de TTS/STT. */
+      speechModel: process.env.TTS_MODEL ?? "auto",
+      transcribeModel: process.env.TRANSCRIBE_MODEL ?? "auto",
+      /** Resposta maior que isso vira texto: nota de voz longa é ruim de ouvir. */
+      maxChars: Number(process.env.TTS_MAX_CHARS ?? 600),
+    },
   };
 }

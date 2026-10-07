@@ -49,11 +49,18 @@ export interface MessageProvider {
    * suporte apenas ignoram.
    */
   markRead?(accountId: string, message: { id: string; from: string }): Promise<void>;
-  /** Indicador "digitando…" (opcional: provider sem suporte simplesmente ignora). */
+  /** Baixa a mídia recebida (áudio do lead vem criptografado no payload do webhook). */
+  fetchMediaBase64?(
+    accountId: string,
+    message: { id: string; raw?: unknown },
+  ): Promise<{ base64: string; mimetype: string } | null>;
+  /** Envia nota de voz. Opcional: provider sem suporte cai no texto. */
+  sendVoice?(accountId: string, to: string, audioBase64: string): Promise<SendResult>;
+  /** Indicador de atividade (opcional: provider sem suporte simplesmente ignora). */
   sendPresence?(
     accountId: string,
     to: string,
-    presence: "composing" | "paused",
+    presence: "composing" | "recording" | "paused",
     delayMs?: number,
   ): Promise<void>;
 }

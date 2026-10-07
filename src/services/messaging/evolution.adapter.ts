@@ -16,11 +16,11 @@ export function createEvolutionProvider(cfg: {
 }): MessageProvider {
   const base = (cfg.apiUrl || "").replace(/\/+$/, "");
 
-  function api(path: string, init?: RequestInit) {
+  function api(path: string, init?: RequestInit, timeoutMs = 15_000) {
     return fetch(`${base}${path}`, {
       ...init,
       // timeout: Evolution em reconexão pode pendurar — nunca travar a outbox
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(timeoutMs),
       headers: {
         "content-type": "application/json",
         apikey: cfg.apiKey,
@@ -224,6 +224,58 @@ export function createEvolutionProvider(cfg: {
       // Evolution não usa templates Meta: renderiza as variáveis e envia texto puro
       const rendered = String(templateName).replace(/\{\{(\w+)\}\}/g, (_, k) => variables?.[k] ?? "");
       return sendText(accountId, to, rendered || templateName);
+    },
+
+    /** Base64 da mídia recebida: o payload do webhook traz o arquivo criptografado. */
+    async fetchMediaBase64(accountId, message) {
+      const instance = accountId && accountId !== "default" ? accountId : cfg.instance;
+      if (!cfg.apiKey || !instance || !message?.id) return null;
+      try {
+        const raw = message.raw as any;
+        const key = raw?.data?.key ?? raw?.key;
+        const res = await api(
+          `/chat/getBase64FromMediaMessage/${encodeURIComponent(instance)}`,
+          {
+            method: "POST",
+            body: JSON.stringify({ message: { key }, convertToMp4: false }),
+          },
+          45_000,
+        );
+        if (!res.ok) {
+          console.warn(`[evolution] mídia ${message.id}: HTTP ${res.status}`);
+          return null;
+        }
+        const data = (await res.json()) as any;
+        const b64 = String(data?.base64 ?? "").replace(/^data:[^,]+,/, "");
+        if (!b64) return null;
+        return { base64: b64, mimetype: String(data?.mimetype ?? "audio/ogg") };
+      } catch (err) {
+        console.warn("[evolution] mídia falhou:", (err as Error).message);
+        return null;
+      }
+    },
+
+    /**
+     * Nota de voz. A Evolution converte sozinha para ogg/opus (ffmpeg está na imagem) —
+     * aceita o WAV que o TTS devolve.
+     */
+    async sendVoice(accountId, to, audioBase64) {
+      const instance = accountId && accountId !== "default" ? accountId : cfg.instance;
+      if (!cfg.apiKey) return { ok: false, error: "Evolution: API key não configurada" };
+      if (!instance) return { ok: false, error: "Evolution: instância não configurada" };
+      try {
+        const alvo = await resolveTo(instance, to);
+        const res = await api(
+          `/message/sendWhatsAppAudio/${encodeURIComponent(instance)}`,
+          { method: "POST", body: JSON.stringify({ number: alvo, audio: audioBase64, delay: 1200 }) },
+          45_000,
+        );
+        if (!res.ok) return { ok: false, error: `HTTP ${res.status}: ${await res.text()}` };
+        const data = (await res.json()) as any;
+        return { ok: true, externalMessageId: data?.key?.id || data?.id || `evo_${Date.now()}` };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
     },
 
     /** Tick azul para o lead: POST /chat/markMessageAsRead {readMessages: [{remoteJid, fromMe, id}]} */

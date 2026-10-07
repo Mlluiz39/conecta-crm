@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runAgentForConversation } from "@/services/agents/engine";
+import { transcribeAudio, synthesizeSpeech } from "@/services/audio/voice";
 import { getMessageProvider, providerFromConfig } from "./index";
 import type { MessageProvider } from "./types";
 
@@ -9,16 +10,21 @@ import type { MessageProvider } from "./types";
  * renovamos a cada ~7s. Quem fecha é o chamador: se já existe resposta na fila, o
  * `flushOutbox` continua digitando e fecha no envio (evita o indicador piscar).
  */
-function comDigitando(provider: MessageProvider, accountId: string, to: string) {
-  const marcar = async (presence: "composing" | "paused", delayMs?: number) => {
+function comDigitando(
+  provider: MessageProvider,
+  accountId: string,
+  to: string,
+  presence: "composing" | "recording" = "composing",
+) {
+  const marcar = async (p: "composing" | "recording" | "paused", delayMs?: number) => {
     try {
-      await provider.sendPresence?.(accountId, to, presence, delayMs);
+      await provider.sendPresence?.(accountId, to, p, delayMs);
     } catch {
       // indicador é cosmético
     }
   };
-  void marcar("composing", 8000);
-  const timer = setInterval(() => void marcar("composing", 8000), 7000);
+  void marcar(presence, 8000);
+  const timer = setInterval(() => void marcar(presence, 8000), 7000);
   let parado = false;
   return async function pararDigitando(manterAtivo: boolean) {
     if (parado) return;
@@ -194,6 +200,23 @@ export async function handleInboundWebhook(params: {
 
     if (!conv) continue;
 
+    // 4b. Áudio do lead: transcreve para o agente poder responder o que ele falou.
+    //     (Nota de voz não tem texto; sem isso o agente ficava em silêncio.)
+    const inboundWasAudio = msg.kind === "audio";
+    if (!msg.text && inboundWasAudio && msg.externalMessageId) {
+      const midia = await provider.fetchMediaBase64?.(msg.externalAccountId, {
+        id: msg.externalMessageId,
+        raw: msg.raw,
+      });
+      const texto = midia ? await transcribeAudio(midia) : "";
+      if (texto) {
+        msg.text = texto;
+        console.log(`[audio] ${msg.externalMessageId} transcrito (${texto.length} chars)`);
+      } else {
+        console.warn(`[audio] não consegui transcrever ${msg.externalMessageId}`);
+      }
+    }
+
     // 5. Insere mensagem recebida (trigger on_message_insert atualiza last_message_at e unread_count automaticamente)
     const { error: msgErr } = await supabase.from("messages").insert({
       organization_id: organizationId,
@@ -204,6 +227,7 @@ export async function handleInboundWebhook(params: {
       external_id: msg.externalMessageId,
       status: "entregue",
       created_at: msg.timestamp,
+      ...(inboundWasAudio ? { media: { audio: true, transcribed: Boolean(msg.text) } } : {}),
     });
 
     if (msgErr && msgErr.code !== "23505") {
@@ -226,7 +250,13 @@ export async function handleInboundWebhook(params: {
     // 6. Aciona o agente de IA para responder à conversa
     if (msg.text) {
       // "digitando…" desde já: o modelo leva alguns segundos e o lead precisa ver atividade.
-      const pararDigitando = comDigitando(provider, msg.externalAccountId, msg.from);
+      // Lead que mandou voz vê "gravando áudio…", coerente com a resposta em voz.
+      const pararDigitando = comDigitando(
+        provider,
+        msg.externalAccountId,
+        msg.from,
+        inboundWasAudio ? "recording" : "composing",
+      );
       let res: Awaited<ReturnType<typeof runAgentForConversation>> | null = null;
       try {
         res = await runAgentForConversation({
@@ -234,6 +264,7 @@ export async function handleInboundWebhook(params: {
           organizationId,
           conversationId: conv.id,
           inboundText: msg.text,
+          inboundWasAudio,
         });
       } finally {
         // Se já existe resposta na fila, quem fecha o indicador é o flushOutbox
@@ -270,7 +301,7 @@ export async function flushOutbox(limit = 50): Promise<number> {
   const { data: rows, error } = await supabase
     .from("messages")
     .select(
-      `id, organization_id, content, media,
+      `id, organization_id, content, media, agent_id,
        conversation:conversations!inner(
          id, channel_id,
          channel:channels!inner(id, cernio_channel_id, config),
