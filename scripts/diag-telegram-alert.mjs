@@ -5,26 +5,44 @@
  * Reconstrói exatamente a mensagem que o `notifyAlerts` monta para os alertas que falharam
  * (lidos do banco) e tenta enviar de duas formas: com `parse_mode: Markdown` e sem.
  * A resposta do Telegram diz o motivo exato do 400.
+ *
+ * A credencial vem do CRM (process.env ou .env.local) — o bot é o do CRM. O `.env` do
+ * Hermes só é usado como último recurso, e o script avisa quando cai nele.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
+/** Onde a credencial do bot do CRM mora, na ordem em que o app a lê. */
+const CRM_ENVS = [
+  resolve(ROOT, ".env.local"),
+  resolve(ROOT, ".env"),
+  resolve(ROOT, ".env.vps"),
+].filter((p) => existsSync(p));
 const HERMES_ENV = resolve(ROOT, ".hermes-home/.hermes/.env");
 
-function envVar(name) {
-  const linha = readFileSync(HERMES_ENV, "utf8")
-    .split(/\r?\n/)
-    .find((l) => l.startsWith(`${name}=`));
-  return linha ? linha.slice(name.length + 1).trim().replace(/^["']|["']$/g, "") : "";
+function envVar(files, name) {
+  for (const arquivo of files) {
+    const linha = readFileSync(arquivo, "utf8")
+      .split(/\r?\n/)
+      .find((l) => l.startsWith(`${name}=`));
+    if (linha) return linha.slice(name.length + 1).trim().replace(/^["']|["']$/g, "");
+  }
+  return "";
 }
 
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN || envVar("TELEGRAM_BOT_TOKEN");
-const CHAT = process.env.ALERTS_TELEGRAM_CHAT_ID || envVar("TELEGRAM_CHAT_ID");
+const tokenCrm = process.env.TELEGRAM_BOT_TOKEN || envVar(CRM_ENVS, "TELEGRAM_BOT_TOKEN");
+const chatCrm = process.env.ALERTS_TELEGRAM_CHAT_ID || envVar(CRM_ENVS, "ALERTS_TELEGRAM_CHAT_ID");
+const legado = !tokenCrm && existsSync(HERMES_ENV);
+
+const TOKEN = tokenCrm || envVar([HERMES_ENV], "TELEGRAM_BOT_TOKEN");
+const CHAT = chatCrm || envVar([HERMES_ENV], "TELEGRAM_CHAT_ID");
 if (!TOKEN || !CHAT) {
-  console.error("sem token/chat no .env do Hermes");
+  console.error("sem token/chat do CRM — preencha TELEGRAM_BOT_TOKEN e ALERTS_TELEGRAM_CHAT_ID no .env.local");
   process.exit(1);
 }
+if (legado) console.warn("⚠ usando o .env do Hermes: o CRM não tem TELEGRAM_BOT_TOKEN próprio");
+console.log(`bot: ${TOKEN.split(":")[0]} · chat: ${CHAT}`);
 
 const alertas = JSON.parse(readFileSync(resolve(ROOT, ".probe/failing-alerts.json"), "utf8"));
 const escapar = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

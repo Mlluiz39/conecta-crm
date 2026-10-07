@@ -25,9 +25,13 @@ export async function GET(request: NextRequest) {
     if (!org) return NextResponse.json({ ok: false, error: "nenhuma organização" }, { status: 500 });
 
     const { detected, notified } = await runAlertsCycle(org.id);
+    const telegram = alertConfig();
     return NextResponse.json({
       ok: true,
-      telegram: alertConfig().telegramEnabled,
+      telegram: telegram.telegramEnabled,
+      // qual bot está enviando (id numérico do token) e o que falta quando está desligado
+      bot: telegram.botName,
+      missing: telegram.missing,
       detected,
       notified,
     });

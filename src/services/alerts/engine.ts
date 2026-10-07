@@ -1,7 +1,5 @@
 import "server-only";
-import { readFileSync } from "node:fs";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { serverEnv } from "@/lib/env";
 import {
   classifyTemperature,
   commercialRiskHits,
@@ -41,33 +39,33 @@ export type AlertConfig = {
   telegramEnabled: boolean;
   chatId: string | null;
   botName: string | null;
+  /** Variáveis que faltam quando o Telegram está desligado (vira mensagem no /api/cron/alerts). */
+  missing: string[];
 };
 
-function hermesEnv(): Record<string, string> {
-  const { hermes } = serverEnv();
-  if (!hermes.home) return {};
-  try {
-    const raw = readFileSync(`${hermes.home}/.env`, "utf8");
-    const out: Record<string, string> = {};
-    for (const line of raw.split(/\r?\n/)) {
-      const m = line.match(/^([A-Z0-9_]+)\s*=\s*(.*)$/);
-      if (m) out[m[1]] = m[2].trim().replace(/^["']|["']$/g, "");
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-/** Config do Telegram: .env do Hermes (padrão) ou variáveis do próprio CRM. */
+/**
+ * Config do Telegram dos alertas.
+ *
+ * O CRM tem o **próprio bot** (criado no @BotFather só para ele): a credencial vem das
+ * variáveis do CRM (`TELEGRAM_BOT_TOKEN` + `ALERTS_TELEGRAM_CHAT_ID`), nunca do `.env` do
+ * Hermes — que vive em `HERMES_HOME`. Antes havia esse fallback; ele fazia o alerta sair do
+ * bot do Hermes sem ninguém perceber (o container tem `HERMES_HOME=/opt/data` apontando para
+ * um `.env` com outro token). Um alias no `.env` do Hermes (`TELEGRAM_BOT_TOKEN=…` sem
+ * `TELEGRAM_CHAT_ID`) bastava para o alerta sumir em silêncio.
+ */
 export function alertConfig(): AlertConfig {
-  const env = hermesEnv();
-  const token = process.env.TELEGRAM_BOT_TOKEN ?? env.TELEGRAM_BOT_TOKEN ?? "";
-  const chatId = process.env.ALERTS_TELEGRAM_CHAT_ID ?? env.TELEGRAM_CHAT_ID ?? "";
+  const token = (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();
+  const chatId = (process.env.ALERTS_TELEGRAM_CHAT_ID ?? "").trim();
+  const missing = [
+    ...(token ? [] : ["TELEGRAM_BOT_TOKEN"]),
+    ...(chatId ? [] : ["ALERTS_TELEGRAM_CHAT_ID"]),
+  ];
   return {
-    telegramEnabled: Boolean(token && chatId),
+    telegramEnabled: missing.length === 0,
     chatId: chatId || null,
-    botName: token ? `bot:${token.slice(0, 8)}…` : null,
+    // o prefixo numérico do token É o id do bot — dá para conferir no Telegram qual bot enviou
+    botName: token ? `bot ${token.split(":")[0]}` : null,
+    missing,
   };
 }
 
@@ -85,8 +83,7 @@ function escaparHtml(texto: string): string {
 }
 
 function telegramToken(): string {
-  const env = hermesEnv();
-  return process.env.TELEGRAM_BOT_TOKEN ?? env.TELEGRAM_BOT_TOKEN ?? "";
+  return (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();
 }
 
 export type DetectResult = {
@@ -373,7 +370,12 @@ export async function notifyAlerts(
 ): Promise<NotifyResult> {
   const config = alertConfig();
   if (!config.telegramEnabled) {
-    return { sent: 0, failed: 0, skipped: true, reason: "Telegram não configurado (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID)" };
+    return {
+      sent: 0,
+      failed: 0,
+      skipped: true,
+      reason: `Telegram não configurado (falta ${config.missing.join(", ")} no .env do CRM)`,
+    };
   }
 
   const supabase = createAdminClient();
