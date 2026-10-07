@@ -230,6 +230,20 @@ else
   aviso "não achei $CFG_HERMES — não conferi as chaves de display/plugins"
 fi
 
+# Perfis (ex.: profiles/whatsapp) têm config PRÓPRIA e é ela que define o modelo do
+# atendimento no WhatsApp. Ali só o modelo/cadeia é enforçado — nada de display/plugins,
+# para não sobrescrever os toolsets restritos do perfil.
+for perfil_cfg in "$HERMES_DIR"/profiles/*/config.yaml; do
+  [[ -f "$perfil_cfg" ]] || continue
+  if [[ $CHECK == 1 ]]; then
+    python3 "$RAIZ/scripts/apply-hermes-config.py" --config "$perfil_cfg" --somente-modelo --check >/dev/null 2>&1 \
+      && ok "modelo em ordem: ${perfil_cfg#"$HERMES_DIR"/}" \
+      || { aviso "modelo divergente em ${perfil_cfg#"$HERMES_DIR"/} — rode sem --check"; config_ok=0; }
+  else
+    python3 "$RAIZ/scripts/apply-hermes-config.py" --config "$perfil_cfg" --somente-modelo 2>&1 | sed 's/^/  /' | tail -4
+  fi
+done
+
 [[ -f "$PERSONA_DIR/SOUL_EMAIL.md" ]] || aviso "SOUL_EMAIL.md ausente (canal de e-mail fica sem persona própria)"
 
 # Prompt mestre: vive no home do Hermes (é o agente que lê) e NÃO é versionado.

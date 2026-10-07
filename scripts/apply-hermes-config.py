@@ -249,6 +249,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Garante as chaves críticas do config.yaml do Hermes.")
     ap.add_argument("--config", default=None, help="caminho do config.yaml")
     ap.add_argument("--check", action="store_true", help="só verifica; não escreve")
+    ap.add_argument(
+        "--somente-modelo",
+        action="store_true",
+        help="aplica só model/fallback_providers (uso em perfis: não cria display/plugins/hooks)",
+    )
     args = ap.parse_args()
 
     cfg = Path(args.config) if args.config else config_padrao()
@@ -258,12 +263,15 @@ def main() -> int:
         return 1
 
     linhas = cfg.read_text(encoding="utf-8").splitlines(keepends=True)
-    mudancas = (
-        aplicar_display(list(linhas))
-        + aplicar_plugins(list(linhas))
-        + aplicar_hooks(list(linhas))
-        + aplicar_modelo(list(linhas))
-    )
+    if args.somente_modelo:
+        mudancas = aplicar_modelo(list(linhas))
+    else:
+        mudancas = (
+            aplicar_display(list(linhas))
+            + aplicar_plugins(list(linhas))
+            + aplicar_hooks(list(linhas))
+            + aplicar_modelo(list(linhas))
+        )
 
     if not mudancas:
         print(f"✓ config.yaml com as chaves críticas em ordem ({cfg})")
@@ -279,10 +287,13 @@ def main() -> int:
     backup = cfg.with_name(f"{cfg.name}.bak-{datetime.now():%Y%m%d-%H%M%S}")
     shutil.copy2(cfg, backup)
     linhas = cfg.read_text(encoding="utf-8").splitlines(keepends=True)
-    aplicar_display(linhas)
-    aplicar_plugins(linhas)
-    aplicar_hooks(linhas)
-    aplicar_modelo(linhas)
+    if args.somente_modelo:
+        aplicar_modelo(linhas)
+    else:
+        aplicar_display(linhas)
+        aplicar_plugins(linhas)
+        aplicar_hooks(linhas)
+        aplicar_modelo(linhas)
     cfg.write_text("".join(linhas), encoding="utf-8")
 
     print(f"✓ config.yaml corrigido ({cfg})")
