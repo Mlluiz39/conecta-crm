@@ -30,7 +30,7 @@ const num = (name, fallback) => {
 
 const JOBS = [
   { nome: "outbox", caminho: "/api/cron/outbox", segundos: num("CRON_OUTBOX_SEC", 60) },
-  { nome: "hermes-sync", caminho: "/api/cron/hermes-sync", segundos: num("CRON_SYNC_SEC", 60) },
+  // hermes-sync saiu junto com o Hermes: o atendimento vive no Evolution API + agentes nativos.
   { nome: "alerts", caminho: "/api/cron/alerts", segundos: num("CRON_ALERTS_SEC", 60) },
   { nome: "outreach", caminho: "/api/cron/outreach", segundos: num("CRON_OUTREACH_SEC", 300) },
   { nome: "reminders", caminho: "/api/cron/reminders", segundos: num("CRON_REMINDERS_SEC", 600) },
