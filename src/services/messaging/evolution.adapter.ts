@@ -11,6 +11,8 @@ export function createEvolutionProvider(cfg: {
   apiUrl: string;
   apiKey: string;
   instance: string;
+  /** Token da instância (`instance.token` na Evolution) — é o que chega no `apikey` do webhook. */
+  instanceToken?: string;
 }): MessageProvider {
   const base = (cfg.apiUrl || "").replace(/\/+$/, "");
 
@@ -64,13 +66,14 @@ export function createEvolutionProvider(cfg: {
     name: "evolution",
 
     verifySignature(rawBody: string, headers: Headers): boolean {
-      if (!cfg.apiKey) return true; // dev sem chave
+      // Aceita a chave global (chamadas de API/manuais) E o token da instância (o que a
+      // Evolution realmente manda no corpo do webhook).
+      const aceitos = new Set([cfg.apiKey, cfg.instanceToken].filter((v): v is string => Boolean(v?.trim())));
+      if (aceitos.size === 0) return true; // dev sem chave
 
       try {
         const p = JSON.parse(rawBody) as any;
-        // Evolution envia `apikey` (chave da instância) no corpo do webhook
-        if (typeof p?.apikey === "string" && p.apikey !== cfg.apiKey) return false;
-        if (typeof p?.apikey === "string") return true;
+        if (typeof p?.apikey === "string") return aceitos.has(p.apikey);
       } catch {
         return false;
       }
@@ -79,8 +82,8 @@ export function createEvolutionProvider(cfg: {
       const h =
         headers.get("apikey") ||
         headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-      if (h) return h === cfg.apiKey;
-      // Sem identificação nenhuma: libera em dev (produção: webhook sem segredo é inseguro)
+      if (h) return aceitos.has(h);
+      // Sem identificação nenhuma: libera (o endpoint não recebe segredo em alguns setups)
       return true;
     },
 

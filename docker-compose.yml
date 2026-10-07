@@ -29,7 +29,11 @@ x-root: &root "${CONECTA_ROOT:-.}"
 x-hermes-home: &hermes-home "${CONECTA_ROOT:-.}/.hermes-home/.hermes:/opt/data"
 
 services:
+  # Hermes ficou OPCIONAL: o atendimento de WhatsApp roda no Evolution API + agentes
+  # nativos do CRM. Suba com `docker compose --profile hermes up -d` se precisar dele
+  # (chat do dono, canais antigos). Sem o profile, `up -d` sobe só CRM/cron/vigia.
   hermes:
+    profiles: ["hermes"]
     image: nousresearch/hermes-agent:latest
     container_name: conectacrm-hermes
     restart: unless-stopped
@@ -90,9 +94,6 @@ services:
       - *hermes-home
       # o CRM também roda turnos do Hermes (texto da prospecção) e o hook vive em /opt/data/hooks
       - "${CONECTA_ROOT:-.}/scripts:/opt/data/hooks:ro"
-    depends_on:
-      hermes:
-        condition: service_started
 
   cron:
     image: conectacrm-app
@@ -138,11 +139,6 @@ services:
       TZ: America/Sao_Paulo
     volumes:
       - *hermes-home
-    depends_on:
-      hermes:
-        condition: service_started
-      crm:
-        condition: service_started
 
   # Proxy reverso com HTTPS automático (Let's Encrypt via Caddy).
   # Sobe só quando chamado:  docker compose --profile proxy up -d

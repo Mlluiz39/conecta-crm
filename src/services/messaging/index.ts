@@ -39,6 +39,7 @@ export function providerFromConfig(cfg: any): MessageProvider {
       apiUrl: cfg.apiUrl || process.env.EVOLUTION_API_URL || "",
       apiKey: cfg.apiKey || process.env.EVOLUTION_API_KEY || "",
       instance: cfg.instance || process.env.EVOLUTION_INSTANCE || "",
+      instanceToken: cfg.instanceToken || process.env.EVOLUTION_INSTANCE_TOKEN || "",
     });
   }
   if (cfg?.apiKey) {

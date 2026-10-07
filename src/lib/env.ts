@@ -40,6 +40,10 @@ export function serverEnv() {
       apiUrl: process.env.EVOLUTION_API_URL ?? "",
       apiKey: process.env.EVOLUTION_API_KEY ?? "",
       instance: process.env.EVOLUTION_INSTANCE ?? "",
+      // A Evolution manda o TOKEN DA INSTÂNCIA no campo `apikey` do webhook — que é
+      // diferente da chave global usada para enviar. Sem aceitar os dois, o webhook
+      // legítimo é recusado com 401.
+      instanceToken: process.env.EVOLUTION_INSTANCE_TOKEN ?? "",
     },
     hermes: {
       bin: process.env.HERMES_BIN ?? "",
