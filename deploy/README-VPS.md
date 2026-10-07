@@ -315,16 +315,22 @@ na resposta): [`hermes/README.md`](hermes/README.md).
 > **Só um gateway por sessão do WhatsApp.** Local e VPS não podem atender o mesmo número ao
 > mesmo tempo — pare o gateway local antes de subir o da VPS (seção 6).
 
-### Backup (PM2)
+### Backup (Docker)
 
-O home do Hermes guarda o que **não** se recupera por git: `config.yaml`, `state.db` (histórico)
-e `platforms/whatsapp/session` (o vínculo do WhatsApp — sem ele, só com QR novo).
+O que **não** se recupera por git é o volume do Hermes: `config.yaml`, `state.db` (histórico) e
+a sessão do WhatsApp (`whatsapp/session` ou `platforms/whatsapp/session` — o vínculo do número;
+sem ele, só com QR novo). Ele vive em `<pasta-do-projeto>/.hermes-home/.hermes` e é montado
+como `/opt/data` dentro do container.
 
 ```bash
-pm2 stop whatsapp-bridge
-tar czf ~/backup-hermes-$(date +%F).tgz -C /root .hermes
-pm2 start whatsapp-bridge
+cd /root/projects/conecta-crm
+docker compose stop hermes
+tar czf ~/backup-hermes-$(date +%F).tgz -C "$PWD" .hermes-home
+docker compose start hermes
 ```
+
+(O `install-hermes-assets.sh` cobre o que é versionável — personas, trava de saída e as chaves
+críticas do `config.yaml`; o backup cobre o que é estado.)
 
 ### Migrar de PM2 para Docker (feito nesta VPS em 06/10/2026)
 
