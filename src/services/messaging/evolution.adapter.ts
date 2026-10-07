@@ -204,6 +204,21 @@ export function createEvolutionProvider(cfg: {
 
     sendText,
 
+    /** "digitando…" (composing) / limpa o indicador (paused). */
+    async sendPresence(accountId, to, presence, delayMs = 0) {
+      const instance = accountId && accountId !== "default" ? accountId : cfg.instance;
+      if (!cfg.apiKey || !instance) return;
+      try {
+        const alvo = await resolveTo(instance, to);
+        await api(`/chat/sendPresence/${encodeURIComponent(instance)}`, {
+          method: "POST",
+          body: JSON.stringify({ number: alvo, delay: Math.max(0, delayMs), presence }),
+        });
+      } catch {
+        // indicador é cosmético: nunca derruba o envio
+      }
+    },
+
     async sendTemplate(accountId, to, templateName, variables): Promise<SendResult> {
       // Evolution não usa templates Meta: renderiza as variáveis e envia texto puro
       const rendered = String(templateName).replace(/\{\{(\w+)\}\}/g, (_, k) => variables?.[k] ?? "");

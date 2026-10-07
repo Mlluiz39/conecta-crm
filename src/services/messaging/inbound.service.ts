@@ -272,7 +272,10 @@ export async function flushOutbox(limit = 50): Promise<number> {
         .from("messages")
         .update({
           status: "falhou",
-          media: { ...base, lastError: !phone ? "contato sem telefone" : "mensagem sem conteúdo" },
+          media: {
+            ...((row.media as any) ?? {}),
+            outbox: { ...base, lastError: !phone ? "contato sem telefone" : "mensagem sem conteúdo" },
+          },
         })
         .eq("id", row.id);
       continue;
@@ -280,23 +283,40 @@ export async function flushOutbox(limit = 50): Promise<number> {
 
     const provider = providerFor(row.organization_id, (conv?.channel as any)?.config);
     const accountId = (conv?.channel as any)?.cernio_channel_id || "default";
-    console.log(`[outbox] send via provider=${provider.name} to=${phone}`);
+    // Resposta ao lead simula digitação (flag `typing` da fila). Disparo de campanha não:
+    // segurar o lote travaria o cron.
+    const typing = Boolean((row.media as any)?.typing);
+    const digitandoMs = Math.min(Math.max(String(row.content).length * 45, 1200), 4500);
+    const keepMedia = (extra: OutboxMeta) => ({ ...((row.media as any) ?? {}), outbox: extra });
+
+    console.log(`[outbox] send via provider=${provider.name} to=${phone}${typing ? ` (digitando ${digitandoMs}ms)` : ""}`);
+    if (typing) {
+      await provider.sendPresence?.(accountId, phone, "composing", digitandoMs).catch(() => {});
+      await new Promise((r) => setTimeout(r, digitandoMs));
+    }
     const result = await provider.sendText(accountId, phone, row.content);
+    if (typing) {
+      // Sempre limpa o indicador: se o envio falhar, o lead não fica com "digitando…" preso.
+      await provider.sendPresence?.(accountId, phone, "paused").catch(() => {});
+    }
 
     if (result.ok) {
       await supabase
         .from("messages")
-        .update({ status: "enviada", external_id: result.externalMessageId ?? null, media: base })
+        .update({ status: "enviada", external_id: result.externalMessageId ?? null, media: keepMedia(base) })
         .eq("id", row.id);
       sent++;
     } else if (attempts >= MAX_ATTEMPTS) {
       await supabase
         .from("messages")
-        .update({ status: "falhou", media: { ...base, lastError: result.error } })
+        .update({ status: "falhou", media: keepMedia({ ...base, lastError: result.error }) })
         .eq("id", row.id);
       console.error(`[outbox] mensagem ${row.id} falhou após ${attempts} tentativas:`, result.error);
     } else {
-      await supabase.from("messages").update({ media: { ...base, lastError: result.error } }).eq("id", row.id);
+      await supabase
+        .from("messages")
+        .update({ media: keepMedia({ ...base, lastError: result.error }) })
+        .eq("id", row.id);
       console.warn(`[outbox] tentativa ${attempts}/${MAX_ATTEMPTS} falhou:`, result.error);
     }
   }

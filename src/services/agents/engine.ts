@@ -298,6 +298,8 @@ export async function runAgentForConversation(params: {
       content: limpo,
       // Fila de saída: flushOutbox envia e retenta; 'enviada' só após aceite do provider.
       status: "pendente",
+      // Resposta ao lead mostra "digitando…" antes do envio (campanha não usa).
+      media: { typing: true },
     });
   }
 
