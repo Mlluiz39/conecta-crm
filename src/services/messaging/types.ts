@@ -44,7 +44,11 @@ export interface MessageProvider {
     templateName: string,
     variables: Record<string, string>,
   ): Promise<SendResult>;
-  markRead(accountId: string, externalMessageId: string): Promise<void>;
+  /**
+   * Marca como lida a mensagem recebida do lead (tick azul). Opcional: providers sem
+   * suporte apenas ignoram.
+   */
+  markRead?(accountId: string, message: { id: string; from: string }): Promise<void>;
   /** Indicador "digitando…" (opcional: provider sem suporte simplesmente ignora). */
   sendPresence?(
     accountId: string,

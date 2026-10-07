@@ -2,6 +2,31 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runAgentForConversation } from "@/services/agents/engine";
 import { getMessageProvider, providerFromConfig } from "./index";
+import type { MessageProvider } from "./types";
+
+/**
+ * "digitando…" enquanto o modelo pensa. O indicador do WhatsApp expira sozinho, então
+ * renovamos a cada ~7s. Quem fecha é o chamador: se já existe resposta na fila, o
+ * `flushOutbox` continua digitando e fecha no envio (evita o indicador piscar).
+ */
+function comDigitando(provider: MessageProvider, accountId: string, to: string) {
+  const marcar = async (presence: "composing" | "paused", delayMs?: number) => {
+    try {
+      await provider.sendPresence?.(accountId, to, presence, delayMs);
+    } catch {
+      // indicador é cosmético
+    }
+  };
+  void marcar("composing", 8000);
+  const timer = setInterval(() => void marcar("composing", 8000), 7000);
+  let parado = false;
+  return async function pararDigitando(manterAtivo: boolean) {
+    if (parado) return;
+    parado = true;
+    clearInterval(timer);
+    if (!manterAtivo) await marcar("paused");
+  };
+}
 
 export type InboundOutcome = {
   status: "processed" | "duplicate" | "ignored" | "invalid_signature";
@@ -191,19 +216,35 @@ export async function handleInboundWebhook(params: {
       .eq("provider", provider.name)
       .eq("event_id", msg.externalEventId);
 
+    // 5b. Tick azul: o lead vê que a mensagem dele foi lida (best-effort, não bloqueia)
+    if (msg.externalMessageId) {
+      void provider
+        .markRead?.(msg.externalAccountId, { id: msg.externalMessageId, from: msg.from })
+        .catch(() => {});
+    }
+
     // 6. Aciona o agente de IA para responder à conversa
     if (msg.text) {
-      const res = await runAgentForConversation({
-        supabase,
-        organizationId,
-        conversationId: conv.id,
-        inboundText: msg.text,
-      });
+      // "digitando…" desde já: o modelo leva alguns segundos e o lead precisa ver atividade.
+      const pararDigitando = comDigitando(provider, msg.externalAccountId, msg.from);
+      let res: Awaited<ReturnType<typeof runAgentForConversation>> | null = null;
+      try {
+        res = await runAgentForConversation({
+          supabase,
+          organizationId,
+          conversationId: conv.id,
+          inboundText: msg.text,
+        });
+      } finally {
+        // Se já existe resposta na fila, quem fecha o indicador é o flushOutbox
+        // (evita o "digitando" piscar entre o fim do modelo e o envio).
+        await pararDigitando(Boolean(res?.handled && res?.reply));
+      }
 
       // Resposta já foi gravada pelo engine como 'pendente' (fila de saída).
       // Fire-and-forget: webhook responde rápido (Evolution redeliveria em 30s);
       // envio acontece em paralelo e o cron /api/cron/outbox cobre falhas.
-      if (res.handled && res.reply) {
+      if (res?.handled && res?.reply) {
         void flushOutbox(10).catch((e) => console.error("[outbox flush]", e));
       }
     }

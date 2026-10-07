@@ -210,10 +210,11 @@ export function createEvolutionProvider(cfg: {
       if (!cfg.apiKey || !instance) return;
       try {
         const alvo = await resolveTo(instance, to);
-        await api(`/chat/sendPresence/${encodeURIComponent(instance)}`, {
+        const res = await api(`/chat/sendPresence/${encodeURIComponent(instance)}`, {
           method: "POST",
           body: JSON.stringify({ number: alvo, delay: Math.max(0, delayMs), presence }),
         });
+        if (!res.ok) console.warn(`[evolution] presence ${presence} falhou: HTTP ${res.status}`);
       } catch {
         // indicador é cosmético: nunca derruba o envio
       }
@@ -225,8 +226,22 @@ export function createEvolutionProvider(cfg: {
       return sendText(accountId, to, rendered || templateName);
     },
 
-    async markRead() {
-      // Evolution marcação de leitura: POST /read-messages — dispensada por ora
+    /** Tick azul para o lead: POST /chat/markMessageAsRead {readMessages: [{remoteJid, fromMe, id}]} */
+    async markRead(accountId, message) {
+      const instance = accountId && accountId !== "default" ? accountId : cfg.instance;
+      if (!cfg.apiKey || !instance || !message?.id) return;
+      try {
+        const alvo = await resolveTo(instance, message.from);
+        const res = await api(`/chat/markMessageAsRead/${encodeURIComponent(instance)}`, {
+          method: "POST",
+          body: JSON.stringify({
+            readMessages: [{ remoteJid: alvo, fromMe: false, id: message.id }],
+          }),
+        });
+        console.log(`[evolution] lida → ${alvo} (${message.id}) HTTP ${res.status}`);
+      } catch {
+        // recibo de leitura é cosmético: nunca derruba o processamento do webhook
+      }
     },
   };
 }
