@@ -103,6 +103,39 @@ Ele faz backup do `config.yaml`, insere a linha na lista certa, é idempotente e
 nada mais. Depois: `pm2 restart whatsapp-bridge --update-env` (plugin é registrado no boot —
 as personas, não: o manager lê a cada mensagem).
 
+## Chaves críticas do `config.yaml`
+
+O `config.yaml` **vive no volume, não na imagem** — se estivesse na imagem, todo rebuild
+apagaria o pareamento do WhatsApp e o histórico. O preço é que ele não é reproduzível pelo
+git, e já nasceram três bugs ali (persona de terceiro, log do bridge na resposta, painel
+interno vazando para o lead).
+
+`scripts/apply-hermes-config.py` resolve a parte que dá para versionar: ele garante em cada
+deploy as chaves que decidem **o que o cliente vê** e que a trava de saída está habilitada.
+
+```bash
+python3 scripts/apply-hermes-config.py            # aplica (com backup)
+python3 scripts/apply-hermes-config.py --check    # sai 1 se algo divergir
+```
+
+Chaves garantidas em `display`:
+
+| chave | valor | por quê |
+| --- | --- | --- |
+| `tool_progress` | `"off"` | sem `📖 Reading arquivo.txt` para o cliente |
+| `interim_assistant_messages` | `false` | só a resposta final, não mensagens do meio |
+| `long_running_notifications` | `false` | sem avisos de demora |
+| `busy_ack_detail` | `false` | sem "ack" interno |
+| `live_status` | `"off"` | sem status ao vivo |
+| `thinking_progress` | `false` | sem raciocínio exposto |
+| `suppress_warning_notifications` | `true` | sem avisos de turno cancelado (o `⚠️ No reply:` que vazou) |
+| `show_reasoning` | `false` | idem |
+| `cleanup_progress` | `true` | limpa progresso |
+| `busy_steer_ack_enabled` | `false` | sem confirmação de correção |
+
+E o instalador chama esse script sozinho: `./scripts/install-hermes-assets.sh` já confere (e
+corrige) essas chaves. O `--check` do instalador agora falha quando elas estão fora do lugar.
+
 ## Como aplicar
 
 ### Local (docker compose)

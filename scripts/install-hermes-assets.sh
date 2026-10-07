@@ -189,6 +189,22 @@ if [[ $CHECK == 0 ]]; then
   fi
 fi
 
+# ── 4. Chaves críticas do config.yaml (o que o cliente vê) ────────────────────
+# O config.yaml vive no volume (não na imagem), então não é reproduzível pelo git: já
+# nasceram três bugs ali. `apply-hermes-config.py` garante o essencial a cada deploy.
+config_ok=1
+if [[ -f "$CFG_HERMES" ]]; then
+  if [[ $CHECK == 1 ]]; then
+    python3 "$RAIZ/scripts/apply-hermes-config.py" --config "$CFG_HERMES" --check >/dev/null 2>&1 \
+      && ok "config.yaml com as chaves críticas em ordem" \
+      || { aviso "config.yaml divergente — rode sem --check para corrigir"; config_ok=0; }
+  else
+    python3 "$RAIZ/scripts/apply-hermes-config.py" --config "$CFG_HERMES" 2>&1 | sed 's/^/  /' | tail -6
+  fi
+else
+  aviso "não achei $CFG_HERMES — não conferi as chaves de display/plugins"
+fi
+
 [[ -f "$PERSONA_DIR/SOUL_EMAIL.md" ]] || aviso "SOUL_EMAIL.md ausente (canal de e-mail fica sem persona própria)"
 
 # Prompt mestre: vive no home do Hermes (é o agente que lê) e NÃO é versionado.
@@ -201,6 +217,10 @@ echo
 if [[ $CHECK == 1 ]]; then
   if (( faltando + desatualizado > 0 )); then
     erro "$faltando ausente(s), $desatualizado desatualizado(s) — rode sem --check para instalar"
+    exit 1
+  fi
+  if (( config_ok == 0 )); then
+    erro "config.yaml divergente das chaves críticas — rode sem --check para corrigir"
     exit 1
   fi
   ok "tudo instalado e em dia"
