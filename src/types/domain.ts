@@ -2,7 +2,7 @@
 
 export type UserRole = "admin" | "gerente" | "atendente";
 export type BusinessType = "imobiliaria" | "ecommerce" | "clinica" | "agencia";
-export type ChannelType = "whatsapp" | "instagram" | "messenger";
+export type ChannelType = "whatsapp" | "instagram" | "messenger" | "telegram";
 export type AgentRole = "gerente" | "vendedor" | "atendente" | "suporte" | "agendador" | "personalizado";
 export type AgentTone = "formal" | "amigavel" | "consultivo" | "direto";
 export type PromptStatus = "draft" | "published" | "archived";
@@ -40,6 +40,7 @@ export const CHANNEL_LABEL: Record<ChannelType, string> = {
   whatsapp: "WhatsApp",
   instagram: "Instagram",
   messenger: "Messenger",
+  telegram: "Telegram",
 };
 
 export const AGENT_ROLE_LABEL: Record<AgentRole, string> = {

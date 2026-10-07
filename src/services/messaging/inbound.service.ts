@@ -117,6 +117,13 @@ export async function handleInboundWebhook(params: {
     if (!channelRow) continue;
     const organizationId = channelRow.organization_id;
     const handle = normalizeHandle(msg.from);
+    /**
+     * Telegram não tem telefone: o identificador do lead é o chat id e ele mora em coluna
+     * própria (`telegram_chat_id`), como `instagram_handle`/`messenger_psid`. Se fosse para
+     * `phone`, o match por sufixo de 9 dígitos poderia casar um chat id com um número de
+     * WhatsApp — dois leads diferentes virando um.
+     */
+    const colunaHandle = msg.channel === "telegram" ? "telegram_chat_id" : "phone";
 
     // 3. Localiza/cria contato — matching hierárquico (índice org+phone é PARCIAL,
     //    não dá upsert onConflict): 1) phone exato 2) sufixo 9 dígitos (DDI varia:
@@ -125,12 +132,12 @@ export async function handleInboundWebhook(params: {
       .from("contacts")
       .select("id")
       .eq("organization_id", organizationId)
-      .eq("phone", handle)
+      .eq(colunaHandle, handle)
       .limit(1)
       .maybeSingle();
 
     const digits = handle.replace(/\D/g, "");
-    if (!contact && digits.length >= 9 && !handle.endsWith("@lid")) {
+    if (!contact && colunaHandle === "phone" && digits.length >= 9 && !handle.endsWith("@lid")) {
       const { data: bySuffix } = await supabase
         .from("contacts")
         .select("id")
@@ -141,7 +148,7 @@ export async function handleInboundWebhook(params: {
       contact = bySuffix;
     }
 
-    if (!contact && msg.fromName) {
+    if (!contact && colunaHandle === "phone" && msg.fromName) {
       const { data: byName } = await supabase
         .from("contacts")
         .select("id")
@@ -158,7 +165,9 @@ export async function handleInboundWebhook(params: {
         .insert({
           organization_id: organizationId,
           name: msg.fromName || handle || "Lead Inbound",
-          phone: handle || null,
+          ...(colunaHandle === "telegram_chat_id"
+            ? { telegram_chat_id: handle }
+            : { phone: handle || null }),
         })
         .select("id")
         .single();
@@ -172,7 +181,7 @@ export async function handleInboundWebhook(params: {
           .from("contacts")
           .select("id")
           .eq("organization_id", organizationId)
-          .eq("phone", handle)
+          .eq(colunaHandle, handle)
           .maybeSingle();
         contact = again.data;
       }
@@ -305,7 +314,7 @@ export async function flushOutbox(limit = 50): Promise<number> {
        conversation:conversations!inner(
          id, channel_id,
          channel:channels!inner(id, cernio_channel_id, config),
-         contact:contacts(id, phone)
+         contact:contacts(id, phone, telegram_chat_id)
        )`,
     )
     .eq("direction", "out")
@@ -345,26 +354,39 @@ export async function flushOutbox(limit = 50): Promise<number> {
     // Delay anti-flood: rajada derruba a conexão Baileys
     if (i > 0) await new Promise((r) => setTimeout(r, 1500));
     const conv: any = row.conversation;
-    const phone: string | undefined = conv?.contact?.phone;
+    const provider = providerFor(row.organization_id, (conv?.channel as any)?.config);
+    /**
+     * Para quem enviar. No WhatsApp/Evolution é o telefone do contato; no Telegram não existe
+     * telefone — o destino é o chat id (guardado em `contacts.telegram_chat_id`), que é o que
+     * o adapter manda como `chat_id`.
+     */
+    const destino: string | undefined =
+      provider.name === "telegram" ? conv?.contact?.telegram_chat_id : conv?.contact?.phone;
     const meta: OutboxMeta = (row.media as any)?.outbox ?? {};
     const attempts = (meta.attempts ?? 0) + 1;
     const base: OutboxMeta = { attempts, lastAttemptAt: new Date().toISOString() };
 
-    if (!row.content || !phone) {
+    if (!row.content || !destino) {
       await supabase
         .from("messages")
         .update({
           status: "falhou",
           media: {
             ...((row.media as any) ?? {}),
-            outbox: { ...base, lastError: !phone ? "contato sem telefone" : "mensagem sem conteúdo" },
+            outbox: {
+              ...base,
+              lastError: !destino
+                ? provider.name === "telegram"
+                  ? "contato sem chat id do Telegram"
+                  : "contato sem telefone"
+                : "mensagem sem conteúdo",
+            },
           },
         })
         .eq("id", row.id);
       continue;
     }
 
-    const provider = providerFor(row.organization_id, (conv?.channel as any)?.config);
     const accountId = (conv?.channel as any)?.cernio_channel_id || "default";
     // Resposta ao lead simula digitação (flag `typing` da fila). Disparo de campanha não:
     // segurar o lote travaria o cron.
@@ -375,11 +397,11 @@ export async function flushOutbox(limit = 50): Promise<number> {
     const keepMedia = (extra: OutboxMeta) => ({ ...((row.media as any) ?? {}), outbox: extra });
 
     console.log(
-      `[outbox] send via provider=${provider.name} to=${phone}${voz ? " (nota de voz)" : ""}${typing ? ` (digitando ${digitandoMs}ms)` : ""}`,
+      `[outbox] send via provider=${provider.name} to=${destino}${voz ? " (nota de voz)" : ""}${typing ? ` (digitando ${digitandoMs}ms)` : ""}`,
     );
     if (typing) {
       await provider
-        .sendPresence?.(accountId, phone, voz ? "recording" : "composing", digitandoMs)
+        .sendPresence?.(accountId, destino, voz ? "recording" : "composing", digitandoMs)
         .catch(() => {});
       await new Promise((r) => setTimeout(r, digitandoMs));
     }
@@ -388,16 +410,16 @@ export async function flushOutbox(limit = 50): Promise<number> {
     if (voz) {
       const audio = await synthesizeSpeech(row.content, vozes.get(String((row as any).agent_id)));
       result = audio
-        ? await provider.sendVoice!(accountId, phone, audio.base64)
-        : await provider.sendText(accountId, phone, row.content);
+        ? await provider.sendVoice!(accountId, destino, audio.base64)
+        : await provider.sendText(accountId, destino, row.content);
       if (!audio) console.warn(`[outbox] ${row.id}: TTS indisponível, resposta foi como texto`);
     } else {
-      result = await provider.sendText(accountId, phone, row.content);
+      result = await provider.sendText(accountId, destino, row.content);
     }
 
     if (typing) {
       // Sempre limpa o indicador: se o envio falhar, o lead não fica com "digitando…" preso.
-      await provider.sendPresence?.(accountId, phone, "paused").catch(() => {});
+      await provider.sendPresence?.(accountId, destino, "paused").catch(() => {});
     }
 
     if (result.ok) {

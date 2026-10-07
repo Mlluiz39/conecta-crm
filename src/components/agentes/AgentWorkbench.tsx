@@ -35,7 +35,7 @@ type Tool = { tool_key: AgentToolKey; enabled: boolean };
 type Rule = { rule_key: HandoffRuleKey; enabled: boolean };
 type Memory = { id: string; key: string; content: string; updated_at: string };
 
-const CHANNELS: ChannelType[] = ["whatsapp", "instagram", "messenger"];
+const CHANNELS: ChannelType[] = ["whatsapp", "telegram", "instagram", "messenger"];
 const ALL_TOOLS: AgentToolKey[] = [
   "buscar_informacoes",
   "agendar_visita",

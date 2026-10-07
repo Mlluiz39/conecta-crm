@@ -28,7 +28,7 @@ type Conv = {
   unread_count: number;
   last_message_at: string | null;
   agent: { name: string } | null;
-  contact: { id: string; name: string; phone: string | null } | null;
+  contact: { id: string; name: string; phone: string | null; telegram_chat_id?: string | null } | null;
 };
 
 type Msg = {
@@ -46,6 +46,7 @@ const CHANNEL_DOT: Record<string, string> = {
   whatsapp: "bg-emerald-500",
   instagram: "bg-pink-500",
   messenger: "bg-blue-500",
+  telegram: "bg-sky-500",
 };
 
 /** Mesma mensagem? (id igual ou mesmo texto/direção em até 3 min — evita duplicar otimista + real) */
@@ -408,7 +409,7 @@ export function Inbox({
       <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border bg-card">
         <div className="space-y-2 border-b p-3">
           <div className="flex gap-1 text-xs">
-            {(["all", "whatsapp", "instagram", "messenger"] as const).map((ch) => (
+            {(["all", "whatsapp", "telegram", "instagram", "messenger"] as const).map((ch) => (
               <button
                 key={ch}
                 onClick={() => setChannelFilter(ch)}
@@ -499,7 +500,7 @@ export function Inbox({
                   <span className="font-semibold text-emerald-600">digitando…</span>
                 ) : (
                   <>
-                    {CHANNEL_LABEL[active.channel_type]} · {active.contact?.phone ?? ""}
+                    {CHANNEL_LABEL[active.channel_type]} · {active.contact?.phone ?? (active.contact?.telegram_chat_id ? `chat ${active.contact.telegram_chat_id}` : "")}
                   </>
                 )}
               </p>
@@ -650,7 +651,10 @@ export function Inbox({
             <p className="text-sm font-bold">Dados do contato</p>
             <div className="mt-2 space-y-1 text-sm">
               <p className="font-semibold">{active.contact?.name}</p>
-              <p className="font-mono text-xs text-muted-foreground">{active.contact?.phone ?? "Sem telefone"}</p>
+              <p className="font-mono text-xs text-muted-foreground">
+                {active.contact?.phone ??
+                  (active.contact?.telegram_chat_id ? `chat ${active.contact.telegram_chat_id}` : "Sem telefone")}
+              </p>
             </div>
           </div>
 

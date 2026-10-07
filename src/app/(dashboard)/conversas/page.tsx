@@ -43,7 +43,7 @@ export default async function ConversasPage({
 
   return (
     <div>
-      <PageHeader title="Conversas" subtitle="Caixa de entrada unificada — WhatsApp, Instagram e Messenger" />
+      <PageHeader title="Conversas" subtitle="Caixa de entrada unificada — WhatsApp, Telegram, Instagram e Messenger" />
       <Inbox
         organizationId={organizationId}
         initialConversations={conversations as any}

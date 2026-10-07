@@ -49,6 +49,20 @@ export function serverEnv() {
       bin: process.env.HERMES_BIN ?? "",
       home: process.env.HERMES_HOME ?? "",
     },
+    telegram: {
+      /** Mesmo bot dos alertas: é o bot do CRM — aqui ele atende, não só avisa. */
+      botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
+      /** secret_token do setWebhook: sem ele o webhook é recusado (endpoint é público). */
+      webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET ?? "",
+      /**
+       * Quem pode conversar com o bot (chat ids separados por vírgula). Vazio = qualquer um,
+       * o que deixa o agente respondendo qualquer pessoa que ache o @ do bot.
+       */
+      allowedChatIds: (process.env.TELEGRAM_ALLOWED_CHAT_IDS ?? "")
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean),
+    },
     apify: {
       apiKey: process.env.APIFY_API_KEY ?? "",
       /** Actor do Google Maps usado na busca de empresas. */

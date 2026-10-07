@@ -3,6 +3,7 @@ import { serverEnv } from "@/lib/env";
 import { createCernioProvider } from "./cernio.adapter";
 import { createEvolutionProvider } from "./evolution.adapter";
 import { createHermesProvider } from "./hermes.adapter";
+import { createTelegramProvider } from "./telegram.adapter";
 import type { MessageProvider } from "./types";
 
 export type { InboundMessage, MessageProvider, SendResult } from "./types";
@@ -12,10 +13,20 @@ function hermesProvider(): MessageProvider {
   return createHermesProvider({ bin: e.hermes.bin, home: e.hermes.home });
 }
 
-/** Registry de providers. Suporta 'hermes', 'evolution', 'zernio' e 'cernio'. */
+function telegramProvider(): MessageProvider {
+  const cfg = serverEnv().telegram;
+  return createTelegramProvider({
+    token: cfg.botToken,
+    webhookSecret: cfg.webhookSecret,
+    allowedChatIds: cfg.allowedChatIds,
+  });
+}
+
+/** Registry de providers. Suporta 'hermes', 'evolution', 'telegram', 'zernio' e 'cernio'. */
 const registry: Record<string, () => MessageProvider> = {
   hermes: hermesProvider,
   evolution: () => createEvolutionProvider(serverEnv().evolution),
+  telegram: telegramProvider,
   zernio: () => createCernioProvider(serverEnv().cernio),
   cernio: () => createCernioProvider(serverEnv().cernio),
 };
@@ -30,10 +41,12 @@ export function getMessageProvider(name?: string): MessageProvider {
 
 /**
  * Provider a partir do config do canal (tabela channels.config).
- * config.provider === "hermes" → Hermes CLI; "evolution" → Evolution; senão Zernio/Cernio.
+ * config.provider === "hermes" → Hermes CLI; "evolution" → Evolution; "telegram" → Bot API;
+ * senão Zernio/Cernio.
  */
 export function providerFromConfig(cfg: any): MessageProvider {
   if (cfg?.provider === "hermes") return hermesProvider();
+  if (cfg?.provider === "telegram") return telegramProvider();
   if (cfg?.provider === "evolution" || cfg?.instance) {
     return createEvolutionProvider({
       apiUrl: cfg.apiUrl || process.env.EVOLUTION_API_URL || "",
