@@ -94,6 +94,24 @@ _LOG_PHRASES = (
     "agendador periódico (24h)",
 )
 
+# Progresso interno do agente que NUNCA pode ir ao cliente (06/10/2026): com
+# `display.tool_progress: all` no config.yaml do Hermes, o lead recebeu "📖 Reading <arquivo> ...",
+# "🔎 Searching files for ..." e um aviso de turno cancelado em inglês.
+# A correção de verdade é o `display` no config.yaml; isto aqui é a rede de segurança.
+_PROGRESS_PATTERNS = [
+    r"^\s*📖\s*Reading\b",
+    r"^\s*📖\s*",
+    r"^\s*🔎\s*Searching files\b",
+    r"^\s*🔍\s*Searching\b",
+    r"^\s*🔧\s*(Using|Running|Calling|Invoking)\b",
+    r"^\s*(Reading|Using) (skill|tool)\b",
+    r"^\s*Searching files for\b",
+    r"^\s*⚠️\s*No reply:",
+    r"^\s*No reply: the request was cancelled",
+    r"^\s*🧠\s*Thinking\b",
+]
+_PROGRESS_RE = re.compile("|".join(_PROGRESS_PATTERNS), re.IGNORECASE)
+
 # Assinatura de spam/CTA que não pode ir ao cliente (regra de exposição do SOUL).
 _SPAM_RE = re.compile(
     r"(clique aqui|me ajudar|aumentar minha produtividade|lluiz\.top|se inscreva|"
@@ -143,12 +161,24 @@ def strip_log_lines(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(linhas)).strip()
 
 
+def looks_like_progress(line: str) -> bool:
+    """Linha de progresso interno do agente (tool/skill/aviso de turno)."""
+    return bool(_PROGRESS_RE.match(line or ""))
+
+
+def strip_progress(text: str) -> str:
+    """Descarta linhas de progresso interno, preservando a conversa."""
+    linhas = [l for l in (text or "").replace("\r\n", "\n").split("\n") if not looks_like_progress(l)]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(linhas)).strip()
+
+
 def scan_text(text: str) -> Dict[str, Any]:
     """Diagnóstico puro: o texto tem vazamento? tem spam? tem log interno?"""
     linhas = (text or "").split("\n")
     return {
         "markers": sorted({m.group(0).lower().strip() for m in _MARKER_RE.finditer(text)}),
         "logs": [l.strip()[:120] for l in linhas if is_log_line(l)],
+        "progress": [l.strip()[:120] for l in linhas if looks_like_progress(l)],
         "spam": bool(_SPAM_RE.search(text)),
         "urls": _URL_RE.findall(text or ""),
         "has_url_spam": bool(_URL_RE.search(text or "") and _SPAM_RE.search(text or "")),
@@ -231,12 +261,15 @@ def sanitize(text: str) -> Optional[str]:
 
     linhas = text.split("\n")
     tem_log = any(is_log_line(l) for l in linhas)
+    tem_progresso = any(looks_like_progress(l) for l in linhas)
     tem_marcador = bool(_MARKER_RE.search(text)) or any(looks_like_spam(l) for l in linhas)
-    if not tem_log and not tem_marcador:
+    if not tem_log and not tem_progresso and not tem_marcador:
         return None
 
-    # 0) tira o log interno colado na frente da resposta (o resto do trabalho é sobre o resto)
+    # 0) tira log e progresso interno colados na resposta (o resto do trabalho é sobre o resto)
     base = strip_log_lines(text) if tem_log else text
+    if tem_progresso:
+        base = strip_progress(base)
     if not base.strip():
         # era só log: não há conversa nenhuma para entregar
         return _SAFE_FALLBACK
@@ -362,6 +395,8 @@ def _on_transform(
     vazou = ", ".join(diag["markers"]) or ""
     if diag["logs"]:
         vazou = (vazou + f" | {len(diag['logs'])} linha(s) de log interno").strip(" |")
+    if diag["progress"]:
+        vazou = (vazou + f" | {len(diag['progress'])} linha(s) de progresso interno").strip(" |")
     _notify(
         "🛡️ Trava de saída agiu no atendimento\n"
         f"Canal: {platform or '—'}\n"

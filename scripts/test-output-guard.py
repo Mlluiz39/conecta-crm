@@ -188,7 +188,36 @@ checar("hook entrega só a conversa quando vem log", saida_log == RESPOSTA, repr
 diag = guard.scan_text(f"{LOG_BLOCO}\n{RESPOSTA}")
 checar("diagnóstico conta as linhas de log", len(diag["logs"]) == 7, str(len(diag["logs"])))
 
-# ---------- 13) cópia instalada == fonte versionada (sem drift) ----------
+# ---------- 13) progresso interno do agente (caso real 06/10/2026) ----------
+# Com display.tool_progress=all no config.yaml, o lead recebeu estas linhas no WhatsApp.
+PROGRESSO = "\n".join([
+    "📖 Reading 04d5bad7d5b140eebe00bc1bff4c9ba5.txt ...",
+    "⚠️ No reply: the request was cancelled by a new correction on every attempt, so the turn stopped instead of retrying forever. Your last correction is queued as the next message.",
+    "📖 Reading 35d00ddaea4d4bb8941b4c580083041c.txt ...",
+    "🔎 Searching files for 551132589004",
+])
+RESPOSTA_PROGRESSO = "Olá! Aqui é a MLLuiz DevTech. Como vocês organizam o atendimento hoje?"
+
+checar("linha de progresso é reconhecida", guard.looks_like_progress("📖 Reading abc.txt ..."))
+checar("resposta comum não é progresso", not guard.looks_like_progress("Olá! Tudo bem?"))
+
+com_progresso = guard.sanitize(f"{PROGRESSO}\n{RESPOSTA_PROGRESSO}")
+checar("progresso + resposta vira só a resposta", com_progresso == RESPOSTA_PROGRESSO, repr(com_progresso))
+checar("não sobra 'Reading'", "Reading" not in (com_progresso or ""))
+checar("não sobra aviso de turno cancelado", "cancelled" not in (com_progresso or ""))
+checar("não sobra 'Searching files'", "Searching files" not in (com_progresso or ""))
+
+so_progresso = guard.sanitize(PROGRESSO)
+checar(
+    "só progresso vira aviso neutro (nunca vaza)",
+    isinstance(so_progresso, str) and "Reading" not in so_progresso and "responsável" in so_progresso,
+    repr(so_progresso),
+)
+
+saida_prog = guard._on_transform(response_text=f"{PROGRESSO}\n{RESPOSTA_PROGRESSO}", session_id="teste-guard", platform="whatsapp")
+checar("hook entrega só a conversa quando vem progresso", saida_prog == RESPOSTA_PROGRESSO, repr(saida_prog))
+
+# ---------- 14) cópia instalada == fonte versionada (sem drift) ----------
 if INSTALADO.exists():
     checar(
         "plugin instalado é idêntico ao versionado",
