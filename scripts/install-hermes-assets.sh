@@ -52,7 +52,8 @@ ENV_CRM="$RAIZ/.env.local"
 [[ -f "$ENV_CRM" ]] || ENV_CRM="$RAIZ/.env"
 home_crm=""
 if [[ -f "$ENV_CRM" ]]; then
-  home_crm="$(grep -E '^[[:space:]]*HERMES_HOME=' "$ENV_CRM" | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs || true)"
+  home_crm="$(grep -E '^[[:space:]]*HERMES_HOME=' "$ENV_CRM" | tail -1 | cut -d= -f2- \
+    | sed 's/[[:space:]]*#.*$//' | tr -d '"' | tr -d "'" | xargs || true)"
 fi
 
 HERMES_DIR="${HERMES_HOME:-$home_crm}"
@@ -64,15 +65,23 @@ parece_data_dir() {
      -f "$1/support_rules.md" || -f "$1/config.yaml" || -f "$1/state.db" ]]
 }
 
+# Ordem, e o porquê:
+#   1. $WHATSAPP_DATA_DIR                             (explícito ganha de tudo)
+#   2. <repo>/.hermes-home/.hermes                    (Docker: dentro do container ISTO é /opt/data)
+#   3. /opt/data                                      (instalação SEM Docker: o whatsappkit crava /opt/data)
+#   4. $HERMES_DIR                                    (último recurso)
+# O passo 2 vem antes do 3 porque no host pode existir um /opt/data antigo do setup sem
+# Docker: escolher ele instalaría a persona fora do volume do container.
+VOLUME_REPO="$RAIZ/.hermes-home/.hermes"
 PERSONA_DIR=""
 if [[ -n "${WHATSAPP_DATA_DIR:-}" ]]; then
   PERSONA_DIR="$WHATSAPP_DATA_DIR"
+elif [[ -d "$VOLUME_REPO" ]]; then
+  PERSONA_DIR="$VOLUME_REPO"
 elif [[ -d /opt/data ]] && parece_data_dir /opt/data; then
   PERSONA_DIR="/opt/data"
 elif [[ -n "$HERMES_DIR" ]]; then
   PERSONA_DIR="$HERMES_DIR"
-elif [[ -d "$RAIZ/.hermes-home/.hermes" ]]; then
-  PERSONA_DIR="$RAIZ/.hermes-home/.hermes"
 else
   erro "não achei onde instalar as personas."
   erro "Numa VPS, o whatsapp_manager lê /opt/data (cravado):"
@@ -94,8 +103,9 @@ elif [[ "$PERSONA_DIR" != "/opt/data" ]]; then
   aviso "as personas vão para $PERSONA_DIR, mas o whatsapp_manager do template lê /opt/data."
   aviso "Se é essa a sua instalação, use:  WHATSAPP_DATA_DIR=/opt/data $0"
 fi
-if [[ -d /opt/data ]] && ! parece_data_dir /opt/data && [[ "$PERSONA_DIR" != "/opt/data" ]]; then
-  aviso "/opt/data existe mas parece vazio (sem SOUL_WHATSAPP.md/config.yaml) — ignorado."
+if [[ -d /opt/data && "$PERSONA_DIR" != "/opt/data" ]]; then
+  aviso "/opt/data existe nesta máquina mas as personas vão para $PERSONA_DIR."
+  aviso "Se o Hermes roda em Docker, isso é o certo: dentro do container $PERSONA_DIR É /opt/data."
 fi
 if [[ -n "$home_crm" && -n "$HERMES_DIR" && "$home_crm" != "$HERMES_DIR" ]]; then
   aviso "o CRM aponta HERMES_HOME=$home_crm (em $(basename "$ENV_CRM")), mas o home em uso é $HERMES_DIR."
