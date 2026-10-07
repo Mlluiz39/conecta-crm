@@ -529,9 +529,10 @@ export function Inbox({
                   disabled={busyMsg === m.id}
                   title={inbound ? "Apagar do CRM (o celular do lead não é afetado)" : "Apagar aqui e no WhatsApp do lead"}
                   aria-label="Apagar mensagem"
-                  className="mb-4 shrink-0 rounded-lg border border-border/60 bg-background p-1 text-muted-foreground opacity-60 transition-opacity hover:border-destructive/40 hover:text-destructive hover:opacity-100 disabled:opacity-30"
+                  className="mb-4 inline-flex shrink-0 items-center gap-1 rounded-lg border border-border/60 bg-background px-1.5 py-1 text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Trash2 className="h-4 w-4" />
+                  <span className="hidden text-[11px] font-semibold lg:inline">Apagar</span>
                 </button>
               );
               return (
