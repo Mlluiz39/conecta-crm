@@ -230,17 +230,21 @@ export async function handleInboundWebhook(params: {
     }
 
     // 5. Insere mensagem recebida (trigger on_message_insert atualiza last_message_at e unread_count automaticamente)
-    const { error: msgErr } = await supabase.from("messages").insert({
-      organization_id: organizationId,
-      conversation_id: conv.id,
-      direction: "in",
-      sender_type: "contact",
-      content: msg.text || "",
-      external_id: msg.externalMessageId,
-      status: "entregue",
-      created_at: msg.timestamp,
-      ...(inboundWasAudio ? { media: { audio: true, transcribed: Boolean(msg.text) } } : {}),
-    });
+    const { data: inserida, error: msgErr } = await supabase
+      .from("messages")
+      .insert({
+        organization_id: organizationId,
+        conversation_id: conv.id,
+        direction: "in",
+        sender_type: "contact",
+        content: msg.text || "",
+        external_id: msg.externalMessageId,
+        status: "entregue",
+        created_at: msg.timestamp,
+        ...(inboundWasAudio ? { media: { audio: true, transcribed: Boolean(msg.text) } } : {}),
+      })
+      .select("id")
+      .maybeSingle();
 
     if (msgErr && msgErr.code !== "23505") {
       console.error("Erro ao salvar mensagem:", msgErr);
@@ -277,6 +281,9 @@ export async function handleInboundWebhook(params: {
           conversationId: conv.id,
           inboundText: msg.text,
           inboundWasAudio,
+          // Id da mensagem recém-gravada: o motor precisa dela para não contar o pedido de
+          // humano duas vezes (histórico + mensagem atual).
+          inboundMessageId: (inserida as { id?: string } | null)?.id ?? null,
         });
       } finally {
         // Se já existe resposta na fila, quem fecha o indicador é o flushOutbox

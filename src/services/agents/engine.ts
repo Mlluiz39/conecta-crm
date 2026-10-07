@@ -153,8 +153,14 @@ export async function runAgentForConversation(params: {
   inboundText: string;
   /** Lead mandou áudio: a resposta sai como nota de voz, na voz do agente que atendeu. */
   inboundWasAudio?: boolean;
+  /**
+   * Id da mensagem que acabou de entrar (já gravada em `messages`). Serve para o histórico
+   * não contar a mensagem atual duas vezes — sem isso um único pedido de humano virava dois
+   * e a IA saía da conversa na primeira menção.
+   */
+  inboundMessageId?: string | null;
 }): Promise<EngineResult> {
-  const { supabase, organizationId, conversationId, inboundText, inboundWasAudio } = params;
+  const { supabase, organizationId, conversationId, inboundText, inboundWasAudio, inboundMessageId } = params;
 
   const { data: conv } = await supabase
     .from("conversations")
@@ -243,13 +249,16 @@ export async function runAgentForConversation(params: {
   if (!interno) {
     // O pedido de humano é contado junto com o histórico: uma menção isolada ("vocês têm
     // atendente?") não desliga mais o atendimento — a IA responde e tenta resolver.
-    const { data: anteriores } = await supabase
+    // A mensagem atual é excluída da consulta (`neq id`): ela entra na conta como `message`.
+    let consultaHistorico = supabase
       .from("messages")
       .select("content")
       .eq("conversation_id", conversationId)
       .eq("direction", "in")
       .order("created_at", { ascending: false })
       .limit(5);
+    if (inboundMessageId) consultaHistorico = consultaHistorico.neq("id", inboundMessageId);
+    const { data: anteriores } = await consultaHistorico;
 
     rule = evaluateHandoff({
       enabledRules,
