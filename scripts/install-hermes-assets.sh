@@ -165,7 +165,22 @@ if [[ -d "$PLUGINS" ]]; then
   done
 fi
 
-# ── 3. Guarda-corpos ──────────────────────────────────────────────────────────
+# ── 3. Skills do ConectaCRM -> HERMES/skills ─────────────────────────────────
+SKILLS_SRC="$RAIZ/deploy/hermes/skills"
+if [[ -d "$SKILLS_SRC" ]]; then
+  echo
+  log "skills"
+  if [[ -z "$HERMES_DIR" ]]; then
+    aviso "não achei o home do Hermes — skills não instaladas"
+  else
+    while IFS= read -r src; do
+      rel="${src#"$SKILLS_SRC"/}"
+      instalar_arquivo "$src" "$HERMES_DIR/skills/$rel" "skills/$rel"
+    done < <(find "$SKILLS_SRC" -type f | sort)
+  fi
+fi
+
+# ── 4. Guarda-corpos ──────────────────────────────────────────────────────────
 echo
 if [[ $CHECK == 0 ]]; then
   for nome in support_rules.md SOUL_WHATSAPP.md; do

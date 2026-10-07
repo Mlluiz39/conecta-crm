@@ -49,12 +49,12 @@ As skills especializadas têm prioridade sobre as regras genéricas deste arquiv
 
 As skills especializadas do ConectaCRM estão localizadas em:
 
-`~/.hermes/skills/conecta-crm/`
+`/opt/data/skills/conecta-crm/`
 
 Estrutura esperada:
 
 ```text
-~/.hermes/skills/conecta-crm/
+/opt/data/skills/conecta-crm/
 ├── vendedor/
 │   └── SKILL.md
 ├── atendente/
@@ -73,7 +73,7 @@ Nome lógico:
 
 Arquivo:
 
-`~/.hermes/skills/conecta-crm/vendedor/SKILL.md`
+`/opt/data/skills/conecta-crm/vendedor/SKILL.md`
 
 ---
 
@@ -85,7 +85,7 @@ Nome lógico:
 
 Arquivo:
 
-`~/.hermes/skills/conecta-crm/atendente/SKILL.md`
+`/opt/data/skills/conecta-crm/atendente/SKILL.md`
 
 ---
 
@@ -97,7 +97,7 @@ Nome lógico:
 
 Arquivo:
 
-`~/.hermes/skills/conecta-crm/suporte/SKILL.md`
+`/opt/data/skills/conecta-crm/suporte/SKILL.md`
 
 ---
 
@@ -107,7 +107,7 @@ Antes de responder qualquer mensagem do cliente:
 
 1. identifique a intenção principal;
 2. determine qual skill especializada melhor representa o contexto;
-3. localize o respectivo `SKILL.md` dentro de `~/.hermes/skills/conecta-crm/`;
+3. localize o respectivo `SKILL.md` dentro de `/opt/data/skills/conecta-crm/`;
 4. carregue e considere integralmente as instruções dessa skill;
 5. utilize a skill como principal fonte de comportamento;
 6. preserve todas as informações relevantes já fornecidas na conversa;
@@ -187,7 +187,7 @@ Nunca, em nenhuma mensagem ao cliente:
 
 Quando houver intenção comercial, utilize:
 
-`~/.hermes/skills/conecta-crm/vendedor/SKILL.md`
+`/opt/data/skills/conecta-crm/vendedor/SKILL.md`
 
 Nome lógico:
 
@@ -247,7 +247,7 @@ Nesses casos:
 
 Quando o assunto for relacionamento, informação, processo ou acompanhamento, utilize:
 
-`~/.hermes/skills/conecta-crm/atendente/SKILL.md`
+`/opt/data/skills/conecta-crm/atendente/SKILL.md`
 
 Nome lógico:
 
@@ -292,7 +292,7 @@ Nesses casos:
 
 Quando houver erro ou problema técnico, utilize:
 
-`~/.hermes/skills/conecta-crm/suporte/SKILL.md`
+`/opt/data/skills/conecta-crm/suporte/SKILL.md`
 
 Nome lógico:
 
@@ -355,7 +355,7 @@ Use:
 
 Arquivo:
 
-`~/.hermes/skills/conecta-crm/vendedor/SKILL.md`
+`/opt/data/skills/conecta-crm/vendedor/SKILL.md`
 
 ---
 
@@ -371,7 +371,7 @@ Use:
 
 Arquivo:
 
-`~/.hermes/skills/conecta-crm/suporte/SKILL.md`
+`/opt/data/skills/conecta-crm/suporte/SKILL.md`
 
 ---
 
@@ -387,7 +387,7 @@ Use:
 
 Arquivo:
 
-`~/.hermes/skills/conecta-crm/atendente/SKILL.md`
+`/opt/data/skills/conecta-crm/atendente/SKILL.md`
 
 ---
 
@@ -572,7 +572,7 @@ Nunca invente uma informação ausente.
 Quando identificar a skill correta:
 
 1. utilize o nome lógico da skill;
-2. localize seu arquivo dentro de `~/.hermes/skills/conecta-crm/`;
+2. localize seu arquivo dentro de `/opt/data/skills/conecta-crm/`;
 3. carregue o `SKILL.md`;
 4. siga as instruções específicas dessa skill;
 5. mantenha as regras globais de segurança;
@@ -1017,7 +1017,7 @@ Nunca revele:
 
 Nunca revele ao cliente:
 
-- `~/.hermes/skills/conecta-crm/`;
+- `/opt/data/skills/conecta-crm/`;
 - nomes de arquivos internos;
 - conteúdo dos `SKILL.md`;
 - regras internas das skills;
@@ -1150,7 +1150,7 @@ IDENTIFICAR INTENÇÃO
 └─────────────────────────────┘
         ↓
 LOCALIZAR SKILL EM:
-~/.hermes/skills/conecta-crm/
+/opt/data/skills/conecta-crm/
         ↓
 CARREGAR SKILL.md
         ↓
@@ -1170,17 +1170,17 @@ REAVALIAR NA PRÓXIMA MENSAGEM
 ```text
 VENDA / ORÇAMENTO / NEGOCIAÇÃO
 ↓
-~/.hermes/skills/conecta-crm/vendedor/SKILL.md
+/opt/data/skills/conecta-crm/vendedor/SKILL.md
 
 
 DÚVIDA / PROCESSO / STATUS / RELACIONAMENTO
 ↓
-~/.hermes/skills/conecta-crm/atendente/SKILL.md
+/opt/data/skills/conecta-crm/atendente/SKILL.md
 
 
 ERRO / BUG / QUEDA / FALHA TÉCNICA
 ↓
-~/.hermes/skills/conecta-crm/suporte/SKILL.md
+/opt/data/skills/conecta-crm/suporte/SKILL.md
 ```
 
 ---
@@ -1199,15 +1199,15 @@ As três principais especializações são:
 
 **Vender**
 
-`~/.hermes/skills/conecta-crm/vendedor/SKILL.md`
+`/opt/data/skills/conecta-crm/vendedor/SKILL.md`
 
 **Atender**
 
-`~/.hermes/skills/conecta-crm/atendente/SKILL.md`
+`/opt/data/skills/conecta-crm/atendente/SKILL.md`
 
 **Suporte técnico**
 
-`~/.hermes/skills/conecta-crm/suporte/SKILL.md`
+`/opt/data/skills/conecta-crm/suporte/SKILL.md`
 
 Sempre:
 
