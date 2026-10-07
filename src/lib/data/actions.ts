@@ -766,15 +766,15 @@ export async function sendHumanMessage(conversationId: string, text: string) {
 }
 
 /**
- * Apaga UMA mensagem da conversa (some do CRM; no WhatsApp do cliente nada muda — mensagem
- * enviada não tem "desfazer").
+ * Apaga UMA mensagem (do CRM **e** da memória da IA).
  *
- * Usado para limpar histórico: resposta errada do bot, mensagem de teste, conversa que não
- * devia estar ali. Some também do espelho: o `hermes-sync` não reimporta o que já não existe
- * no `state.db`… mas se a mensagem ainda estiver lá, ela volta na próxima rodada do sync —
- * por isso o mesmo botão zera o `external_id` (o sync deixa de reconhecer a linha antiga).
+ * Apagar só no CRM não resolve: o `hermes-sync` espelha o `state.db` a cada 60s e
+ * reimportaria a mensagem na rodada seguinte. Por isso removemos também a linha no
+ * `state.db` (via `external_id` = `hermes_<id>`), que é o que a IA lê como histórico.
  */
-export async function deleteMessage(messageId: string): Promise<{ deleted: number }> {
+export async function deleteMessage(
+  messageId: string,
+): Promise<{ deleted: number; mirrored: number; hermesDeleted: number }> {
   const { organizationId, role } = await requireProfile();
   if (role === "atendente") throw new Error("Sem permissão");
 
@@ -784,18 +784,25 @@ export async function deleteMessage(messageId: string): Promise<{ deleted: numbe
     .delete()
     .eq("organization_id", organizationId)
     .eq("id", messageId)
-    .select("id");
+    .select("id, external_id");
   if (error) throw new Error(error.message);
 
+  const { deleteHermesMessages, hermesMessageId } = await import("@/services/messaging/hermes-memory");
+  const linhas = data ?? [];
+  const mirrored = linhas.filter((m) => hermesMessageId(m.external_id as string | null) !== null).length;
+  const hermesDeleted = await deleteHermesMessages(linhas.map((m) => m.external_id as string | null));
+
   revalidatePath("/conversas");
-  return { deleted: data?.length ?? 0 };
+  return { deleted: linhas.length, mirrored, hermesDeleted };
 }
 
 /**
- * Limpa TODAS as mensagens de uma conversa (mantém o contato e a conversa).
- * Serve para começar o atendimento de um lead do zero.
+ * Limpa TODAS as mensagens de uma conversa (mantém o contato e a conversa) — no CRM e na
+ * memória da IA, para o atendimento do lead começar do zero.
  */
-export async function clearConversationMessages(conversationId: string): Promise<{ deleted: number }> {
+export async function clearConversationMessages(
+  conversationId: string,
+): Promise<{ deleted: number; mirrored: number; hermesDeleted: number }> {
   const { organizationId, role } = await requireProfile();
   if (role === "atendente") throw new Error("Sem permissão");
 
@@ -805,11 +812,16 @@ export async function clearConversationMessages(conversationId: string): Promise
     .delete()
     .eq("organization_id", organizationId)
     .eq("conversation_id", conversationId)
-    .select("id");
+    .select("id, external_id");
   if (error) throw new Error(error.message);
 
+  const { deleteHermesMessages, hermesMessageId } = await import("@/services/messaging/hermes-memory");
+  const linhas = data ?? [];
+  const mirrored = linhas.filter((m) => hermesMessageId(m.external_id as string | null) !== null).length;
+  const hermesDeleted = await deleteHermesMessages(linhas.map((m) => m.external_id as string | null));
+
   revalidatePath("/conversas");
-  return { deleted: data?.length ?? 0 };
+  return { deleted: linhas.length, mirrored, hermesDeleted };
 }
 
 

@@ -257,8 +257,12 @@ export function Inbox({
     setBusyMsg(m.id);
     setRemoved((prev) => ({ ...prev, [m.id]: true }));
     try {
-      await deleteMessage(m.id);
-      notify("Mensagem apagada", "success");
+      const res = await deleteMessage(m.id);
+      if (res.mirrored > 0 && res.hermesDeleted === 0) {
+        notify("Apagada do CRM, mas a memória da IA não liberou — pode reaparecer no próximo sync.", "error");
+      } else {
+        notify(res.hermesDeleted > 0 ? "Mensagem apagada (CRM + memória da IA)" : "Mensagem apagada", "success");
+      }
     } catch (error) {
       setRemoved((prev) => {
         const next = { ...prev };
@@ -298,7 +302,12 @@ export function Inbox({
     });
     try {
       const res = await clearConversationMessages(conversa.id);
-      notify(`${res.deleted} mensagem(ns) apagada(s)`, "success");
+      const aviso = res.mirrored > 0 && res.hermesDeleted === 0
+        ? " — mas a memória da IA não liberou: pode reaparecer no próximo sync."
+        : res.hermesDeleted > 0
+          ? ` (${res.hermesDeleted} também da memória da IA)`
+          : "";
+      notify(`${res.deleted} mensagem(ns) apagada(s)${aviso}`, res.mirrored > 0 && res.hermesDeleted === 0 ? "error" : "success");
     } catch (error) {
       notify("Não deu para limpar: " + (error as Error).message, "error");
       setRemoved({});
