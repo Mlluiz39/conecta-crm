@@ -1,31 +1,68 @@
 import type { HandoffRuleKey } from "@/types/domain";
 
-/** Palavras que sinalizam pedido de humano. */
+/**
+ * Palavras que sinalizam pedido de humano.
+ *
+ * "gerente" e "pessoa" saíram da lista: são palavras do dia a dia ("uma pessoa me indicou
+ * vocês", "o gerente de vocês") e desligavam o atendimento por nada. Ficaram só as que
+ * realmente pedem uma pessoa do time.
+ */
 const HUMAN_KEYWORDS = [
   "atendente",
   "humano",
-  "pessoa",
-  "gerente",
+  "atendimento humano",
   "falar com alguém",
   "falar com alguem",
-  "atendimento humano",
   "supervisor",
 ];
+
+/** Quem pede humano uma vez está perguntando; quem pede duas está pedindo. */
+export const PEDIDOS_ATE_TRANSBORDAR = 2;
+
+export function pedeHumano(texto: string): boolean {
+  const lower = String(texto ?? "").toLowerCase();
+  return HUMAN_KEYWORDS.some((k) => lower.includes(k));
+}
+
+/**
+ * Mensagem de espera enviada ao lead quando o transbordo automático acontece.
+ *
+ * Transbordar sem avisar deixava o lead no vácuo (silêncio depois de pedir uma pessoa) —
+ * e é isso que trava a conversa na cabeça dele. Ele recebe isto e a conversa vai para o
+ * humano, que é avisado no Telegram.
+ */
+export function mensagemDeTransbordo(): string {
+  return "Já chamei uma pessoa do time para continuar daqui — só um instante, por favor.";
+}
 
 export function evaluateHandoff(params: {
   enabledRules: HandoffRuleKey[];
   message: string;
   consecutiveFailures: number;
   withinBusinessHours: boolean;
+  /**
+   * Mensagens anteriores do lead nesta conversa (mais antiga primeiro), sem a atual.
+   * Serve para contar quantas vezes ele já pediu humano.
+   */
+  historicoInbound?: string[];
+  /** Quantas menções disparam o transbordo (1 = desliga na primeira, como era antes). */
+  pedidosNecessarios?: number;
 }): HandoffRuleKey | null {
-  const { enabledRules, message, consecutiveFailures, withinBusinessHours } = params;
-  const lower = message.toLowerCase();
+  const {
+    enabledRules,
+    message,
+    consecutiveFailures,
+    withinBusinessHours,
+    historicoInbound,
+    pedidosNecessarios,
+  } = params;
 
-  if (
-    enabledRules.includes("cliente_pede_humano") &&
-    HUMAN_KEYWORDS.some((k) => lower.includes(k))
-  ) {
-    return "cliente_pede_humano";
+  if (enabledRules.includes("cliente_pede_humano")) {
+    // Só transborda quando o pedido se repete: na primeira menção a IA continua atendendo
+    // (e pode resolver), em vez de calar a conversa. Config: HANDOFF_HUMANO_PEDIDOS.
+    const necessarios = Math.max(1, pedidosNecessarios ?? PEDIDOS_ATE_TRANSBORDAR);
+    const mencoes = [...(historicoInbound ?? []), message].filter(pedeHumano).length;
+    if (mencoes >= necessarios) return "cliente_pede_humano";
   }
 
   if (enabledRules.includes("fora_do_horario") && !withinBusinessHours) {

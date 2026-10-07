@@ -27,6 +27,7 @@ export type AlertType =
   | "quer_fechar"
   | "lead_quente"
   | "risco_comercial"
+  | "pediu_humano"
   | "call_marcada";
 
 const LOOKBACK_DAYS = 3;
@@ -106,7 +107,7 @@ export async function detectAlerts(organizationId: string): Promise<DetectResult
   // ── dados base ───────────────────────────────────────────────────────
   const { data: conversations } = await supabase
     .from("conversations")
-    .select("id, channel_type, is_internal, contact:contacts(id, name, phone, email)")
+    .select("id, channel_type, is_internal, bot_active, handoff_reason, bot_disabled_at, contact:contacts(id, name, phone, email)")
     .eq("organization_id", organizationId)
     // Conversa interna (dono falando com o agente pelo Telegram) não gera alerta de lead.
     .eq("is_internal", false);
@@ -310,9 +311,37 @@ export async function detectAlerts(organizationId: string): Promise<DetectResult
     });
   }
 
+  // ── PEDIU HUMANO: a IA saiu da conversa e ninguém assumiu ainda ──────
+  // Vale para transbordo por regra e para a própria IA chamando `derivar_para_atendente`.
+  // É o par do freio no transbordo: ele só desliga quando precisa — e quando desliga, você
+  // é avisado na hora em vez de descobrir depois que o lead esperou.
+  for (const conversation of conversations ?? []) {
+    const c = conversation as {
+      id: string;
+      channel_type?: string;
+      bot_active?: boolean;
+      handoff_reason?: string | null;
+      bot_disabled_at?: string | null;
+      contact?: { id?: string; name?: string; phone?: string | null; email?: string | null } | null;
+    };
+    if (c.bot_active !== false || !c.handoff_reason || !c.bot_disabled_at) continue;
+    if (new Date(c.bot_disabled_at) < new Date(since)) continue;
+
+    const nome = c.contact?.name ?? c.contact?.phone ?? c.contact?.email ?? "Contato";
+    pending.push({
+      type: "pediu_humano",
+      conversationId: c.id,
+      contactId: c.contact?.id ?? null,
+      dedupeKey: `handoff:${c.id}:${c.bot_disabled_at}`,
+      title: `🙋 Pediu atendimento humano — ${nome}`,
+      body: "A IA saiu da conversa e ninguém assumiu ainda. Abra Conversas e responda o lead.",
+      payload: { canal: c.channel_type ?? "whatsapp", contacto: nome, motivo: c.handoff_reason },
+      eventAt: c.bot_disabled_at,
+    });
+  }
+
   // ── call/visita agendada ─────────────────────────────────────────────
-  for (const appt of appointments ?? []) {
-    const contact = (appt as { contact?: { id?: string; name?: string } | null }).contact;
+  for (const appt of appointments ?? []) {    const contact = (appt as { contact?: { id?: string; name?: string } | null }).contact;
     pending.push({
       type: "call_marcada",
       contactId: contact?.id ?? null,

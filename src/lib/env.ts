@@ -63,6 +63,11 @@ export function serverEnv() {
        * ficou em transbordo. 0 desliga a retomada automática.
        */
       autoResumeMinutes: numeroEnv("HANDOFF_AUTO_RESUME_MINUTES", 30),
+      /**
+       * Quantas vezes o lead precisa pedir humano para o transbordo automático valer.
+       * 1 = desliga na primeira menção (comportamento antigo, deixava lead no vácuo).
+       */
+      pedidosAteTransbordar: numeroEnv("HANDOFF_HUMANO_PEDIDOS", 2),
     },
     telegram: {
       /** Mesmo bot dos alertas: é o bot do CRM — aqui ele atende, não só avisa. */

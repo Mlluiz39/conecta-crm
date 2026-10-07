@@ -11,7 +11,12 @@ import type {
 import { AGENT_ROLE_LABEL, CHANNEL_LABEL } from "@/types/domain";
 import { serverEnv } from "@/lib/env";
 import { runAgentLoop } from "./claude";
-import { avaliarRetomadaAutomatica, avisoRetomada, evaluateHandoff } from "./handoff";
+import {
+  avaliarRetomadaAutomatica,
+  avisoRetomada,
+  evaluateHandoff,
+  mensagemDeTransbordo,
+} from "./handoff";
 import { buildInternalSystemInstruction } from "./internal";
 import { executeInternalTool, internalToolsForClaude } from "./internal-tools";
 import { contextoAtual, formatBusinessHours, isWithinBusinessHours } from "./business-hours";
@@ -234,14 +239,31 @@ export async function runAgentForConversation(params: {
 
   // Regra de handoff antes de chamar a IA — nunca numa conversa interna: "transbordar para
   // humano" não faz sentido quando quem escreve É o dono.
-  const rule = interno
-    ? null
-    : evaluateHandoff({
-        enabledRules,
-        message: inboundText,
-        consecutiveFailures: 0,
-        withinBusinessHours: isWithinBusinessHours(org?.business_hours, org?.timezone || "America/Sao_Paulo"),
-      });
+  let rule: HandoffRuleKey | null = null;
+  if (!interno) {
+    // O pedido de humano é contado junto com o histórico: uma menção isolada ("vocês têm
+    // atendente?") não desliga mais o atendimento — a IA responde e tenta resolver.
+    const { data: anteriores } = await supabase
+      .from("messages")
+      .select("content")
+      .eq("conversation_id", conversationId)
+      .eq("direction", "in")
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    rule = evaluateHandoff({
+      enabledRules,
+      message: inboundText,
+      consecutiveFailures: 0,
+      withinBusinessHours: isWithinBusinessHours(org?.business_hours, org?.timezone || "America/Sao_Paulo"),
+      historicoInbound: (anteriores ?? [])
+        .reverse()
+        .map((m: any) => String(m.content ?? ""))
+        .filter(Boolean),
+      pedidosNecessarios: serverEnv().handoff.pedidosAteTransbordar,
+    });
+  }
+
   if (rule) {
     await supabase
       .from("conversations")
@@ -251,7 +273,21 @@ export async function runAgentForConversation(params: {
         bot_disabled_at: new Date().toISOString(),
       })
       .eq("id", conversationId);
-    return { handled: false, reason: "handoff", handoffRule: rule };
+
+    // Desligar em silêncio era o pior pedaço: o lead pedia uma pessoa e não recebia nada.
+    // Esta mensagem fixa vai na fila da outbox (o inbound service dispara o flush) e o dono
+    // recebe o alerta de "pediu humano" pelo detector.
+    const espera = mensagemDeTransbordo();
+    await supabase.from("messages").insert({
+      organization_id: organizationId,
+      conversation_id: conversationId,
+      direction: "out",
+      sender_type: "system",
+      content: espera,
+      status: "pendente",
+      media: { typing: true },
+    });
+    return { handled: true, reply: espera, reason: "handoff", handoffRule: rule };
   }
 
   // Horário real de atendimento (organizations.business_hours)

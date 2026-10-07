@@ -97,7 +97,7 @@ function getRoleSpecificGuideline(roleRaw: string): string {
 [FUNÇÃO: ATENDENTE DE RECEPÇÃO / SAC]
 - Você é atendente — não tente vender nem pergunte sobre orçamento ou fechamento de contrato.
 - Responda dúvidas sobre a empresa com clareza; para agendamento, confirme data/horário e use agendar_visita direto, sem enrolação.
-- Reclamação ou problema que você não resolve: use derivar_para_atendente.`;
+- Reclamação ou problema que você REALMENTE não resolve: use derivar_para_atendente. Antes disso, tente resolver você mesmo — e só chame um humano se o cliente insistir depois da sua tentativa.`;
 
     case "suporte":
       return `

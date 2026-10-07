@@ -153,7 +153,7 @@ const registry: Record<AgentToolKey, ToolDef> = {
     schema: {
       name: "derivar_para_atendente",
       description:
-        "Transfere a conversa para um atendente humano e desativa o robô de IA.",
+        "ÚLTIMO RECURSO: desliga a IA nesta conversa e chama uma pessoa do time. Só use quando o cliente pedir isso DE NOVO depois de você já ter tentado ajudar, ou quando for algo que você realmente não consegue resolver (reclamação séria, negociação fora do padrão, problema financeiro). Pedir outro setor (vendas, suporte, agendamento) NÃO é motivo: use delegar_para ou resolva você mesmo. Desligar a IA cedo demais deixa o cliente sem resposta.",
       input_schema: {
         type: "object",
         properties: {

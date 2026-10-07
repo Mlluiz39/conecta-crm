@@ -24,6 +24,7 @@ const ICONS: Record<string, typeof Bell> = {
   quer_call: Phone,
   quer_fechar: Flame,
   lead_quente: Flame,
+  pediu_humano: Bell,
   call_marcada: CalendarCheck,
 };
 
@@ -35,6 +36,7 @@ const COLORS: Record<string, string> = {
   quer_call: "text-indigo-600",
   quer_fechar: "text-rose-600",
   lead_quente: "text-rose-600",
+  pediu_humano: "text-amber-600",
   call_marcada: "text-indigo-600",
 };
 

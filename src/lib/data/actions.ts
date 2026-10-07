@@ -715,7 +715,9 @@ export async function reactivateBot(conversationId: string) {
   const supabase = createClient();
   const { error } = await supabase
     .from("conversations")
-    .update({ bot_active: true, assigned_to: null, bot_disabled_at: null })
+    // handoff_reason sai junto: sem isso a conversa volta a responder com o motivo do
+    // transbordo antigo pendurado (aparecia como "cliente pediu humano" para sempre).
+    .update({ bot_active: true, assigned_to: null, bot_disabled_at: null, handoff_reason: null })
     .eq("organization_id", organizationId)
     .eq("id", conversationId);
   if (error) throw new Error(error.message);
