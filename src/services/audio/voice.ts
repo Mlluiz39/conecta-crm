@@ -55,7 +55,11 @@ export async function transcribeAudio(input: {
   }
 }
 
-/** Resposta do agente em voz. `null` = usar texto (TTS indisponível ou resposta longa). */
+/**
+ * Resposta do agente em voz. `null` = usar texto (TTS indisponível ou resposta longa).
+ * Tenta o modelo fixo (`TTS_MODEL`) e, se ele falhar, o `auto` do proxy — assim o timbre
+ * é determinístico no dia a dia sem perder a resposta em voz quando o fixo cai.
+ */
 export async function synthesizeSpeech(
   text: string,
   voice?: string | null,
@@ -68,31 +72,33 @@ export async function synthesizeSpeech(
     return null;
   }
 
-  try {
-    const res = await fetch(`${base}/audio/speech`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: speechModel,
-        input: limpo,
-        voice: voice?.trim() || defaultVoice,
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-    if (!res.ok) {
-      console.warn(`[audio] TTS HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
-      return null;
+  const voz = voice?.trim() || defaultVoice;
+  const modelos = speechModel && speechModel !== "auto" ? [speechModel, "auto"] : ["auto"];
+
+  for (const modelo of modelos) {
+    try {
+      const res = await fetch(`${base}/audio/speech`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: modelo, input: limpo, voice: voz }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!res.ok) {
+        // 429/cota estourada é o caso comum: registra alto e tenta o próximo modelo.
+        console.warn(`[audio] TTS ${modelo} HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        continue;
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 1024) continue;
+      return {
+        base64: buf.toString("base64"),
+        mimetype: res.headers.get("content-type") || "audio/wav",
+      };
+    } catch (err) {
+      console.warn(`[audio] TTS ${modelo} falhou:`, (err as Error).message);
     }
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length < 1024) return null;
-    return {
-      base64: buf.toString("base64"),
-      mimetype: res.headers.get("content-type") || "audio/wav",
-    };
-  } catch (err) {
-    console.warn("[audio] TTS falhou:", (err as Error).message);
-    return null;
   }
+  return null;
 }
 
 function extensao(mimetype: string): string {
