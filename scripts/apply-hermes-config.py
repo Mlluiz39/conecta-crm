@@ -59,9 +59,10 @@ HOOK_RELOGIO = "/opt/data/hooks/hermes-clock-context.py"
 # OpenRouter (outro fornecedor). Sem fallback, quando o Gemini estoura a cota o bot fica mudo.
 MODELO_PRIMARIO = {"provider": "gemini", "default": "gemini-3.8-flash"}
 FALLBACKS = [
-    ("nous", "stealth/space-bunny-alpha"),
-    ("deepseek", "deepseek-v4-pro"),
-    ("openrouter", "qwen/qwen3.8-flash"),
+    ("nous", "stealth/space-bunny-alpha"),      # grátis (Nous)
+    ("freellmapi", "auto"),                      # grátis (proxy próprio: llm.mlluizdevtech.qzz.io)
+    ("deepseek", "deepseek-v4-pro"),             # pago barato
+    ("openrouter", "qwen/qwen3.8-flash"),        # pago, outro fornecedor
 ]
 
 
