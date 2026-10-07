@@ -54,6 +54,16 @@ PLUGINS_EXIGIDOS = ["crm-output-guard"]
 # O script vem do repo e o compose monta `./scripts` como `/opt/data/hooks`.
 HOOK_RELOGIO = "/opt/data/hooks/hermes-clock-context.py"
 
+# Cadeia de modelos do atendimento (a mesma do home de desenvolvimento):
+# economia primeiro — Gemini (cota grátis) -> Nous (grátis) -> DeepSeek (pago barato) ->
+# OpenRouter (outro fornecedor). Sem fallback, quando o Gemini estoura a cota o bot fica mudo.
+MODELO_PRIMARIO = {"provider": "gemini", "default": "gemini-3.8-flash"}
+FALLBACKS = [
+    ("nous", "stealth/space-bunny-alpha"),
+    ("deepseek", "deepseek-v4-pro"),
+    ("openrouter", "qwen/qwen3.8-flash"),
+]
+
 
 def config_padrao() -> Path:
     home = os.environ.get("HERMES_HOME")
@@ -130,6 +140,73 @@ def aplicar_plugins(linhas: list) -> list:
     return mudancas
 
 
+def _bloco_fallbacks(linhas: list) -> tuple:
+    """(início, fim) do bloco `fallback_providers:` ou (None, None)."""
+    i = next((k for k, l in enumerate(linhas) if re.match(r"^fallback_providers:\s*(#.*)?$", l)), None)
+    if i is None:
+        return None, None
+    return i, _fim_do_bloco(linhas, i)
+
+
+def _fallbacks_atuais(linhas: list, ini: int, fim: int) -> list:
+    pares, prov = [], None
+    for k in range(ini + 1, fim):
+        mp = re.match(r"^\s*-\s*provider:\s*(\S+)", linhas[k])
+        mm = re.match(r"^\s*model:\s*(\S+)", linhas[k])
+        if mp:
+            prov = mp.group(1).strip().strip('"')
+        elif mm and prov:
+            pares.append((prov, mm.group(1).strip().strip('"')))
+            prov = None
+    return pares
+
+
+def aplicar_modelo(linhas: list) -> list:
+    """Garante o modelo primário e a cadeia de fallback."""
+    mudancas = []
+
+    i = next((k for k, l in enumerate(linhas) if re.match(r"^model:\s*(#.*)?$", l)), None)
+    if i is None:
+        linhas[0:0] = [
+            "# Modelo do atendimento (definido por apply-hermes-config.py).\n",
+            "model:\n",
+            f"  provider: {MODELO_PRIMARIO['provider']}\n",
+            f"  default: {MODELO_PRIMARIO['default']}\n",
+        ]
+        mudancas.append(f"model (criado): {MODELO_PRIMARIO['provider']}/{MODELO_PRIMARIO['default']}")
+    else:
+        for chave, valor in MODELO_PRIMARIO.items():
+            fim = _fim_do_bloco(linhas, i)
+            k = next((j for j in range(i + 1, fim) if re.match(rf"^\s+{chave}:", linhas[j])), None)
+            if k is None:
+                linhas[fim:fim] = [f"  {chave}: {valor}\n"]
+                mudancas.append(f"model.{chave} = {valor}")
+            else:
+                atual = linhas[k].split(":", 1)[1].strip()
+                if atual.strip('"') != valor:
+                    linhas[k] = f"  {chave}: {valor}\n"
+                    mudancas.append(f"model.{chave}: {atual} -> {valor}")
+
+    ini, fim = _bloco_fallbacks(linhas)
+    if ini is None:
+        if linhas and not linhas[-1].endswith("\n"):
+            linhas[-1] += "\n"
+        linhas.append("\n# Se o primário falhar (cota/rede), o Hermes continua atendendo.\nfallback_providers:\n")
+        linhas.extend(f"  - provider: {p}\n    model: {m}\n" for p, m in FALLBACKS)
+        mudancas.append("fallback_providers (criado com " + ", ".join(p for p, _ in FALLBACKS) + ")")
+    elif _fallbacks_atuais(linhas, ini, fim) != FALLBACKS:
+        atual = _fallbacks_atuais(linhas, ini, fim)
+        novas = [f"  - provider: {p}\n    model: {m}\n" for p, m in FALLBACKS]
+        linhas[ini + 1 : fim] = novas
+        mudancas.append(
+            "fallback_providers: "
+            + (" | ".join(f"{p}/{m}" for p, m in atual) or "(vazio)")
+            + " -> "
+            + " | ".join(f"{p}/{m}" for p, m in FALLBACKS)
+        )
+    return mudancas
+
+
 def aplicar_hooks(linhas: list) -> list:
     """Garante `hooks.pre_llm_call` com o hook do relógio/expediente."""
     i = next((k for k, l in enumerate(linhas) if re.match(r"^hooks:\s*(#.*)?$", l)), None)
@@ -180,7 +257,12 @@ def main() -> int:
         return 1
 
     linhas = cfg.read_text(encoding="utf-8").splitlines(keepends=True)
-    mudancas = aplicar_display(list(linhas)) + aplicar_plugins(list(linhas)) + aplicar_hooks(list(linhas))
+    mudancas = (
+        aplicar_display(list(linhas))
+        + aplicar_plugins(list(linhas))
+        + aplicar_hooks(list(linhas))
+        + aplicar_modelo(list(linhas))
+    )
 
     if not mudancas:
         print(f"✓ config.yaml com as chaves críticas em ordem ({cfg})")
@@ -199,6 +281,7 @@ def main() -> int:
     aplicar_display(linhas)
     aplicar_plugins(linhas)
     aplicar_hooks(linhas)
+    aplicar_modelo(linhas)
     cfg.write_text("".join(linhas), encoding="utf-8")
 
     print(f"✓ config.yaml corrigido ({cfg})")
