@@ -2,15 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
   takeoverConversation,
   reactivateBot,
   addInternalNote,
   sendHumanMessage,
+  deleteMessage,
+  clearConversationMessages,
 } from "@/lib/data/actions";
 import { Badge } from "@/components/ui/primitives";
-import { useNotify } from "@/components/ui/dialog-provider";
+import { useConfirm, useNotify } from "@/components/ui/dialog-provider";
 import { pollFetch, startPolling } from "@/lib/client/poll";
 import { formatDateTime } from "@/lib/utils";
 import { useTypingConversations } from "@/components/conversas/useTyping";
@@ -76,6 +79,7 @@ export function Inbox({
 }) {
   const router = useRouter();
   const notify = useNotify();
+  const confirmDialog = useConfirm();
 
   // Estado derivado das props (nunca um snapshot congelado): o servidor manda o
   // estado novo depois de cada action e a tela acompanha; os ajustes otimistas
@@ -85,6 +89,9 @@ export function Inbox({
   const [extraNotes, setExtraNotes] = useState<Record<string, Note[]>>({});
   const [tick, setTick] = useState(() => Date.now());
   const [botBusy, setBotBusy] = useState<null | "assumir" | "reativar">(null);
+  /** Mensagens apagadas nesta sessão: saem da tela na hora (o servidor confirma depois). */
+  const [removed, setRemoved] = useState<Record<string, true>>({});
+  const [busyMsg, setBusyMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => setTick(Date.now()), 2_000);
@@ -101,13 +108,21 @@ export function Inbox({
   );
 
   const messages = useMemo(() => {
-    const out: Record<string, Msg[]> = { ...initialMessages };
+    const out: Record<string, Msg[]> = {};
+    for (const [conversationId, list] of Object.entries(initialMessages)) {
+      out[conversationId] = list;
+    }
     for (const [conversationId, list] of Object.entries(extraMessages)) {
       const base = out[conversationId] ?? [];
       out[conversationId] = [...base, ...list.filter((m) => !base.some((b) => sameMessage(b, m)))];
     }
+    for (const conversationId of Object.keys(out)) {
+      if (Object.keys(removed).length === 0) break;
+      const filtradas = out[conversationId].filter((m) => !removed[m.id]);
+      if (filtradas.length !== out[conversationId].length) out[conversationId] = filtradas;
+    }
     return out;
-  }, [initialMessages, extraMessages]);
+  }, [initialMessages, extraMessages, removed]);
 
   const notes = useMemo(() => {
     const out: Record<string, Note[]> = { ...initialNotes };
@@ -223,6 +238,72 @@ export function Inbox({
       );
     } finally {
       setBotBusy(null);
+      router.refresh();
+    }
+  }
+
+  /** Apaga uma mensagem (só do CRM) — sai da tela na hora, sem esperar o servidor. */
+  async function handleDeleteMessage(m: Msg) {
+    if (busyMsg) return;
+    const ok = await confirmDialog({
+      title: "Apagar esta mensagem?",
+      description:
+        "Ela sai do CRM (aqui e no histórico da IA). No WhatsApp do cliente a mensagem enviada continua — isso não dá para desfazer.",
+      confirmLabel: "Apagar",
+      tone: "danger",
+    });
+    if (!ok) return;
+
+    setBusyMsg(m.id);
+    setRemoved((prev) => ({ ...prev, [m.id]: true }));
+    try {
+      await deleteMessage(m.id);
+      notify("Mensagem apagada", "success");
+    } catch (error) {
+      setRemoved((prev) => {
+        const next = { ...prev };
+        delete next[m.id];
+        return next;
+      });
+      notify("Não deu para apagar: " + (error as Error).message, "error");
+    } finally {
+      setBusyMsg(null);
+      router.refresh();
+    }
+  }
+
+  /** Limpa o histórico da conversa (o contato e a conversa continuam). */
+  async function handleClearConversation() {
+    if (!active || busyMsg) return;
+    const conversa = active;
+    const quantas = activeMessages.length;
+    if (quantas === 0) {
+      notify("Não há mensagens nesta conversa.", "error");
+      return;
+    }
+    const ok = await confirmDialog({
+      title: `Limpar ${quantas} mensagem(ns) desta conversa?`,
+      description:
+        "O contato e a conversa continuam no CRM. No WhatsApp do cliente nada muda. Não dá para desfazer.",
+      confirmLabel: "Limpar histórico",
+      tone: "danger",
+    });
+    if (!ok) return;
+
+    setBusyMsg("__clear__");
+    setRemoved((prev) => {
+      const next = { ...prev };
+      for (const m of activeMessages) next[m.id] = true;
+      return next;
+    });
+    try {
+      const res = await clearConversationMessages(conversa.id);
+      notify(`${res.deleted} mensagem(ns) apagada(s)`, "success");
+    } catch (error) {
+      notify("Não deu para limpar: " + (error as Error).message, "error");
+      setRemoved({});
+    } finally {
+      setBusyMsg(null);
       router.refresh();
     }
   }
@@ -404,6 +485,22 @@ export function Inbox({
             )}
           </div>
 
+          <div className="flex items-center justify-between gap-2 border-b bg-muted/30 px-3 py-1.5">
+            <span className="text-[11px] text-muted-foreground">
+              {activeMessages.length} mensagem(ns) no histórico
+            </span>
+            <button
+              type="button"
+              onClick={() => void handleClearConversation()}
+              disabled={busyMsg === "__clear__" || activeMessages.length === 0}
+              title="Apagar todas as mensagens desta conversa (o contato continua)"
+              className="inline-flex items-center gap-1 rounded-lg border border-border/60 px-2 py-1 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {busyMsg === "__clear__" ? "Limpando…" : "Limpar histórico"}
+            </button>
+          </div>
+
           <div className="flex-1 space-y-3 overflow-y-auto bg-muted/20 p-4">
             {activeMessages.length === 0 && (
               <p className="text-center text-xs text-muted-foreground">Sem mensagens.</p>
@@ -411,8 +508,24 @@ export function Inbox({
             {activeMessages.map((m) => {
               const inbound = m.direction === "in";
               const isAi = m.sender_type === "agent_ai";
+              const apagar = (
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteMessage(m)}
+                  disabled={busyMsg === m.id}
+                  title="Apagar mensagem"
+                  aria-label="Apagar mensagem"
+                  className="mb-4 shrink-0 rounded-lg border border-border/60 bg-background p-1 text-muted-foreground opacity-60 transition-opacity hover:border-destructive/40 hover:text-destructive md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 disabled:opacity-30"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              );
               return (
-                <div key={m.id} className={`flex ${inbound ? "justify-start" : "justify-end"}`}>
+                <div
+                  key={m.id}
+                  className={`group flex items-end gap-1.5 ${inbound ? "justify-start" : "justify-end"}`}
+                >
+                  {!inbound && apagar}
                   <div className={`max-w-[75%] ${inbound ? "text-left" : "text-right"}`}>
                     <div
                       className={`rounded-2xl px-3.5 py-2 text-sm ${
@@ -430,6 +543,7 @@ export function Inbox({
                       {formatDateTime(m.created_at)}
                     </p>
                   </div>
+                  {inbound && apagar}
                 </div>
               );
             })}

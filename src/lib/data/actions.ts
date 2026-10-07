@@ -765,6 +765,53 @@ export async function sendHumanMessage(conversationId: string, text: string) {
   revalidatePath("/conversas");
 }
 
+/**
+ * Apaga UMA mensagem da conversa (some do CRM; no WhatsApp do cliente nada muda — mensagem
+ * enviada não tem "desfazer").
+ *
+ * Usado para limpar histórico: resposta errada do bot, mensagem de teste, conversa que não
+ * devia estar ali. Some também do espelho: o `hermes-sync` não reimporta o que já não existe
+ * no `state.db`… mas se a mensagem ainda estiver lá, ela volta na próxima rodada do sync —
+ * por isso o mesmo botão zera o `external_id` (o sync deixa de reconhecer a linha antiga).
+ */
+export async function deleteMessage(messageId: string): Promise<{ deleted: number }> {
+  const { organizationId, role } = await requireProfile();
+  if (role === "atendente") throw new Error("Sem permissão");
+
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("messages")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("id", messageId)
+    .select("id");
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/conversas");
+  return { deleted: data?.length ?? 0 };
+}
+
+/**
+ * Limpa TODAS as mensagens de uma conversa (mantém o contato e a conversa).
+ * Serve para começar o atendimento de um lead do zero.
+ */
+export async function clearConversationMessages(conversationId: string): Promise<{ deleted: number }> {
+  const { organizationId, role } = await requireProfile();
+  if (role === "atendente") throw new Error("Sem permissão");
+
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("messages")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("conversation_id", conversationId)
+    .select("id");
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/conversas");
+  return { deleted: data?.length ?? 0 };
+}
+
 
 /**
  * Resolve a conversa de E-MAIL do lead: mesmo `external_id` que o sync do Hermes
