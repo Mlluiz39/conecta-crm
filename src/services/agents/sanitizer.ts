@@ -1,9 +1,30 @@
 /**
+ * Texto que denuncia falha interna (LLM/gateway/rede). NUNCA pode chegar ao cliente:
+ * foi o que aconteceu em 07/10 quando o proxy devolveu 502 e o lead recebeu o HTML do erro.
+ */
+const TEXTO_DE_ERRO =
+  /^\s*(⚠️|❌|🚨)|erro do (9router|freellmapi|llm|gateway)|<!doctype|http\s*5\d\d|http\s*4\d\d|econnrefused|fetch failed|socket hang up|timeout|all (targets|providers) failed|todos os alvos falharam/i;
+
+/** Verdadeiro quando a resposta é, na verdade, um erro interno. */
+export function pareceErroInterno(raw: string): boolean {
+  const t = String(raw ?? "").trim();
+  if (!t) return false;
+  if (TEXTO_DE_ERRO.test(t)) return true;
+  // HTML cru (página de erro de proxy) ou stack trace
+  if (/<(html|!doctype)/i.test(t)) return true;
+  if (/\bat\s+\S+\s+\(.*:\d+:\d+\)/.test(t)) return true;
+  return false;
+}
+
+/**
  * Limpa e higieniza a resposta da IA para garantir que NENHUM JSON bruto,
  * bloco de código ou retorno de ferramenta seja vazado para o cliente final.
  */
 export function sanitizeAiReply(raw: string): string {
   if (!raw || typeof raw !== "string") return "";
+
+  // 0. Erro interno não é resposta: devolve vazio para o chamador não enviar nada.
+  if (pareceErroInterno(raw)) return "";
 
   let text = raw.trim();
 
@@ -137,6 +158,8 @@ export function buildAgentSystemInstruction(params: {
   tone?: string;
   memory?: string;
   subagents?: string;
+  /** Bloco de relógio/expediente do turno (ver `contextoAtual` no engine). */
+  context?: string;
 }): string {
   const roleGuideline = getRoleSpecificGuideline(params.role);
   const toneGuideline = getToneGuideline(params.tone);
@@ -154,7 +177,7 @@ export function buildAgentSystemInstruction(params: {
 - As chamadas de ferramentas são internas entre você e o sistema. O cliente final só deve ler sua mensagem amigável e conversacional.`;
 
   return `${params.basePrompt.trim()}
-
+${params.context?.trim() ? `\n${params.context.trim()}\n` : ""}
 ${roleGuideline.trim()}
 
 ${toneGuideline.trim()}

@@ -12,6 +12,7 @@ import { AGENT_ROLE_LABEL, CHANNEL_LABEL } from "@/types/domain";
 import { serverEnv } from "@/lib/env";
 import { runAgentLoop } from "./claude";
 import { evaluateHandoff } from "./handoff";
+import { contextoAtual, formatBusinessHours, isWithinBusinessHours } from "./business-hours";
 import { renderPrompt } from "./prompt";
 import { executeTool, toolsForClaude } from "./tools";
 import { buildAgentSystemInstruction, sanitizeAiReply } from "./sanitizer";
@@ -44,28 +45,6 @@ export async function resolveChannelAgent(
   return { agentId: data.agent_id };
 }
 
-function isWithinBusinessHours(businessHours: any, now = new Date()): boolean {
-  // Horário configurado em organizations.business_hours
-  const day = now.getDay();
-  if (day === 0 || day === 6) return false;
-  const hour = now.getHours();
-  return hour >= 9 && hour < 18;
-}
-
-/** business_hours ({"seg-sex":{"inicio":"09:00","fim":"18:00"}}) → texto legível. */
-function formatBusinessHours(businessHours: any): string {
-  if (!businessHours || typeof businessHours !== "object") {
-    return "Seg a Sex, 09h às 18h";
-  }
-  const parts = Object.entries(businessHours)
-    .map(([days, range]) => {
-      const r = range as { inicio?: string; fim?: string };
-      if (!r?.inicio || !r?.fim) return null;
-      return `${days}, ${r.inicio.replace(":00", "h")} às ${r.fim.replace(":00", "h")}`;
-    })
-    .filter(Boolean);
-  return parts.length ? parts.join(" · ") : "Seg a Sex, 09h às 18h";
-}
 
 export async function runAgentForConversation(params: {
   supabase: SupabaseClient;
@@ -121,7 +100,7 @@ export async function runAgentForConversation(params: {
     enabledRules,
     message: inboundText,
     consecutiveFailures: 0,
-    withinBusinessHours: isWithinBusinessHours(org?.business_hours, new Date()),
+    withinBusinessHours: isWithinBusinessHours(org?.business_hours, org?.timezone || "America/Sao_Paulo"),
   });
   if (rule) {
     await supabase
@@ -153,6 +132,7 @@ export async function runAgentForConversation(params: {
     role: agent.role,
     agentName: agent.name,
     tone: agent.tone,
+    context: contextoAtual(org),
   });
 
   // Histórico recente em ordem cronológica
@@ -217,6 +197,12 @@ export async function runAgentForConversation(params: {
     .select("bot_active")
     .eq("id", conversationId)
     .single();
+
+  // Falha do LLM NUNCA vai para o cliente: registra e deixa o alerta/handoff cuidarem.
+  if (result.error) {
+    console.error("[agents] turno falhou (nada enviado ao cliente):", result.error);
+    return { handled: true, reason: result.error };
+  }
 
   if (after?.bot_active && result.reply) {
     // TRAVA DE SAÍDA: o cliente recebe só a resposta final — corta monólogo interno,

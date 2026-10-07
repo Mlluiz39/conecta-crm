@@ -125,6 +125,63 @@ function parseOpenAiResponse(rawText: string): any {
  * 1. 9router / OpenAI format: suporte a tool_calls nativos, stream SSE e tool calls embutidos no content
  * 2. Anthropic SDK nativo
  */
+/** Um alvo de LLM (endpoint OpenAI-compatible + chave + modelo). */
+export type LlmTarget = { label: string; endpoint: string; apiKey: string; model: string };
+
+function endpointDeChat(baseUrl: string): string {
+  const raw = (baseUrl || "").replace(/\/+$/, "");
+  if (!raw) return "";
+  if (raw.endsWith("/chat/completions")) return raw;
+  if (raw.endsWith("/v1")) return `${raw}/chat/completions`;
+  return `${raw}/v1/chat/completions`;
+}
+
+function rotuloDe(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url.slice(0, 40) || "fallback";
+  }
+}
+
+/**
+ * Cadeia de LLM: o primário vem do env (ex.: freellmapi + modelo `auto`) e os fallbacks de
+ * `AI_FALLBACK_TARGETS` (JSON). Sem isso, um 502 do proxy deixa o cliente sem resposta —
+ * foi o que aconteceu em 07/10/2026.
+ *
+ *   AI_FALLBACK_TARGETS='[{"baseUrl":"https://openrouter.ai/api/v1","apiKey":"sk-...","model":"qwen/qwen3.8-flash"}]'
+ */
+export function llmTargets(modeloPrincipal: string): LlmTarget[] {
+  const env = serverEnv();
+  const alvos: LlmTarget[] = [];
+  if (env.aiBaseUrl) {
+    alvos.push({
+      label: "principal",
+      endpoint: endpointDeChat(env.aiBaseUrl),
+      apiKey: env.anthropicApiKey,
+      model: modeloPrincipal,
+    });
+  }
+  const bruto = process.env.AI_FALLBACK_TARGETS ?? "";
+  if (bruto.trim()) {
+    try {
+      const lista = JSON.parse(bruto) as { baseUrl?: string; apiKey?: string; model?: string; label?: string }[];
+      for (const item of Array.isArray(lista) ? lista : []) {
+        if (!item?.baseUrl) continue;
+        alvos.push({
+          label: item.label || rotuloDe(item.baseUrl),
+          endpoint: endpointDeChat(item.baseUrl),
+          apiKey: item.apiKey || "",
+          model: item.model || modeloPrincipal,
+        });
+      }
+    } catch (err) {
+      console.error("[llm] AI_FALLBACK_TARGETS não é JSON válido:", (err as Error).message);
+    }
+  }
+  return alvos;
+}
+
 export async function runAgentLoop(params: {
   model: string;
   system: string;
@@ -166,10 +223,13 @@ export async function runAgentLoop(params: {
       })),
     ];
 
+    const alvos = llmTargets(params.model || env.defaultModel);
+    let alvoAtual = 0;
+
     try {
       for (let i = 0; i < MAX_ITERATIONS; i++) {
         const payload: any = {
-          model: params.model || env.defaultModel,
+          model: alvos[alvoAtual].model,
           messages: openAiMessages,
           stream: false, // Força não-streaming para evitar SSE
         };
@@ -178,21 +238,38 @@ export async function runAgentLoop(params: {
           payload.tools = openAiTools;
         }
 
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${env.anthropicApiKey}`,
-          },
-          body: JSON.stringify(payload),
-        });
-
-        const rawText = await res.text();
-        if (!res.ok) {
-          throw new Error(`9router HTTP ${res.status}: ${rawText}`);
+        // Chamada com cadeia de fallback: proxy fora do ar não pode calar o atendimento.
+        let resposta: { text: string } | null = null;
+        let ultimoErro = "sem alvos configurados";
+        while (alvoAtual < alvos.length) {
+          const alvo = alvos[alvoAtual];
+          payload.model = alvo.model;
+          try {
+            const res = await fetch(alvo.endpoint, {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                authorization: `Bearer ${alvo.apiKey}`,
+              },
+              body: JSON.stringify(payload),
+            });
+            const raw = await res.text();
+            if (res.ok) {
+              resposta = { text: raw };
+              break;
+            }
+            ultimoErro = `HTTP ${res.status} em "${alvo.label}": ${raw.slice(0, 180)}`;
+          } catch (err) {
+            ultimoErro = `falha de rede em "${alvo.label}": ${(err as Error).message}`;
+          }
+          console.warn(`[llm] alvo "${alvo.label}" falhou, tentando o próximo — ${ultimoErro}`);
+          alvoAtual++;
+        }
+        if (!resposta) {
+          throw new Error(`todos os alvos de LLM falharam — último erro: ${ultimoErro}`);
         }
 
-        const data = parseOpenAiResponse(rawText);
+        const data = parseOpenAiResponse(resposta.text);
         const choice = data.choices?.[0];
         const message = choice?.message;
 
@@ -288,7 +365,8 @@ export async function runAgentLoop(params: {
       }
 
       return {
-        reply: "⚠️ Limite de iterações de ferramentas atingido.",
+        // Sem texto ao cliente: o engine trata `error` como turno falho.
+        reply: "",
         toolCalls,
         stopReason: "max_iterations",
         tokensIn,
@@ -299,7 +377,7 @@ export async function runAgentLoop(params: {
       const errorMsg = err?.message || String(err);
       console.error("[9router OpenAI Error]", err);
       return {
-        reply: `⚠️ Erro do 9router: ${errorMsg}`,
+        reply: "",
         toolCalls,
         stopReason: "error",
         tokensIn,
