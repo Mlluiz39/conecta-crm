@@ -127,12 +127,35 @@ export async function runAgentForConversation(params: {
     funcao_agente: AGENT_ROLE_LABEL[agent.role as AgentRole] ?? agent.role,
   };
   const renderedBase = renderPrompt(promptVersion.prompt, variables);
+
+  // ── Fase 2: memória própria + subagentes (hierarquia gerente → especialistas) ──
+  const [{ data: memoriaRows }, { data: subRows }] = await Promise.all([
+    supabase.from("agent_memories").select("key, content").eq("agent_id", agentId),
+    supabase
+      .from("agents")
+      .select("id, name, role, tone")
+      .eq("organization_id", organizationId)
+      .eq("manager_agent_id", agentId)
+      .eq("is_active", true),
+  ]);
+
+  const memoria = (memoriaRows ?? [])
+    .filter((m: any) => String(m.content ?? "").trim())
+    .map((m: any) => `- ${m.key}: ${String(m.content).trim()}`)
+    .join("\n");
+
+  const subagentes = (subRows ?? [])
+    .map((a: any) => `- ${a.role} → ${a.name}${a.tone ? ` (tom ${a.tone})` : ""}`)
+    .join("\n");
+
   const system = buildAgentSystemInstruction({
     basePrompt: renderedBase,
     role: agent.role,
     agentName: agent.name,
     tone: agent.tone,
     context: contextoAtual(org),
+    memory: memoria,
+    subagents: subagentes,
   });
 
   // Histórico recente em ordem cronológica
@@ -172,6 +195,7 @@ export async function runAgentForConversation(params: {
           conversationId,
           contactId: conv.contact_id,
           opportunityId: opp?.id ?? null,
+          agentId,
         },
         enabledTools,
         key,

@@ -3,7 +3,7 @@
 export type UserRole = "admin" | "gerente" | "atendente";
 export type BusinessType = "imobiliaria" | "ecommerce" | "clinica" | "agencia";
 export type ChannelType = "whatsapp" | "instagram" | "messenger";
-export type AgentRole = "vendedor" | "atendente" | "suporte" | "agendador" | "personalizado";
+export type AgentRole = "gerente" | "vendedor" | "atendente" | "suporte" | "agendador" | "personalizado";
 export type AgentTone = "formal" | "amigavel" | "consultivo" | "direto";
 export type PromptStatus = "draft" | "published" | "archived";
 export type ConversationStatus = "aberta" | "pendente" | "resolvida";
@@ -17,7 +17,8 @@ export type AgentToolKey =
   | "agendar_visita"
   | "derivar_para_atendente"
   | "atualizar_contato"
-  | "mover_etapa_funil";
+  | "mover_etapa_funil"
+  | "delegar_para";
 
 export type HandoffRuleKey =
   | "cliente_pede_humano"
@@ -42,6 +43,7 @@ export const CHANNEL_LABEL: Record<ChannelType, string> = {
 };
 
 export const AGENT_ROLE_LABEL: Record<AgentRole, string> = {
+  gerente: "Gerente",
   vendedor: "Vendedor",
   atendente: "Atendente",
   suporte: "Suporte",
@@ -62,6 +64,7 @@ export const TOOL_LABEL: Record<AgentToolKey, string> = {
   derivar_para_atendente: "Derivar para Atendente Humano",
   atualizar_contato: "Atualizar Contato",
   mover_etapa_funil: "Mover Etapa do Funil",
+  delegar_para: "Delegar para Subagente",
 };
 
 export const HANDOFF_RULE_LABEL: Record<HandoffRuleKey, string> = {

@@ -10,6 +10,8 @@ export type AgentToolContext = {
   conversationId: string;
   contactId: string;
   opportunityId?: string | null;
+  /** Agente que está atendendo agora (para resolver os subagentes dele). */
+  agentId?: string | null;
 };
 
 type ToolDef = {
@@ -180,6 +182,76 @@ const registry: Record<AgentToolKey, ToolDef> = {
       }
 
       return { transferido: true, motivo: input?.motivo ?? null };
+    },
+  },
+
+  delegar_para: {
+    key: "delegar_para",
+    schema: {
+      name: "delegar_para",
+      description:
+        "Delega o atendimento para um subagente especializado e passa a conversa para ele. " +
+        "Use quando identificar a intenção principal do cliente: vendas (vendedor), dúvidas e " +
+        "acompanhamento (atendente), problema técnico (suporte) ou agendamento (agendador). " +
+        "Depois de delegar, avise o cliente em uma frase que você está encaminhando.",
+      input_schema: {
+        type: "object",
+        properties: {
+          agente: {
+            type: "string",
+            description: "Papel do subagente: vendedor, atendente, suporte ou agendador.",
+          },
+          motivo: { type: "string", description: "Por que está delegando (resumo curto)." },
+        },
+        required: ["agente"],
+      },
+    },
+    async handler(ctx, input) {
+      const pedido = String(input?.agente ?? "").trim().toLowerCase();
+      if (!pedido) throw new Error("Informe o papel do subagente");
+
+      // 1) primeiro entre os subagentes do agente atual; 2) depois qualquer ativo da org
+      const base = ctx.supabase
+        .from("agents")
+        .select("id, name, role")
+        .eq("organization_id", ctx.organizationId)
+        .eq("is_active", true);
+      const { data: filhos } = ctx.agentId
+        ? await base.eq("manager_agent_id", ctx.agentId)
+        : { data: null };
+      let escolhido =
+        (filhos ?? []).find(
+          (a: any) => String(a.role).toLowerCase() === pedido || String(a.name).toLowerCase() === pedido,
+        ) ?? null;
+      if (!escolhido) {
+        const { data: todos } = await ctx.supabase
+          .from("agents")
+          .select("id, name, role")
+          .eq("organization_id", ctx.organizationId)
+          .eq("is_active", true);
+        escolhido =
+          (todos ?? []).find(
+            (a: any) => String(a.role).toLowerCase() === pedido || String(a.name).toLowerCase() === pedido,
+          ) ?? null;
+      }
+      if (!escolhido) {
+        return { delegado: false, erro: `Não existe subagente "${pedido}" ativo.` };
+      }
+
+      const { error } = await ctx.supabase
+        .from("conversations")
+        .update({ agent_id: escolhido.id })
+        .eq("id", ctx.conversationId)
+        .eq("organization_id", ctx.organizationId);
+      if (error) throw new Error(error.message);
+
+      await ctx.supabase.from("conversation_notes").insert({
+        organization_id: ctx.organizationId,
+        conversation_id: ctx.conversationId,
+        content: `Delegado para ${escolhido.name} (${escolhido.role})${input?.motivo ? `: ${input.motivo}` : ""}`,
+      });
+
+      return { delegado: true, agente: escolhido.name, papel: escolhido.role };
     },
   },
 
