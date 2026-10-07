@@ -56,6 +56,14 @@ export interface MessageProvider {
   ): Promise<{ base64: string; mimetype: string } | null>;
   /** Envia nota de voz. Opcional: provider sem suporte cai no texto. */
   sendVoice?(accountId: string, to: string, audioBase64: string): Promise<SendResult>;
+  /**
+   * Apaga a mensagem para todos no WhatsApp (revoke). Só vale para mensagem ENVIADA por nós:
+   * o WhatsApp não deixa apagar no aparelho do lead uma mensagem que ele mesmo escreveu.
+   */
+  deleteMessage?(
+    accountId: string,
+    target: { id: string; from: string },
+  ): Promise<{ ok: boolean; error?: string }>;
   /** Indicador de atividade (opcional: provider sem suporte simplesmente ignora). */
   sendPresence?(
     accountId: string,

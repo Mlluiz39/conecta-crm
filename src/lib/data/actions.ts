@@ -766,19 +766,23 @@ export async function sendHumanMessage(conversationId: string, text: string) {
 }
 
 /**
- * Apaga UMA mensagem (do CRM **e** da memória da IA).
- *
- * Apagar só no CRM não resolve: o `hermes-sync` espelha o `state.db` a cada 60s e
- * reimportaria a mensagem na rodada seguinte. Por isso removemos também a linha no
- * `state.db` (via `external_id` = `hermes_<id>`), que é o que a IA lê como histórico.
+ * Apaga UMA mensagem: sai do CRM e, quando foi enviada por nós, também é revogada no
+ * WhatsApp do lead (o WhatsApp não permite apagar no aparelho dele o que ele mesmo escreveu).
  */
 export async function deleteMessage(
   messageId: string,
-): Promise<{ deleted: number; mirrored: number; hermesDeleted: number }> {
+): Promise<{ deleted: number } & import("@/services/messaging/revoke.service").RevokeOutcome> {
   const { organizationId, role } = await requireProfile();
   if (role === "atendente") throw new Error("Sem permissão");
 
   const supabase = createClient();
+
+  // Revoga ANTES do delete: depois dele não existem mais external_id nem canal.
+  const { revokeMessages } = await import("@/services/messaging/revoke.service");
+  const revoke = await revokeMessages([messageId], organizationId).catch((e) => {
+    console.warn("[delete] revoke falhou:", (e as Error).message);
+    return { revoked: 0, localOnly: 1, failures: 0, skipped: 0 };
+  });
   const { data, error } = await supabase
     .from("messages")
     .delete()
@@ -787,39 +791,46 @@ export async function deleteMessage(
     .select("id, external_id");
   if (error) throw new Error(error.message);
 
-  const { deleteHermesMessages } = await import("@/services/messaging/hermes-memory");
-  const linhas = data ?? [];
-  const { encontradas, apagadas } = await deleteHermesMessages(linhas.map((m) => m.external_id as string | null));
-
   revalidatePath("/conversas");
-  return { deleted: linhas.length, mirrored: encontradas, hermesDeleted: apagadas };
+  return { deleted: (data ?? []).length, ...revoke };
 }
 
 /**
- * Limpa TODAS as mensagens de uma conversa (mantém o contato e a conversa) — no CRM e na
- * memória da IA, para o atendimento do lead começar do zero.
+ * Limpa TODAS as mensagens de uma conversa (mantém o contato e a conversa): sai do CRM e o
+ * que foi enviado por nós também é revogado no WhatsApp do lead.
  */
 export async function clearConversationMessages(
   conversationId: string,
-): Promise<{ deleted: number; mirrored: number; hermesDeleted: number }> {
+): Promise<{ deleted: number } & import("@/services/messaging/revoke.service").RevokeOutcome> {
   const { organizationId, role } = await requireProfile();
   if (role === "atendente") throw new Error("Sem permissão");
 
   const supabase = createClient();
+
+  const { data: alvos, error: alvoErr } = await supabase
+    .from("messages")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("conversation_id", conversationId);
+  if (alvoErr) throw new Error(alvoErr.message);
+  const ids = (alvos ?? []).map((m: any) => m.id as string);
+
+  const { revokeMessages } = await import("@/services/messaging/revoke.service");
+  const revoke = await revokeMessages(ids, organizationId).catch((e) => {
+    console.warn("[clear] revoke falhou:", (e as Error).message);
+    return { revoked: 0, localOnly: ids.length, failures: 0, skipped: 0 };
+  });
+
   const { data, error } = await supabase
     .from("messages")
     .delete()
     .eq("organization_id", organizationId)
     .eq("conversation_id", conversationId)
-    .select("id, external_id");
+    .select("id");
   if (error) throw new Error(error.message);
 
-  const { deleteHermesMessages } = await import("@/services/messaging/hermes-memory");
-  const linhas = data ?? [];
-  const { encontradas, apagadas } = await deleteHermesMessages(linhas.map((m) => m.external_id as string | null));
-
   revalidatePath("/conversas");
-  return { deleted: linhas.length, mirrored: encontradas, hermesDeleted: apagadas };
+  return { deleted: (data ?? []).length, ...revoke };
 }
 
 

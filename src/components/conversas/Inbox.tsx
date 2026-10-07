@@ -241,13 +241,15 @@ export function Inbox({
     }
   }
 
-  /** Apaga uma mensagem (só do CRM) — sai da tela na hora, sem esperar o servidor. */
+  /** Apaga uma mensagem: sai do CRM e, se foi enviada por nós, também do WhatsApp do lead. */
   async function handleDeleteMessage(m: Msg) {
     if (busyMsg) return;
     const ok = await confirmDialog({
       title: "Apagar esta mensagem?",
       description:
-        "Ela sai do CRM (aqui e no histórico da IA). No WhatsApp do cliente a mensagem enviada continua — isso não dá para desfazer.",
+        m.direction === "out"
+          ? "Ela sai do CRM e é apagada também no WhatsApp do lead (para todos). Não dá para desfazer."
+          : "Ela sai do CRM. No celular do lead não dá para apagar: o WhatsApp só permite apagar para todos as mensagens que saíram daqui.",
       confirmLabel: "Apagar",
       tone: "danger",
     });
@@ -257,10 +259,15 @@ export function Inbox({
     setRemoved((prev) => ({ ...prev, [m.id]: true }));
     try {
       const res = await deleteMessage(m.id);
-      if (res.mirrored > 0 && res.hermesDeleted === 0) {
-        notify("Apagada do CRM, mas a memória da IA não liberou — pode reaparecer no próximo sync.", "error");
+      if (res.revoked > 0) {
+        notify("Mensagem apagada aqui e no WhatsApp do lead.", "success");
+      } else if (res.failures > 0) {
+        notify(
+          "Saiu do CRM, mas o WhatsApp recusou apagar no celular do lead (mensagem antiga demais?).",
+          "error",
+        );
       } else {
-        notify(res.hermesDeleted > 0 ? "Mensagem apagada (CRM + memória da IA)" : "Mensagem apagada", "success");
+        notify("Mensagem apagada do CRM.", "success");
       }
     } catch (error) {
       setRemoved((prev) => {
@@ -287,7 +294,7 @@ export function Inbox({
     const ok = await confirmDialog({
       title: `Limpar ${quantas} mensagem(ns) desta conversa?`,
       description:
-        "O contato e a conversa continuam no CRM. No WhatsApp do cliente nada muda. Não dá para desfazer.",
+        "O contato e a conversa continuam no CRM. As mensagens que nós enviamos também são apagadas no WhatsApp do lead; as que ele escreveu saem só daqui. Não dá para desfazer.",
       confirmLabel: "Limpar histórico",
       tone: "danger",
     });
@@ -301,12 +308,11 @@ export function Inbox({
     });
     try {
       const res = await clearConversationMessages(conversa.id);
-      const aviso = res.mirrored > 0 && res.hermesDeleted === 0
-        ? " — mas a memória da IA não liberou: pode reaparecer no próximo sync."
-        : res.hermesDeleted > 0
-          ? ` (${res.hermesDeleted} também da memória da IA)`
-          : "";
-      notify(`${res.deleted} mensagem(ns) apagada(s)${aviso}`, res.mirrored > 0 && res.hermesDeleted === 0 ? "error" : "success");
+      const partes = [`${res.deleted} mensagem(ns) apagada(s) do CRM`];
+      if (res.revoked > 0) partes.push(`${res.revoked} também no WhatsApp do lead`);
+      if (res.failures > 0) partes.push(`${res.failures} recusada(s) pelo WhatsApp`);
+      if (res.skipped > 0) partes.push(`${res.skipped} acima do teto de revogação`);
+      notify(partes.join(" · "), res.failures > 0 ? "error" : "success");
     } catch (error) {
       notify("Não deu para limpar: " + (error as Error).message, "error");
       setRemoved({});

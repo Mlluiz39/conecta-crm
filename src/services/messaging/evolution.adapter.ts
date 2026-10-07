@@ -278,6 +278,24 @@ export function createEvolutionProvider(cfg: {
       }
     },
 
+    /** Apaga para todos no WhatsApp (revoke): DELETE /chat/deleteMessageForEveryone. */
+    async deleteMessage(accountId, target) {
+      const instance = accountId && accountId !== "default" ? accountId : cfg.instance;
+      if (!cfg.apiKey) return { ok: false, error: "Evolution: API key não configurada" };
+      if (!instance || !target?.id) return { ok: false, error: "Evolution: instância ou mensagem ausente" };
+      try {
+        const alvo = await resolveTo(instance, target.from);
+        const res = await api(`/chat/deleteMessageForEveryone/${encodeURIComponent(instance)}`, {
+          method: "DELETE",
+          body: JSON.stringify({ id: target.id, remoteJid: alvo, fromMe: true }),
+        });
+        if (!res.ok) return { ok: false, error: `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}` };
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    },
+
     /** Tick azul para o lead: POST /chat/markMessageAsRead {readMessages: [{remoteJid, fromMe, id}]} */
     async markRead(accountId, message) {
       const instance = accountId && accountId !== "default" ? accountId : cfg.instance;
