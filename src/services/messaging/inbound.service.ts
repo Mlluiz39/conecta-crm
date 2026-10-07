@@ -328,6 +328,17 @@ export async function flushOutbox(limit = 50): Promise<number> {
     return p;
   }
 
+  // Voz de cada agente: a resposta em áudio sai com a voz de quem atendeu a conversa.
+  const vozes = new Map<string, string | null>();
+  const agentIds = [...new Set((rows ?? []).map((r: any) => r.agent_id).filter(Boolean))] as string[];
+  if (agentIds.length) {
+    const { data: agentes } = await supabase
+      .from("agents")
+      .select("id, voice")
+      .in("id", agentIds);
+    for (const a of (agentes ?? []) as any[]) vozes.set(String(a.id), a.voice ?? null);
+  }
+
   let sent = 0;
   console.log(`[outbox] fila: ${rows?.length ?? 0} pendente(s)`);
   for (const [i, row] of (rows ?? []).entries()) {
@@ -358,15 +369,32 @@ export async function flushOutbox(limit = 50): Promise<number> {
     // Resposta ao lead simula digitação (flag `typing` da fila). Disparo de campanha não:
     // segurar o lote travaria o cron.
     const typing = Boolean((row.media as any)?.typing);
+    // Lead mandou voz → resposta em voz, na voz do agente que atendeu (flag `voice` da fila).
+    const voz = Boolean((row.media as any)?.voice) && Boolean(provider.sendVoice);
     const digitandoMs = Math.min(Math.max(String(row.content).length * 45, 1200), 4500);
     const keepMedia = (extra: OutboxMeta) => ({ ...((row.media as any) ?? {}), outbox: extra });
 
-    console.log(`[outbox] send via provider=${provider.name} to=${phone}${typing ? ` (digitando ${digitandoMs}ms)` : ""}`);
+    console.log(
+      `[outbox] send via provider=${provider.name} to=${phone}${voz ? " (nota de voz)" : ""}${typing ? ` (digitando ${digitandoMs}ms)` : ""}`,
+    );
     if (typing) {
-      await provider.sendPresence?.(accountId, phone, "composing", digitandoMs).catch(() => {});
+      await provider
+        .sendPresence?.(accountId, phone, voz ? "recording" : "composing", digitandoMs)
+        .catch(() => {});
       await new Promise((r) => setTimeout(r, digitandoMs));
     }
-    const result = await provider.sendText(accountId, phone, row.content);
+
+    let result: Awaited<ReturnType<MessageProvider["sendText"]>>;
+    if (voz) {
+      const audio = await synthesizeSpeech(row.content, vozes.get(String((row as any).agent_id)));
+      result = audio
+        ? await provider.sendVoice!(accountId, phone, audio.base64)
+        : await provider.sendText(accountId, phone, row.content);
+      if (!audio) console.warn(`[outbox] ${row.id}: TTS indisponível, resposta foi como texto`);
+    } else {
+      result = await provider.sendText(accountId, phone, row.content);
+    }
+
     if (typing) {
       // Sempre limpa o indicador: se o envio falhar, o lead não fica com "digitando…" preso.
       await provider.sendPresence?.(accountId, phone, "paused").catch(() => {});

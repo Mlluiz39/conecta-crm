@@ -71,8 +71,10 @@ export async function runAgentForConversation(params: {
   organizationId: string;
   conversationId: string;
   inboundText: string;
+  /** Lead mandou áudio: a resposta sai como nota de voz, na voz do agente que atendeu. */
+  inboundWasAudio?: boolean;
 }): Promise<EngineResult> {
-  const { supabase, organizationId, conversationId, inboundText } = params;
+  const { supabase, organizationId, conversationId, inboundText, inboundWasAudio } = params;
 
   const { data: conv } = await supabase
     .from("conversations")
@@ -299,7 +301,8 @@ export async function runAgentForConversation(params: {
       // Fila de saída: flushOutbox envia e retenta; 'enviada' só após aceite do provider.
       status: "pendente",
       // Resposta ao lead mostra "digitando…" antes do envio (campanha não usa).
-      media: { typing: true },
+      // `voice`: o lead mandou áudio, então a resposta sai em áudio.
+      media: { typing: true, ...(inboundWasAudio ? { voice: true } : {}) },
     });
   }
 
