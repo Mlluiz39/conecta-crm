@@ -249,16 +249,17 @@ export async function runAgentForConversation(params: {
       .select("agent_id")
       .eq("id", conversationId)
       .single();
-    if (!depois?.agent_id) {
-      const papel = classificarIntencao(inboundText);
+    // Sem intenção clara NÃO roteia: o próprio gerente segue atendendo (antes caía sempre no
+    // primeiro irmão da lista, o que jogava conversa genérica no agendador).
+    const papel = classificarIntencao(inboundText);
+    if (!depois?.agent_id && papel) {
       const { data: irmaos } = await supabase
         .from("agents")
         .select("id, name, role")
         .eq("organization_id", organizationId)
         .eq("manager_agent_id", agentId)
         .eq("is_active", true);
-      const escolhido =
-        (irmaos ?? []).find((a: any) => String(a.role) === papel) ?? (irmaos ?? [])[0] ?? null;
+      const escolhido = (irmaos ?? []).find((a: any) => String(a.role) === papel) ?? null;
       if (escolhido) {
         await supabase
           .from("conversations")

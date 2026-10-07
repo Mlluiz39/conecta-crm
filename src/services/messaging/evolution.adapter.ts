@@ -139,7 +139,7 @@ export function createEvolutionProvider(cfg: {
           externalConversationId: jid, // thread estável = remoteJid
           channel: "whatsapp",
           externalAccountId: String(p.instance || cfg.instance),
-          from: jid, // completo: "5511...@s.whatsapp.net" ou "9139...@lid"
+          from: isLid ? jid : number, // LID só existe como jid; PN vai só com dígitos (telefone canônico)
           fromName: m.pushName || undefined,
           kind,
           text: text || undefined,
