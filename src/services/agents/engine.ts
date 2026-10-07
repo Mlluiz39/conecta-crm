@@ -11,7 +11,7 @@ import type {
 import { AGENT_ROLE_LABEL, CHANNEL_LABEL } from "@/types/domain";
 import { serverEnv } from "@/lib/env";
 import { runAgentLoop } from "./claude";
-import { evaluateHandoff } from "./handoff";
+import { avaliarRetomadaAutomatica, avisoRetomada, evaluateHandoff } from "./handoff";
 import { contextoAtual, formatBusinessHours, isWithinBusinessHours } from "./business-hours";
 import { renderPrompt } from "./prompt";
 import { executeTool, toolsForClaude } from "./tools";
@@ -66,6 +66,79 @@ function classificarIntencao(texto: string): AgentRole | null {
   return null;
 }
 
+/** Campos da conversa que a retomada automática precisa ler. */
+type ConversaParaRetomada = {
+  id: string;
+  assigned_to: string | null;
+  bot_disabled_at: string | null;
+  handoff_reason: string | null;
+};
+
+/**
+ * Retoma uma conversa que ficou em transbordo sem ninguém atender.
+ *
+ * Só age quando **ninguém assumiu** a conversa (`assigned_to` nulo): se um humano clicou
+ * "Assumir conversa", quem manda é ele. O silêncio é medido do transbordo
+ * (`bot_disabled_at`) ou da última mensagem escrita por um humano no CRM — o que for mais
+ * recente — e precisa passar de `HANDOFF_AUTO_RESUME_MINUTES` (padrão 30; 0 desliga).
+ *
+ * Quando retoma, deixa uma nota na conversa: sem isso a IA "voltaria do nada" no histórico.
+ */
+async function retomarConversaAbandonada(params: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  conversationId: string;
+  conversation: ConversaParaRetomada;
+}): Promise<{ retomou: boolean; minutosParados: number | null }> {
+  const { supabase, organizationId, conversationId, conversation } = params;
+  const minutos = serverEnv().handoff.autoResumeMinutes;
+
+  let ultimaHumanaEm: string | null = null;
+  if (!conversation.assigned_to && conversation.bot_disabled_at) {
+    const { data } = await supabase
+      .from("messages")
+      .select("created_at")
+      .eq("conversation_id", conversationId)
+      .eq("direction", "out")
+      .eq("sender_type", "user")
+      .gte("created_at", conversation.bot_disabled_at)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    ultimaHumanaEm = (data as { created_at?: string } | null)?.created_at ?? null;
+  }
+
+  const decisao = avaliarRetomadaAutomatica({
+    botDisabledAt: conversation.bot_disabled_at,
+    ultimaHumanaEm,
+    assumidaPorHumano: Boolean(conversation.assigned_to),
+    minutos,
+  });
+  if (!decisao.retomar) return { retomou: false, minutosParados: decisao.minutosParados };
+
+  const { error } = await supabase
+    .from("conversations")
+    .update({ bot_active: true, handoff_reason: null, bot_disabled_at: null })
+    .eq("id", conversationId)
+    .eq("organization_id", organizationId);
+  if (error) {
+    console.error("[handoff] não deu para retomar a conversa:", error.message);
+    return { retomou: false, minutosParados: decisao.minutosParados };
+  }
+
+  await supabase.from("conversation_notes").insert({
+    organization_id: organizationId,
+    conversation_id: conversationId,
+    content:
+      `IA retomou o atendimento automaticamente: ${decisao.minutosParados} min sem resposta ` +
+      `humana (transbordo: ${conversation.handoff_reason ?? "assumido no CRM"}).`,
+  });
+  console.log(
+    `[handoff] conversa ${conversationId} retomada pela IA depois de ${decisao.minutosParados} min`,
+  );
+  return { retomou: true, minutosParados: decisao.minutosParados };
+}
+
 export async function runAgentForConversation(params: {
   supabase: SupabaseClient;
   organizationId: string;
@@ -78,12 +151,30 @@ export async function runAgentForConversation(params: {
 
   const { data: conv } = await supabase
     .from("conversations")
-    .select("id, contact_id, channel_type, agent_id, bot_active, contact:contacts(id, name)")
+    .select(
+      "id, contact_id, channel_type, agent_id, bot_active, assigned_to, bot_disabled_at, handoff_reason, contact:contacts(id, name)",
+    )
     .eq("id", conversationId)
     .eq("organization_id", organizationId)
     .single();
   if (!conv) return { handled: false, reason: "conversa_nao_encontrada" };
-  if (!conv.bot_active) return { handled: false, reason: "bot_desativado" };
+
+  /**
+   * Transbordo não é definitivo: se ninguém assumiu a conversa e já passou o tempo de
+   * silêncio, a IA retoma aqui mesmo (ver `avaliarRetomadaAutomatica`). Sem isso, o lead que
+   * volta a escrever depois de um handoff automático ficava sem resposta para sempre.
+   */
+  let minutosDeRetomada: number | null = null;
+  if (!conv.bot_active) {
+    const retomada = await retomarConversaAbandonada({
+      supabase,
+      organizationId,
+      conversationId,
+      conversation: conv as ConversaParaRetomada,
+    });
+    if (!retomada.retomou) return { handled: false, reason: "bot_desativado" };
+    minutosDeRetomada = retomada.minutosParados;
+  }
 
   let agentId = conv.agent_id as string | null;
   if (!agentId) {
@@ -175,7 +266,12 @@ export async function runAgentForConversation(params: {
     role: agent.role,
     agentName: agent.name,
     tone: agent.tone,
-    context: contextoAtual(org),
+    context: [
+      contextoAtual(org),
+      minutosDeRetomada !== null ? avisoRetomada(minutosDeRetomada) : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
     memory: memoria,
     subagents: subagentes,
   });

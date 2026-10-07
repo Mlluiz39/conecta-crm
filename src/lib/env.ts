@@ -9,6 +9,14 @@ export const publicEnv = {
   appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
 };
 
+/** Número vindo do ambiente: vazio/ inválido cai no padrão (0 é valor legítimo). */
+function numeroEnv(nome: string, padrao: number): number {
+  const bruto = process.env[nome];
+  if (bruto === undefined || bruto.trim() === "") return padrao;
+  const n = Number(bruto);
+  return Number.isFinite(n) ? n : padrao;
+}
+
 export function serverEnv() {
   const apiKey =
     process.env.ANTHROPIC_API_KEY ||
@@ -48,6 +56,13 @@ export function serverEnv() {
     hermes: {
       bin: process.env.HERMES_BIN ?? "",
       home: process.env.HERMES_HOME ?? "",
+    },
+    handoff: {
+      /**
+       * Minutos de silêncio (sem resposta humana) até a IA retomar sozinha uma conversa que
+       * ficou em transbordo. 0 desliga a retomada automática.
+       */
+      autoResumeMinutes: numeroEnv("HANDOFF_AUTO_RESUME_MINUTES", 30),
     },
     telegram: {
       /** Mesmo bot dos alertas: é o bot do CRM — aqui ele atende, não só avisa. */
