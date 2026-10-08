@@ -27,14 +27,19 @@ function cfgAudio() {
   };
 }
 
-/** `chatterbox:vendedor` → serviço local; qualquer outro valor → voz do proxy. */
+/** `piper:faber` / `chatterbox:vendedor` → serviço local; qualquer outro valor → proxy. */
 export function interpretarVoz(voice?: string | null): {
-  provedor: "chatterbox" | "proxy";
+  provedor: "piper" | "chatterbox" | "proxy";
   nome: string;
 } {
   const bruto = String(voice ?? "").trim();
-  const casou = bruto.match(/^chatterbox:(.+)$/i);
-  if (casou) return { provedor: "chatterbox", nome: casou[1].trim() };
+  const casou = bruto.match(/^(piper|chatterbox):(.+)$/i);
+  if (casou) {
+    return {
+      provedor: casou[1].toLowerCase() as "piper" | "chatterbox",
+      nome: casou[2].trim(),
+    };
+  }
   return { provedor: "proxy", nome: bruto };
 }
 
@@ -77,17 +82,19 @@ async function garantirOpus(
 }
 
 /**
- * Voz pelo serviço local (Chatterbox). `voice` é o nome da voz na biblioteca do serviço
- * (`/voices`) — normalmente uma amostra clonada do próprio agente.
+ * Voz por um serviço local (Piper ou Chatterbox) — os dois falam o mesmo dialeto
+ * OpenAI-compatible (`/v1/audio/speech`), então só muda a base. `voice` é o nome da voz
+ * instalada no serviço (Piper: arquivo `.onnx`; Chatterbox: amostra cadastrada).
  */
-async function chirpChatterbox(
+async function vozPeloServicoLocal(
   texto: string,
   voz: string,
+  base: string,
 ): Promise<{ base64: string; mimetype: string } | null> {
-  const { chatterboxUrl, language, timeoutMs } = cfgAudio();
-  if (!chatterboxUrl) return null;
+  const { language, timeoutMs } = cfgAudio();
+  if (!base) return null;
   try {
-    const res = await fetch(`${chatterboxUrl}/v1/audio/speech`, {
+    const res = await fetch(`${base}/v1/audio/speech`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -99,14 +106,14 @@ async function chirpChatterbox(
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) {
-      console.warn(`[audio] chatterbox HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      console.warn(`[audio] TTS local ${base} HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
       return null;
     }
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length < 1024) return null;
-    return garantirOpus(buf, res.headers.get("content-type") || "audio/ogg");
+    return garantirOpus(buf, res.headers.get("content-type") || "audio/wav");
   } catch (err) {
-    console.warn("[audio] chatterbox falhou:", (err as Error).message);
+    console.warn(`[audio] TTS local ${base} falhou:`, (err as Error).message);
     return null;
   }
 }
@@ -181,15 +188,15 @@ export async function transcribeAudio(input: {
 /**
  * Resposta do agente em voz. `null` = usar texto (TTS indisponível ou resposta longa).
  *
- * Ordem: serviço local (Chatterbox) quando a voz do agente é `chatterbox:<nome>` ou quando
- * `TTS_PROVIDER=chatterbox`; senão o proxy. Em qualquer caso, se o escolhido falhar, tenta o
- * outro antes de desistir — melhor voz diferente do que lead sem resposta.
+ * Ordem: serviço local (`piper`/`chatterbox`, quando a voz do agente tem o prefixo ou quando
+ * `TTS_PROVIDER` aponta para ele); senão o proxy. Em qualquer caso, se o escolhido falhar,
+ * tenta o outro antes de desistir — melhor voz diferente do que lead sem resposta.
  */
 export async function synthesizeSpeech(
   text: string,
   voice?: string | null,
 ): Promise<{ base64: string; mimetype: string } | null> {
-  const { provider, defaultVoice, maxChars } = cfgAudio();
+  const { provider, defaultVoice, maxChars, piperUrl, chatterboxUrl } = cfgAudio();
   const limpo = String(text ?? "").trim();
   if (!limpo) return null;
   if (limpo.length > maxChars) {
@@ -198,27 +205,31 @@ export async function synthesizeSpeech(
   }
 
   const alvo = interpretarVoz(voice);
-  const nomeVoz = alvo.nome || (alvo.provedor === "chatterbox" ? "" : defaultVoice);
+  // Sem prefixo, o provedor configurado decide; `auto` deixa a escolha por agente.
+  const localPedido: "piper" | "chatterbox" | null =
+    alvo.provedor !== "proxy"
+      ? alvo.provedor
+      : provider === "piper" || provider === "chatterbox"
+        ? provider
+        : null;
 
-  const usaChatterbox = alvo.provedor === "chatterbox" || provider === "chatterbox";
-  const usaProxy = alvo.provedor === "proxy" && provider !== "chatterbox";
-
-  if (usaChatterbox) {
-    const audio = await chirpChatterbox(limpo, nomeVoz);
+  if (localPedido) {
+    const base = localPedido === "piper" ? piperUrl : chatterboxUrl;
+    const nomeVoz = alvo.nome || (localPedido === "piper" ? "" : defaultVoice);
+    const audio = await vozPeloServicoLocal(limpo, nomeVoz, base);
     if (audio) return audio;
     // Reserva: o lead recebe a resposta em voz de qualquer forma.
-    console.warn("[audio] caindo para o proxy (chatterbox não respondeu)");
+    console.warn(`[audio] caindo para o proxy (${localPedido} não respondeu)`);
     return vozPeloProxy(limpo, defaultVoice);
   }
 
-  if (usaProxy) {
-    const audio = await vozPeloProxy(limpo, nomeVoz);
-    if (audio) return audio;
-    // Sem voz pelo proxy: se o serviço local estiver configurado, tenta ele antes de desistir.
-    if (provider === "auto") return chirpChatterbox(limpo, "");
-    return null;
+  const audio = await vozPeloProxy(limpo, alvo.nome || defaultVoice);
+  if (audio) return audio;
+  // Sem voz pelo proxy: se algum serviço local estiver no ar, tenta antes de desistir.
+  if (provider === "auto") {
+    return (await vozPeloServicoLocal(limpo, "", piperUrl)) ??
+      (await vozPeloServicoLocal(limpo, "", chatterboxUrl));
   }
-
   return null;
 }
 

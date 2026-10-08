@@ -24,3 +24,6 @@ coverage/
 # bytecode do Python (o plugin da trava de saída é importado pelos testes)
 __pycache__/
 *.pyc
+
+# Vozes do Piper (~60 MB cada) — baixadas por deploy/tts/piper/setup.sh
+deploy/tts/piper/voices/

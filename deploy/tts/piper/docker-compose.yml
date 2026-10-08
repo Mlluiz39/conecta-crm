@@ -1,0 +1,28 @@
+# Serviço local de voz (Piper) do ConectaCRM.
+#
+#   ./deploy/tts/piper/setup.sh          # baixa as vozes, constrói e sobe
+#   ./deploy/tts/piper/setup.sh --logs   # acompanha
+#
+# Porta presa no localhost: só o CRM (que roda no mesmo host) alcança.
+name: conectacrm-tts
+
+services:
+  piper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: conectacrm-piper
+    container_name: conectacrm-piper
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4124:4124"
+    environment:
+      VOICES_DIR: /voices
+      PORT: "4124"
+      # Voz usada quando o agente não tem voz própria (`agents.voice` vazio)
+      DEFAULT_VOICE: "${DEFAULT_VOICE:-faber}"
+    volumes:
+      - ./voices:/voices:ro
+    # Piper usa ~300 MB; o teto existe para nunca competir com Postgres/Evolution pela RAM.
+    mem_limit: 1g
+    cpus: "3.0"
