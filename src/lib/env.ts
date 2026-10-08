@@ -103,6 +103,20 @@ export function serverEnv() {
     },
     cronSecret: process.env.CRON_SECRET ?? "",
     voice: {
+      /**
+       * Quem gera a voz:
+       *  - `proxy`      → endpoint OpenAI-compatible já configurado (Gemini via proxy) — padrão;
+       *  - `chatterbox` → serviço local do Chatterbox (MIT, roda na própria VPS);
+       *  - `auto`       → usa o Chatterbox quando `CHATTERBOX_URL` responde, senão o proxy.
+       *
+       * Por agente dá para escolher: `agents.voice = "chatterbox:vendedor"` usa a voz clonada
+       * do serviço local; qualquer outro valor continua indo para o proxy.
+       */
+      provider: (process.env.TTS_PROVIDER ?? "auto").toLowerCase(),
+      /** Base do serviço local (OpenAI-compatible: /v1/audio/speech, /voices). */
+      chatterboxUrl: (process.env.CHATTERBOX_URL ?? "http://127.0.0.1:4123").replace(/\/+$/, ""),
+      /** Idioma mandado ao Chatterbox (pt = português, o finetune pt-BR usa o mesmo id). */
+      language: process.env.TTS_LANGUAGE ?? "pt",
       /** Voz do TTS quando o agente que atendeu não tem voz própria. */
       defaultVoice: process.env.TTS_VOICE ?? "alloy",
       /** `auto` deixa o proxy escolher o provedor de TTS/STT. */
@@ -110,6 +124,11 @@ export function serverEnv() {
       transcribeModel: process.env.TRANSCRIBE_MODEL ?? "auto",
       /** Resposta maior que isso vira texto: nota de voz longa é ruim de ouvir. */
       maxChars: Number(process.env.TTS_MAX_CHARS ?? 600),
+      /**
+       * Teto de espera da geração. No proxy (Gemini) 60s bastam; no Chatterbox em CPU a
+       * síntese é lenta, então o padrão é maior — quem tem GPU pode baixar.
+       */
+      timeoutMs: numeroEnv("TTS_TIMEOUT_MS", 180_000),
     },
   };
 }
