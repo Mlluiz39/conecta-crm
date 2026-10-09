@@ -100,11 +100,22 @@ no próprio motor) e caem no Piper se ele não responder. Para tratar o motor co
 `TTS_PROVIDER="auto"` e marque só os agentes desejados com `agents.voice = "mlvoice:rafael"` — o
 prefixo **roteia** o agente para o motor, mas não troca o timbre (veja abaixo).
 
-**Sobre a voz ser (ou não) por agente:** o `POST /v1/tts` do MLVoice aceita só
-`text`, `format` e `normalize` — o corpo não tem campo `voice`. Quem manda o campo é ignorado, e o
-timbre é **um só**, escolhido no motor (`MLVOICE_VOICE` no `mlvoice.env`/unit, padrão `rafael`; o
-`/health` mostra qual está carregada). Ou seja: `mlvoice:<nome>` no CRM muda o *roteamento* do
-agente, não a voz. Timbre diferente por agente hoje só no Piper, ou no proxy.
+**Voz por agente (MLVoice Engine v2):** o `POST /v1/tts` aceita `text`, `voice` e `format`, e o
+motor valida a voz contra a lista que ele anuncia em `GET /health`:
+
+```bash
+curl -s http://127.0.0.1:8765/health
+# {"status":"ok","engine":"pocket-tts","voice":"rafael",
+#  "voices":["rafael","jane","vera","peter_yearsley","george"],"language":"portuguese","loaded":true}
+```
+
+Voz fora dessa lista devolve **HTTP 422** — por isso `agents.voice` usa `mlvoice:<voz>` e o painel
+só oferece o que existe (`VOICE_CATALOG`, em `src/types/domain.ts`). Sem voz no corpo, o motor usa
+a padrão dele (`MLVOICE_VOICE` do serviço). Ou seja: agora dá para ter **timbre diferente por
+agente** no MLVoice, não só roteamento.
+
+No painel: **Agentes → (escolha o agente) → aba Voz**. Em modo leitura mostra a voz atual e o
+identificador; o seletor aparece depois de clicar em **Editar**.
 
 ## Subir a mudança
 
@@ -123,7 +134,7 @@ apaga `TTS_PROVIDER`/`MLVOICE_*` e a chave junto — mantenha os dois em sincron
 
 ## Vozes por agente
 
-`agents.voice` decide o provedor **e** a voz (no MLVoice, só o provedor — o timbre é global):
+`agents.voice` decide o provedor **e** a voz (no MLVoice v2, os dois):
 
 | Valor | Efeito |
 |---|---|
@@ -195,7 +206,7 @@ conversas em voz ao mesmo tempo, os pedidos entram na fila.
 | `TTS_PROVIDER` | `auto` | `mlvoice` \| `piper` \| `chatterbox` \| `proxy` \| `auto` |
 | `MLVOICE_URL` | `http://127.0.0.1:8765/v1/tts` | endpoint do MLVoice (aceita também só a base) |
 | `MLVOICE_API_KEY` | (vazio) | chave do MLVoice (`X-API-Key`); vazio desliga o motor |
-| `MLVOICE_VOICE` | (vazio) | voz mandada no corpo, mas o motor MLVoice **ignora** — quem manda o timbre é o lado dele (`rafael`) |
+| `MLVOICE_VOICE` | (vazio) | voz pedida quando o agente não tem voz própria em `agents.voice`; fora da lista do motor = HTTP 422 |
 | `PIPER_URL` | `http://127.0.0.1:4124` | serviço do Piper |
 | `CHATTERBOX_URL` | `http://127.0.0.1:4123` | serviço do Chatterbox |
 | `TTS_LANGUAGE` | `pt` | idioma mandado ao motor local |
@@ -212,12 +223,12 @@ conversas em voz ao mesmo tempo, os pedidos entram na fila.
   (o MLVoice tem chave, mas a chave não substitui a rede fechada: `X-API-Key` vaza em log).
 * `MLVOICE_API_KEY` vive só no `.env.local`/`.env.vps` (os dois estão no `.gitignore`), nunca no
   código nem em `docker-compose.yml` — e não imprima a chave no terminal.
-* O contrato do `/v1/tts` **foi conferido contra o código do motor** (`/opt/mlvoice/pocket/api.py`)
-  e medido na VPS em 08/10/2026: corpo `{text, format:"opus"|"wav", normalize}`, teto de 1500
-  caracteres no texto (o CRM corta antes, em `TTS_MAX_CHARS=600`), `401` com chave errada e
-  resposta em **binário** (`audio/ogg` no formato opus), com o tempo de geração no cabeçalho
-  `X-Generation-Seconds`. Não existe campo `voice`: o campo que o CRM manda é ignorado pelo motor,
-  e por isso o código tem função dedicada em vez de reusar `vozPeloServicoLocal`.
+* O contrato do `/v1/tts` **foi conferido contra o código do motor** (`/opt/mlvoice/pocket/api.py`,
+  v2.0.0) e medido na VPS em 08/10/2026: corpo `{text, voice?, format:"opus"|"wav", normalize}`, teto
+  de 1500 caracteres no texto (o CRM corta antes, em `TTS_MAX_CHARS=600`), `401` com chave errada,
+  `422` com voz fora da lista, e resposta em **binário** (`audio/ogg` no formato opus), com o tempo
+  de geração no cabeçalho `X-Generation-Seconds`. O `voice` por requisição é o que permite timbre
+  por agente; a função dedicada (`vozPeloMLVoice`) existe porque o dialeto não é o do OpenAI.
 * O caminho de JSON com base64 e a queda para Piper/proxy continuam no código como rede de
   segurança. Com este motor eles não são exercitados (a resposta é binária), mas custam nada e
   cobrem o caso de o motor trocar de versão.

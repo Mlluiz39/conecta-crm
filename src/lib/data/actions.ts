@@ -15,6 +15,7 @@ import {
   type LeadTemperature,
 } from "@/lib/data/lead-temperature";
 import type { AgentToolKey, AgentRole, AgentTone, ChannelType, HandoffRuleKey } from "@/types/domain";
+import { VOICE_CATALOG } from "@/types/domain";
 
 /* ───────────────────────────── Contatos ───────────────────────────── */
 
@@ -1907,6 +1908,36 @@ export async function updateAgentRole(agentId: string, role: AgentRole, tone?: A
   const { error } = await supabase
     .from("agents")
     .update(patch)
+    .eq("organization_id", organizationId)
+    .eq("id", agentId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/agentes");
+}
+
+/**
+ * Voz do agente nas respostas em áudio (`agents.voice`) — a voz usada quando o lead manda nota
+ * de voz e quem atendeu é este agente.
+ *
+ * Grava **só** essa coluna: nada de prompt, ferramentas, canais ou memória. O identificador é
+ * validado contra o catálogo (`VOICE_CATALOG`), que espelha o que cada motor aceita de verdade —
+ * o MLVoice Engine v2 recusa com HTTP 422 qualquer voz fora da lista dele, então deixar passar
+ * um valor inventado só daria erro na hora do atendimento. String vazia limpa a coluna (NULL) e o
+ * agente volta para a voz padrão do ambiente (`TTS_VOICE`).
+ */
+export async function updateAgentVoice(agentId: string, voice: string) {
+  const limpo = String(voice ?? "").trim();
+
+  if (limpo && !VOICE_CATALOG.some((v) => v.value === limpo)) {
+    throw new Error(`Voz não permitida: ${limpo}`);
+  }
+
+  const { organizationId } = await requireProfile();
+  const supabase = createClient();
+
+  const { error } = await supabase
+    .from("agents")
+    .update({ voice: limpo || null })
     .eq("organization_id", organizationId)
     .eq("id", agentId);
 

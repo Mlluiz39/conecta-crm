@@ -16,9 +16,19 @@ import {
   updateAgentRole,
   updateAgentName,
   updateAgentMemory,
+  updateAgentVoice,
 } from "@/lib/data/actions";
 import { Badge, Card } from "@/components/ui/primitives";
-import { AGENT_ROLE_LABEL, AGENT_TONE_LABEL, CHANNEL_LABEL, HANDOFF_RULE_LABEL, TOOL_LABEL } from "@/types/domain";
+import {
+  AGENT_ROLE_LABEL,
+  AGENT_TONE_LABEL,
+  CHANNEL_LABEL,
+  HANDOFF_RULE_LABEL,
+  TOOL_LABEL,
+  VOICE_CATALOG,
+  VOICE_GROUPS,
+  voiceLabel,
+} from "@/types/domain";
 import type { AgentRole, AgentTone, AgentToolKey, ChannelType, HandoffRuleKey } from "@/types/domain";
 
 type Agent = {
@@ -59,10 +69,20 @@ export function AgentWorkbench({
   agents: Agent[];
   selectedId: string | null;
   detail:
-    | { versions: Version[]; channels: Channel[]; tools: Tool[]; rules: Rule[]; memories: Memory[] }
+    | {
+        /** Linha do agente (`select *` em getAgentDetail) — traz `voice`, que a lista não traz. */
+        agent?: { voice?: string | null } | null;
+        versions: Version[];
+        channels: Channel[];
+        tools: Tool[];
+        rules: Rule[];
+        memories: Memory[];
+      }
     | null;
 }) {
-  const [tab, setTab] = useState<"prompt" | "memoria" | "canais" | "ferramentas" | "handoff" | "playground">("prompt");
+  const [tab, setTab] = useState<"prompt" | "voz" | "memoria" | "canais" | "ferramentas" | "handoff" | "playground">(
+    "prompt",
+  );
   const [creating, setCreating] = useState(false);
   /**
    * O painel abre em **só leitura**: olhar um agente não pode mexer nele. Trocar de agente pelo
@@ -154,6 +174,7 @@ export function AgentWorkbench({
               {(
                 [
                   ["prompt", "Prompt"],
+                  ["voz", "Voz"],
                   ["memoria", "Memória"],
                   ["canais", "Canais"],
                   ["ferramentas", "Ferramentas"],
@@ -176,6 +197,14 @@ export function AgentWorkbench({
             <div key={editing ? "edicao" : "leitura"}>
               {tab === "prompt" && (
                 <PromptTab agentId={selectedId} agents={agents} versions={detail.versions} editing={editing} />
+              )}
+              {tab === "voz" && (
+                <VoiceTab
+                  agentId={selectedId}
+                  current={detail.agent?.voice ?? null}
+                  role={agent.role}
+                  editing={editing}
+                />
               )}
               {tab === "memoria" && (
                 <MemoryTab agentId={selectedId} memories={detail.memories ?? []} editing={editing} />
@@ -600,6 +629,162 @@ function ChannelsTab({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/* ─────────────────────────── Voz ─────────────────────────── */
+
+const VOICE_MOTOR_LABEL: Record<string, string> = {
+  mlvoice: "MLVoice (Pocket TTS) — na própria VPS, em CPU",
+  piper: "Piper — local, CPU, mais rápido",
+};
+
+/** De onde vem a voz de um valor de `agents.voice`, para o painel não mostrar só o código. */
+function motorDaVoz(valor: string): string {
+  const prefixo = valor.match(/^([a-z]+):/i)?.[1]?.toLowerCase();
+  if (prefixo && VOICE_MOTOR_LABEL[prefixo]) return VOICE_MOTOR_LABEL[prefixo];
+  return valor ? "Proxy (Gemini via 9router) — a reserva" : "";
+}
+
+function VoiceTab({
+  agentId,
+  current,
+  role,
+  editing,
+}: {
+  agentId: string;
+  current?: string | null;
+  role: AgentRole;
+  editing: boolean;
+}) {
+  const router = useRouter();
+  const [voice, setVoice] = useState(current ?? "");
+  const [saving, startSaving] = useTransition();
+  const [note, setNote] = useState("");
+  const [copiado, setCopiado] = useState(false);
+
+  const atual = String(current ?? "");
+  const foraDoCatalogo = Boolean(atual) && !VOICE_CATALOG.some((v) => v.value === atual);
+  const mudou = voice !== atual;
+
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(atual);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 1500);
+    } catch {
+      setNote("Erro: o navegador não deixou copiar");
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Voz usada quando o lead manda <strong>nota de voz</strong> e quem atende é este agente.
+          Resposta em texto não muda.
+        </p>
+        <div className="rounded-xl border bg-muted/20 p-3">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+              Voz para respostas em áudio
+            </span>
+            <Badge className="bg-primary/10 text-primary">{AGENT_ROLE_LABEL[role]}</Badge>
+          </div>
+          <p className="text-sm font-semibold">{voiceLabel(atual)}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-primary">
+              {atual || "(vazio)"}
+            </code>
+            {atual && (
+              <button onClick={() => void copiar()} className="text-[10px] font-semibold text-primary hover:underline">
+                {copiado ? "copiado!" : "copiar identificador"}
+              </button>
+            )}
+          </div>
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            {atual
+              ? `Motor: ${motorDaVoz(atual)} · coluna agents.voice`
+              : "Sem voz definida: usa a voz padrão do ambiente (TTS_VOICE)."}
+            {" "}Clique em Editar para trocar.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Voz usada quando o lead manda <strong>nota de voz</strong> e quem atende é este agente.
+        Resposta em texto não muda. O identificador é salvo em <code>agents.voice</code>.
+      </p>
+
+      <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
+        <label className="block text-xs font-bold uppercase tracking-wide text-muted-foreground">
+          Voz para respostas em áudio
+        </label>
+        <select
+          value={voice}
+          onChange={(e) => setVoice(e.target.value)}
+          className="w-full rounded-xl border bg-background px-3 py-2 text-sm"
+        >
+          <option value="">Voz padrão do sistema (TTS_VOICE)</option>
+          {foraDoCatalogo && <option value={atual}>{`${atual} (fora do catálogo)`}</option>}
+          {VOICE_GROUPS.map((grupo) => (
+            <optgroup key={grupo} label={grupo}>
+              {VOICE_CATALOG.filter((v) => v.group === grupo).map((v) => (
+                <option key={v.value} value={v.value}>
+                  {v.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-primary">
+            {voice || "NULL"}
+          </code>
+          {voice && <span className="text-[10px] text-muted-foreground">{motorDaVoz(voice)}</span>}
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              setNote("");
+              startSaving(async () => {
+                try {
+                  await updateAgentVoice(agentId, voice);
+                  router.refresh();
+                  setNote(`Voz salva: ${voiceLabel(voice)}`);
+                } catch (e) {
+                  setNote(`Erro: ${(e as Error).message}`);
+                }
+              });
+            }}
+            disabled={!mudou || saving}
+            className="rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50"
+          >
+            {saving ? "Salvando..." : "Salvar voz"}
+          </button>
+          {note && (
+            <span className={`text-[11px] ${note.startsWith("Erro") ? "text-destructive" : "text-emerald-600"}`}>
+              {note}
+            </span>
+          )}
+        </div>
+
+        <p className="text-[10px] text-muted-foreground">
+          Trocar a voz não mexe em prompt, ferramentas nem canais — só nesta coluna.
+        </p>
+      </div>
+
+      <p className="text-[11px] italic text-muted-foreground">
+        O timbre precisa ser ouvido para escolher: mande uma nota de voz de teste depois de salvar
+        (o playground ao lado não gera áudio).
+      </p>
     </div>
   );
 }

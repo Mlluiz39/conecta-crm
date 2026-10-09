@@ -216,11 +216,12 @@ function audioDeJson(bytes: Buffer): Buffer | null {
  * (por isso não usa `vozPeloServicoLocal`, que fala o dialeto do OpenAI). Resposta em binário
  * (ogg/opus), com o tempo de geração no cabeçalho `X-Generation-Seconds`.
  *
- * O motor instalado (MLVoice Engine 1.0.0, em `/opt/mlvoice`) aceita só `text`, `format` e
- * `normalize`: o `voice` que mandamos é ignorado por ele, e o timbre é o que está carregado no
- * motor (`rafael`). O campo vai assim mesmo porque custa nada e passa a valer se o motor ganhar
- * voz por requisição. Falha aqui devolve `null` e quem chamou escolhe a reserva: o lead nunca fica
- * sem resposta.
+ * O MLVoice Engine v2 (em `/opt/mlvoice`) aceita `text`, `voice` e `format`, e valida a voz contra
+ * a lista que ele mesmo anuncia em `GET /health` — voz fora dela devolve HTTP 422. É por isso que
+ * `agents.voice` usa o formato `mlvoice:<voz>` e que existe catálogo no painel (`VOICE_CATALOG`):
+ * um valor inventado só falharia na hora do atendimento. Sem voz no corpo, o motor usa a voz
+ * padrão dele (a que estiver no `MLVOICE_VOICE` do serviço). Falha aqui devolve `null` e quem
+ * chamou escolhe a reserva: o lead nunca fica sem resposta.
  */
 async function vozPeloMLVoice(
   texto: string,

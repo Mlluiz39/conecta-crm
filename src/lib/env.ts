@@ -128,9 +128,9 @@ export function serverEnv() {
       /** Chave do MLVoice. Vazio = motor desligado (cai no Piper/proxy sem quebrar nada). */
       mlvoiceApiKey: process.env.MLVOICE_API_KEY ?? "",
       /**
-       * Voz pedida ao motor (ex.: `rafael`). O MLVoice instalado **ignora** o campo `voice` no
-       * corpo: o timbre é o carregado do lado dele (`/opt/mlvoice/pocket/mlvoice.env`). Isto fica
-       * aqui para o dia em que o motor aceitar voz por requisição.
+       * Voz pedida ao motor (ex.: `rafael`) quando o agente não tem voz própria em
+       * `agents.voice`. O MLVoice Engine v2 valida contra a lista dele (`/health`) — nome fora
+       * dela devolve HTTP 422. A lista do painel está em `VOICE_CATALOG` (`types/domain.ts`).
        */
       mlvoiceVoice: process.env.MLVOICE_VOICE ?? "",
       /** Idioma mandado ao Chatterbox (pt = português, o finetune pt-BR usa o mesmo id). */
