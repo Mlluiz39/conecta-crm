@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles } from "lucide-react";
+import { Pencil, Sparkles } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
   saveDraft,
@@ -64,6 +64,16 @@ export function AgentWorkbench({
 }) {
   const [tab, setTab] = useState<"prompt" | "memoria" | "canais" | "ferramentas" | "handoff" | "playground">("prompt");
   const [creating, setCreating] = useState(false);
+  /**
+   * O painel abre em **só leitura**: olhar um agente não pode mexer nele. Trocar de agente pelo
+   * menu lateral também volta ao modo leitura, para ninguém editar o agente errado por engano.
+   */
+  const [editing, setEditing] = useState(false);
+  const agent = agents.find((a) => a.id === selectedId);
+
+  useEffect(() => {
+    setEditing(false);
+  }, [selectedId]);
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
@@ -101,10 +111,45 @@ export function AgentWorkbench({
 
       {/* Coluna: editor */}
       <div className="lg:col-span-5">
-        {!detail || !selectedId ? (
+        {!detail || !selectedId || !agent ? (
           <Card className="text-sm text-muted-foreground">Selecione ou crie um agente.</Card>
         ) : (
           <Card key={selectedId} className="space-y-4">
+            {/* Cabeçalho: quem está selecionado e em que modo o painel está */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="truncate text-sm font-bold">{agent.name}</h3>
+                  <span
+                    className={`h-2 w-2 shrink-0 rounded-full ${agent.is_active ? "bg-emerald-500" : "bg-slate-400"}`}
+                  />
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <Badge className="bg-primary/10 text-primary">{AGENT_ROLE_LABEL[agent.role]}</Badge>
+                  <span className="text-[10px] text-muted-foreground">{AGENT_TONE_LABEL[agent.tone] ?? agent.tone}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {agent.is_active ? "· ativo" : "· inativo"} · {editing ? "editando" : "só leitura"}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditing((v) => !v)}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-colors ${
+                  editing
+                    ? "border text-muted-foreground hover:bg-accent"
+                    : "bg-primary text-primary-foreground hover:opacity-90"
+                }`}
+              >
+                {editing ? (
+                  "Cancelar edição"
+                ) : (
+                  <>
+                    <Pencil size={12} /> Editar
+                  </>
+                )}
+              </button>
+            </div>
+
             <div className="flex gap-2 overflow-x-auto border-b pb-2 text-xs font-bold">
               {(
                 [
@@ -127,17 +172,18 @@ export function AgentWorkbench({
               ))}
             </div>
 
-            {tab === "prompt" && (
-              <PromptTab
-                agentId={selectedId}
-                agents={agents}
-                versions={detail.versions}
-              />
-            )}
-            {tab === "memoria" && <MemoryTab agentId={selectedId} memories={detail.memories ?? []} />}
-            {tab === "canais" && <ChannelsTab agentId={selectedId} channels={detail.channels} />}
-            {tab === "ferramentas" && <ToolsTab agentId={selectedId} tools={detail.tools} />}
-            {tab === "handoff" && <RulesTab agentId={selectedId} rules={detail.rules} />}
+            {/* `key` por modo: sair da edição descarta o que não foi salvo, como o botão promete */}
+            <div key={editing ? "edicao" : "leitura"}>
+              {tab === "prompt" && (
+                <PromptTab agentId={selectedId} agents={agents} versions={detail.versions} editing={editing} />
+              )}
+              {tab === "memoria" && (
+                <MemoryTab agentId={selectedId} memories={detail.memories ?? []} editing={editing} />
+              )}
+              {tab === "canais" && <ChannelsTab agentId={selectedId} channels={detail.channels} editing={editing} />}
+              {tab === "ferramentas" && <ToolsTab agentId={selectedId} tools={detail.tools} editing={editing} />}
+              {tab === "handoff" && <RulesTab agentId={selectedId} rules={detail.rules} editing={editing} />}
+            </div>
           </Card>
         )}
       </div>
@@ -157,7 +203,17 @@ export function AgentWorkbench({
 
 /* ─────────────────────────── Prompt ─────────────────────────── */
 
-function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Agent[]; versions: Version[] }) {
+function PromptTab({
+  agentId,
+  agents,
+  versions,
+  editing,
+}: {
+  agentId: string;
+  agents: Agent[];
+  versions: Version[];
+  editing: boolean;
+}) {
   const agent = agents.find((a) => a.id === agentId);
   const router = useRouter();
   const published = (versions ?? []).find((v) => v.status === "published");
@@ -217,70 +273,79 @@ function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Age
 
   return (
     <div className="space-y-3">
-      {/* Nome do agente ({{nome_agente}} nos prompts) */}
-      <div className="rounded-xl border bg-muted/20 p-3">
-        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">
-          Nome do Agente
-        </label>
-        <div className="flex gap-2">
-          <input
-            value={agentName}
-            onChange={(e) => setAgentName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && dirtyName && saveName()}
-            placeholder="Nome do agente"
-            className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-          />
-          <button
-            onClick={() => void saveName()}
-            disabled={!dirtyName || saving}
-            className="rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50"
-          >
-            {saving ? "Salvando..." : "Salvar nome"}
-          </button>
+      {/* Nome do agente ({{nome_agente}} nos prompts) — só no modo edição */}
+      {editing && (
+        <div className="rounded-xl border bg-muted/20 p-3">
+          <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">
+            Nome do Agente
+          </label>
+          <div className="flex gap-2">
+            <input
+              value={agentName}
+              onChange={(e) => setAgentName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && dirtyName && saveName()}
+              placeholder="Nome do agente"
+              className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+            <button
+              onClick={() => void saveName()}
+              disabled={!dirtyName || saving}
+              className="rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50"
+            >
+              {saving ? "Salvando..." : "Salvar nome"}
+            </button>
+          </div>
+          <div className="mt-1 flex items-center justify-between">
+            <span className="font-mono text-[10px] text-muted-foreground">{"{{nome_agente}}"}</span>
+            {note && <span className="text-[11px] text-emerald-600">{note}</span>}
+          </div>
         </div>
-        <div className="mt-1 flex items-center justify-between">
-          <span className="font-mono text-[10px] text-muted-foreground">{"{{nome_agente}}"}</span>
-          {note && <span className="text-[11px] text-emerald-600">{note}</span>}
-        </div>
-      </div>
+      )}
 
-      {/* Seletor de Função/Papel do Agente com 1 clique */}
+      {/* Função do agente: leitura mostra o papel; edição libera a troca (que grava na hora) */}
       <div className="rounded-xl border bg-muted/20 p-3 space-y-2">
         <div className="flex items-center justify-between">
           <label className="block text-xs font-bold uppercase tracking-wide text-muted-foreground">
-            Função Ativa do Agente
+            Função do Agente
           </label>
           <Badge className="bg-primary text-primary-foreground text-[10px]">
             {AGENT_ROLE_LABEL[agent.role]}
           </Badge>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs font-semibold">
-          {(["vendedor", "atendente", "suporte", "agendador"] as const).map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => {
-                startSaving(async () => {
-                  await updateAgentRole(agentId, r);
-                  // Atualiza o texto do prompt com o template do novo papel se o usuário quiser
-                  const t = templates.find((x) => x.name.toLowerCase().includes(r));
-                  if (t) setText(t.prompt);
-                });
-              }}
-              className={`rounded-lg py-2 px-2 text-center transition-all ${
-                agent.role === r
-                  ? "bg-primary text-primary-foreground font-bold shadow-sm"
-                  : "bg-background border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {r === "vendedor" && "💼 "}
-              {r === "atendente" && "🎧 "}
-              {r === "suporte" && "🛠️ "}
-              {r === "agendador" && "📅 "}
-              {AGENT_ROLE_LABEL[r]}
-            </button>
-          ))}
-        </div>
+        {editing ? (
+          <>
+            <p className="text-[11px] text-muted-foreground">
+              Trocar a função grava no agente assim que você clica e <strong>não</strong> altera o prompt —
+              use &quot;Carregar modelo inicial&quot; abaixo se quiser o texto do novo papel.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs font-semibold">
+              {(["vendedor", "atendente", "suporte", "agendador"] as const).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => {
+                    startSaving(async () => {
+                      await updateAgentRole(agentId, r);
+                      router.refresh();
+                      setNote(`Função alterada para ${AGENT_ROLE_LABEL[r]}`);
+                    });
+                  }}
+                  className={`rounded-lg py-2 px-2 text-center transition-all ${
+                    agent.role === r
+                      ? "bg-primary text-primary-foreground font-bold shadow-sm"
+                      : "bg-background border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {r === "vendedor" && "💼 "}
+                  {r === "atendente" && "🎧 "}
+                  {r === "suporte" && "🛠️ "}
+                  {r === "agendador" && "📅 "}
+                  {AGENT_ROLE_LABEL[r]}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
         <p className="text-[11px] text-muted-foreground italic">
           {agent.role === "vendedor" && "💼 Vendedor: Acolhe, faz perguntas de qualificação e vende valor antes de agendar."}
           {agent.role === "atendente" && "🎧 Atendente: Foco em recepção, SAC e respostas diretas sem tentar vender."}
@@ -289,100 +354,157 @@ function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Age
         </p>
       </div>
 
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-muted-foreground">Versão:</span>
-        {draft ? (
-          <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-            rascunho v{draft.version}
-          </Badge>
-        ) : (
-          <Badge className="bg-muted text-muted-foreground">sem rascunho</Badge>
-        )}
-        {published && (
-          <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-            publicada v{published.version}
-          </Badge>
-        )}
-      </div>
+      {editing && (
+        <>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-muted-foreground">Versão:</span>
+            {draft ? (
+              <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                rascunho v{draft.version}
+              </Badge>
+            ) : (
+              <Badge className="bg-muted text-muted-foreground">sem rascunho</Badge>
+            )}
+            {published && (
+              <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                publicada v{published.version}
+              </Badge>
+            )}
+          </div>
 
-      {templates.length > 0 && (
-        <select
-          value=""
-          onChange={(e) => {
-            const t = templates.find((x) => x.id === e.target.value);
-            if (t) setText(t.prompt);
-          }}
-          className="w-full rounded-xl border bg-background px-3 py-2 text-xs"
-        >
-          <option value="">Carregar modelo inicial ({agent.role})...</option>
-          {templates.map((t) => (
-            <option key={t.id} value={t.id}>{t.name}</option>
-          ))}
-        </select>
+          {templates.length > 0 && (
+            <select
+              value=""
+              onChange={(e) => {
+                const t = templates.find((x) => x.id === e.target.value);
+                if (t) setText(t.prompt);
+              }}
+              className="w-full rounded-xl border bg-background px-3 py-2 text-xs"
+            >
+              <option value="">Carregar modelo inicial ({agent.role})...</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          )}
+
+          <div className="flex flex-wrap items-center gap-1 text-[10px]">
+            <span className="text-muted-foreground">Variáveis:</span>
+            {VARS.map((v) => (
+              <button
+                key={v}
+                onClick={() => setText((t) => `${t} ${v}`)}
+                className="rounded bg-muted px-1.5 py-0.5 font-mono text-primary hover:bg-accent"
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={12}
+            className="w-full rounded-xl border bg-muted/30 p-3 font-mono text-xs leading-relaxed outline-none focus:ring-2 focus:ring-ring"
+          />
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>{text.length} caracteres</span>
+            {note && <span className="text-emerald-600">{note}</span>}
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <button
+              onClick={() => void improve()}
+              disabled={improving}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-accent disabled:opacity-60"
+            >
+              <Sparkles size={13} /> {improving ? "Melhorando..." : "Melhorar prompt com IA"}
+            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setNote("");
+                  startSaving(async () => {
+                    await saveDraft(agentId, text);
+                    setNote("Rascunho salvo");
+                  });
+                }}
+                disabled={saving}
+                className="rounded-xl px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent disabled:opacity-60"
+              >
+                Salvar rascunho
+              </button>
+              <button
+                onClick={() => {
+                  setNote("");
+                  startSaving(async () => {
+                    await saveDraft(agentId, text);
+                    await publishDraft(agentId);
+                    setNote("Versão publicada");
+                  });
+                }}
+                disabled={saving}
+                className="rounded-xl bg-primary px-4 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+              >
+                Publicar versão
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
-      <div className="flex flex-wrap items-center gap-1 text-[10px]">
-        <span className="text-muted-foreground">Variáveis:</span>
-        {VARS.map((v) => (
-          <button
-            key={v}
-            onClick={() => setText((t) => `${t} ${v}`)}
-            className="rounded bg-muted px-1.5 py-0.5 font-mono text-primary hover:bg-accent"
-          >
-            {v}
-          </button>
-        ))}
-      </div>
+      {!editing && (
+        <>
+          {/* O que o agente usa de verdade agora */}
+          <div className="rounded-xl border bg-muted/20 p-3">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                Prompt em uso
+              </span>
+              {published ? (
+                <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                  publicada v{published.version}
+                </Badge>
+              ) : (
+                <Badge className="bg-muted text-muted-foreground">sem versão publicada</Badge>
+              )}
+            </div>
+            {published ? (
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-background/60 p-2 font-mono text-xs leading-relaxed">
+                {published.prompt}
+              </pre>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Este agente ainda não tem prompt publicado. Clique em <strong>Editar</strong> para escrever e
+                publicar a primeira versão.
+              </p>
+            )}
+            {published && (
+              <p className="mt-1.5 text-[10px] text-muted-foreground">
+                {published.prompt.length} caracteres · criada em{" "}
+                {new Date(published.created_at).toLocaleDateString("pt-BR")}
+              </p>
+            )}
+          </div>
 
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        rows={12}
-        className="w-full rounded-xl border bg-muted/30 p-3 font-mono text-xs leading-relaxed outline-none focus:ring-2 focus:ring-ring"
-      />
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-        <span>{text.length} caracteres</span>
-        {note && <span className="text-emerald-600">{note}</span>}
-      </div>
-
-      <div className="flex items-center justify-between gap-2">
-        <button
-          onClick={() => void improve()}
-          disabled={improving}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-accent disabled:opacity-60"
-        >
-          <Sparkles size={13} /> {improving ? "Melhorando..." : "Melhorar prompt com IA"}
-        </button>
-        <div className="flex items-center gap-2">
-        <button
-          onClick={() => {
-            setNote("");
-            startSaving(async () => {
-              await saveDraft(agentId, text);
-              setNote("Rascunho salvo");
-            });
-          }}
-          disabled={saving}
-          className="rounded-xl px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent disabled:opacity-60"
-        >
-          Salvar rascunho
-        </button>
-        <button
-          onClick={() => {
-            setNote("");
-            startSaving(async () => {
-              await saveDraft(agentId, text);
-              await publishDraft(agentId);
-              setNote("Versão publicada");
-            });
-          }}
-          disabled={saving}
-          className="rounded-xl bg-primary px-4 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 disabled:opacity-60"
-        >
-          Publicar versão
-        </button>
-        </div>
-      </div>
+          {/* Rascunho pendente: existe, mas não está em uso */}
+          {draft && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50/60 p-3 dark:border-amber-900 dark:bg-amber-950/30">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                  Rascunho pendente
+                </span>
+                <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                  v{draft.version} · não está em uso
+                </Badge>
+              </div>
+              <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-background/60 p-2 font-mono text-xs leading-relaxed">
+                {draft.prompt}
+              </pre>
+            </div>
+          )}
+        </>
+      )}
 
       {versions.length > 1 && (
         <div className="border-t pt-3">
@@ -393,12 +515,22 @@ function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Age
                 <span>
                   v{v.version} · <span className="text-muted-foreground">{v.status}</span>
                 </span>
-                <button
-                  onClick={() => startSaving(async () => { await restoreVersion(agentId, v.id); })}
-                  className="font-semibold text-primary hover:underline"
-                >
-                  Restaurar
-                </button>
+                {editing ? (
+                  <button
+                    onClick={() =>
+                      startSaving(async () => {
+                        await restoreVersion(agentId, v.id);
+                        router.refresh();
+                        setNote(`Versão v${v.version} restaurada`);
+                      })
+                    }
+                    className="font-semibold text-primary hover:underline"
+                  >
+                    Restaurar
+                  </button>
+                ) : (
+                  <span className="text-[10px] text-muted-foreground">edite para restaurar</span>
+                )}
               </div>
             ))}
           </div>
@@ -410,69 +542,137 @@ function PromptTab({ agentId, agents, versions }: { agentId: string; agents: Age
 
 /* ─────────────────────────── Canais ─────────────────────────── */
 
-function ChannelsTab({ agentId, channels }: { agentId: string; channels?: Channel[] }) {
+function ChannelsTab({
+  agentId,
+  channels,
+  editing,
+}: {
+  agentId: string;
+  channels?: Channel[];
+  editing: boolean;
+}) {
+  const router = useRouter();
   const [, start] = useTransition();
   const list = channels ?? [];
   const active = list.find((c) => c.is_active)?.channel;
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
-        Apenas um agente pode estar ativo por canal. Selecionar aqui transfere o canal para este agente.
+        Apenas um agente pode estar ativo por canal.
+        {editing
+          ? " Escolher aqui transfere o canal para este agente."
+          : " Para transferir um canal para este agente, clique em Editar."}
       </p>
-      {CHANNELS.map((ch) => (
-        <button
-          key={ch}
-          onClick={() => start(async () => { await setAgentChannel(agentId, ch); })}
-          className={`flex w-full items-center justify-between rounded-xl border p-3 text-left text-sm ${
-            active === ch ? "border-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/30" : ""
-          }`}
-        >
-          <span className="font-semibold">{CHANNEL_LABEL[ch]}</span>
-          <span className={`text-xs font-bold ${active === ch ? "text-emerald-600" : "text-muted-foreground"}`}>
-            {active === ch ? "Ativo" : "Ativar"}
-          </span>
-        </button>
-      ))}
+      {CHANNELS.map((ch) => {
+        const on = active === ch;
+        if (!editing) {
+          return (
+            <div
+              key={ch}
+              className={`flex w-full items-center justify-between rounded-xl border p-3 text-sm ${
+                on ? "border-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/30" : "opacity-70"
+              }`}
+            >
+              <span className="font-semibold">{CHANNEL_LABEL[ch]}</span>
+              <span className={`text-xs font-bold ${on ? "text-emerald-600" : "text-muted-foreground"}`}>
+                {on ? "Ativo" : "—"}
+              </span>
+            </div>
+          );
+        }
+        return (
+          <button
+            key={ch}
+            onClick={() =>
+              start(async () => {
+                await setAgentChannel(agentId, ch);
+                router.refresh();
+              })
+            }
+            className={`flex w-full items-center justify-between rounded-xl border p-3 text-left text-sm ${
+              on ? "border-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/30" : ""
+            }`}
+          >
+            <span className="font-semibold">{CHANNEL_LABEL[ch]}</span>
+            <span className={`text-xs font-bold ${on ? "text-emerald-600" : "text-muted-foreground"}`}>
+              {on ? "Ativo" : "Ativar"}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
 
 /* ─────────────────────── Ferramentas / Regras ───────────────── */
 
-function ToolsTab({ agentId, tools }: { agentId: string; tools?: Tool[] }) {
+function ToolsTab({ agentId, tools, editing }: { agentId: string; tools?: Tool[]; editing: boolean }) {
   const [, start] = useTransition();
   const list = tools ?? [];
   const map = new Map(list.map((t) => [t.tool_key, t.enabled]));
   return (
     <div className="space-y-2">
-      {ALL_TOOLS.map((t) => (
-        <ToggleRow
-          key={t}
-          label={TOOL_LABEL[t]}
-          code={t}
-          enabled={map.get(t) ?? false}
-          onChange={(v) => start(async () => { await toggleTool(agentId, t, v); })}
-        />
-      ))}
+      {!editing && (
+        <p className="text-xs text-muted-foreground">
+          Ferramentas que este agente pode usar durante o atendimento. Clique em Editar para ligar ou desligar.
+        </p>
+      )}
+      {ALL_TOOLS.map((t) =>
+        editing ? (
+          <ToggleRow
+            key={t}
+            label={TOOL_LABEL[t]}
+            code={t}
+            enabled={map.get(t) ?? false}
+            onChange={(v) => start(async () => { await toggleTool(agentId, t, v); })}
+          />
+        ) : (
+          <StatusRow key={t} label={TOOL_LABEL[t]} code={t} enabled={map.get(t) ?? false} />
+        ),
+      )}
     </div>
   );
 }
 
-function RulesTab({ agentId, rules }: { agentId: string; rules?: Rule[] }) {
+function RulesTab({ agentId, rules, editing }: { agentId: string; rules?: Rule[]; editing: boolean }) {
   const [, start] = useTransition();
   const list = rules ?? [];
   const map = new Map(list.map((r) => [r.rule_key, r.enabled]));
   return (
     <div className="space-y-2">
-      {ALL_RULES.map((r) => (
-        <ToggleRow
-          key={r}
-          label={HANDOFF_RULE_LABEL[r]}
-          code={r}
-          enabled={map.get(r) ?? false}
-          onChange={(v) => start(async () => { await toggleRule(agentId, r, v); })}
-        />
-      ))}
+      {!editing && (
+        <p className="text-xs text-muted-foreground">
+          Quando o agente deve passar a conversa para uma pessoa. Clique em Editar para ligar ou desligar.
+        </p>
+      )}
+      {ALL_RULES.map((r) =>
+        editing ? (
+          <ToggleRow
+            key={r}
+            label={HANDOFF_RULE_LABEL[r]}
+            code={r}
+            enabled={map.get(r) ?? false}
+            onChange={(v) => start(async () => { await toggleRule(agentId, r, v); })}
+          />
+        ) : (
+          <StatusRow key={r} label={HANDOFF_RULE_LABEL[r]} code={r} enabled={map.get(r) ?? false} />
+        ),
+      )}
+    </div>
+  );
+}
+
+/** Mesma linha do toggle, mas só mostrando o estado — é o que aparece no modo leitura. */
+function StatusRow({ label, code, enabled }: { label: string; code: string; enabled: boolean }) {
+  return (
+    <div className="flex items-center justify-between rounded-xl border p-3">
+      <div>
+        <p className="text-sm font-semibold">{label}</p>
+        <p className="font-mono text-[10px] text-muted-foreground">{code}</p>
+      </div>
+      <span className={`text-xs font-bold ${enabled ? "text-emerald-600" : "text-muted-foreground"}`}>
+        {enabled ? "Ativo" : "Desligado"}
+      </span>
     </div>
   );
 }
@@ -623,12 +823,51 @@ function Playground({
   );
 }
 
-function MemoryTab({ agentId, memories }: { agentId: string; memories?: Memory[] }) {
+function MemoryTab({
+  agentId,
+  memories,
+  editing,
+}: {
+  agentId: string;
+  memories?: Memory[];
+  editing: boolean;
+}) {
   const router = useRouter();
   const list = memories ?? [];
   const memory = list.find((m) => m.key === "perfil") ?? list[0];
   const [content, setContent] = useState(memory?.content ?? "");
   const [saving, startSaving] = useTransition();
+
+  if (!editing) {
+    return (
+      <div className="space-y-3">
+        <div>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <label className="block text-xs font-bold uppercase tracking-wide text-muted-foreground">
+              Memória própria do agente
+            </label>
+            <Badge className="bg-muted text-muted-foreground">{memory?.key ?? "perfil"}</Badge>
+          </div>
+          {memory?.content?.trim() ? (
+            <>
+              <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-xl border bg-muted/30 p-3 text-xs leading-relaxed">
+                {memory.content}
+              </pre>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                {memory.content.length} caracteres · atualizada em{" "}
+                {new Date(memory.updated_at).toLocaleDateString("pt-BR")} · Editar para alterar
+              </p>
+            </>
+          ) : (
+            <p className="rounded-xl border bg-muted/20 p-3 text-xs text-muted-foreground">
+              Este agente não tem memória registrada. Clique em <strong>Editar</strong> para escrever o
+              contexto fixo dele (preferências, missão, regras específicas).
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
