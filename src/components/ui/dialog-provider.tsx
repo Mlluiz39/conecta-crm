@@ -25,12 +25,25 @@ export type ConfirmOptions = {
   tone?: "danger" | "default";
   /** Exige digitar esta frase para liberar a confirmação (ações destrutivas). */
   requirePhrase?: string;
+  /**
+   * Caixa de marcar dentro do diálogo, para a ação ter uma variação (ex.: "apagar o contato
+   * junto"). Use `confirmWithOption` para receber o estado dela — `confirm` devolve só o ok.
+   */
+  checkbox?: {
+    label: string;
+    hint?: string;
+    defaultChecked?: boolean;
+  };
 };
+
+/** Resultado do diálogo: se confirmou e como ficou a caixa de marcar. */
+export type ConfirmResult = { ok: boolean; checked: boolean };
 
 type ToastKind = "success" | "error";
 
 type DialogContextValue = {
   confirm: (options: ConfirmOptions) => Promise<boolean>;
+  confirmWithOption: (options: ConfirmOptions) => Promise<ConfirmResult>;
   notify: (message: string, kind?: ToastKind) => void;
 };
 
@@ -42,6 +55,13 @@ export function useConfirm() {
   return ctx.confirm;
 }
 
+/** Igual ao `useConfirm`, mas devolve também o estado da caixa de marcar. */
+export function useConfirmWithOption() {
+  const ctx = useContext(DialogContext);
+  if (!ctx) throw new Error("useConfirmWithOption precisa do <DialogProvider> no layout");
+  return ctx.confirmWithOption;
+}
+
 export function useNotify() {
   const ctx = useContext(DialogContext);
   if (!ctx) throw new Error("useNotify precisa do <DialogProvider> no layout");
@@ -51,25 +71,38 @@ export function useNotify() {
 export function DialogProvider({ children }: { children: ReactNode }) {
   const [options, setOptions] = useState<ConfirmOptions | null>(null);
   const [phrase, setPhrase] = useState("");
+  const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ message: string; kind: ToastKind } | null>(null);
-  const resolver = useRef<((value: boolean) => void) | null>(null);
+  const resolver = useRef<((value: ConfirmResult) => void) | null>(null);
   const confirmButton = useRef<HTMLButtonElement | null>(null);
+  /** O `close` é chamado também de fora do React (ESC/backdrop): o estado da caixa vem daqui. */
+  const checkedRef = useRef(false);
 
-  const confirm = useCallback((opts: ConfirmOptions) => {
+  const open = useCallback((opts: ConfirmOptions) => {
     setPhrase("");
+    const inicial = Boolean(opts.checkbox?.defaultChecked);
+    checkedRef.current = inicial;
+    setChecked(inicial);
     setOptions(opts);
-    return new Promise<boolean>((resolve) => {
+    return new Promise<ConfirmResult>((resolve) => {
       resolver.current = resolve;
     });
   }, []);
+
+  const confirm = useCallback(
+    async (opts: ConfirmOptions) => (await open(opts)).ok,
+    [open],
+  );
+
+  const confirmWithOption = useCallback((opts: ConfirmOptions) => open(opts), [open]);
 
   const notify = useCallback((message: string, kind: ToastKind = "success") => {
     setToast({ message, kind });
   }, []);
 
   const close = useCallback((value: boolean) => {
-    resolver.current?.(value);
+    resolver.current?.({ ok: value, checked: checkedRef.current });
     resolver.current = null;
     setOptions(null);
     setPhrase("");
@@ -94,7 +127,10 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [options, close]);
 
-  const value = useMemo(() => ({ confirm, notify }), [confirm, notify]);
+  const value = useMemo(
+    () => ({ confirm, confirmWithOption, notify }),
+    [confirm, confirmWithOption, notify],
+  );
 
   const phraseOk = !options?.requirePhrase || phrase.trim() === options.requirePhrase;
   const danger = options?.tone === "danger";
@@ -125,6 +161,30 @@ export function DialogProvider({ children }: { children: ReactNode }) {
                 <h2 className="text-sm font-bold text-foreground">{options.title}</h2>
                 {options.description && (
                   <p className="mt-1 text-sm text-muted-foreground">{options.description}</p>
+                )}
+
+                {options.checkbox && (
+                  <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border bg-muted/30 p-3">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        checkedRef.current = e.target.checked;
+                        setChecked(e.target.checked);
+                      }}
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-input accent-destructive"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-xs font-semibold text-foreground">
+                        {options.checkbox.label}
+                      </span>
+                      {options.checkbox.hint && (
+                        <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                          {options.checkbox.hint}
+                        </span>
+                      )}
+                    </span>
+                  </label>
                 )}
 
                 {options.requirePhrase && (

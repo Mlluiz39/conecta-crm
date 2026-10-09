@@ -12,10 +12,11 @@ import {
   deleteMessage,
   clearConversationMessages,
   deleteConversation,
+  deleteContact,
   getConversationMessages,
 } from "@/lib/data/actions";
 import { Badge } from "@/components/ui/primitives";
-import { useConfirm, useNotify } from "@/components/ui/dialog-provider";
+import { useConfirm, useConfirmWithOption, useNotify } from "@/components/ui/dialog-provider";
 import { pollFetch, startPolling } from "@/lib/client/poll";
 import { formatDateTime } from "@/lib/utils";
 import { useTypingConversations } from "@/components/conversas/useTyping";
@@ -83,6 +84,7 @@ export function Inbox({
   const router = useRouter();
   const notify = useNotify();
   const confirmDialog = useConfirm();
+  const confirmWithOption = useConfirmWithOption();
 
   // Estado derivado das props (nunca um snapshot congelado): o servidor manda o
   // estado novo depois de cada action e a tela acompanha; os ajustes otimistas
@@ -94,6 +96,11 @@ export function Inbox({
   const [botBusy, setBotBusy] = useState<null | "assumir" | "reativar">(null);
   /** Mensagens apagadas nesta sessão: saem da tela na hora (o servidor confirma depois). */
   const [removed, setRemoved] = useState<Record<string, true>>({});
+  /**
+   * Conversas apagadas (aqui ou em outra aba): o Realtime avisa e a lista acompanha na hora,
+   * sem esperar recarregar. O servidor confirma no próximo refresh.
+   */
+  const [removedConversations, setRemovedConversations] = useState<Record<string, true>>({});
   const [busyMsg, setBusyMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -103,11 +110,13 @@ export function Inbox({
 
   const conversations = useMemo(
     () =>
-      initialConversations.map((c) => {
-        const patch = patches[c.id];
-        return patch && tick - patch.at < PATCH_TTL_MS ? { ...c, ...patch.value } : c;
-      }),
-    [initialConversations, patches, tick],
+      initialConversations
+        .filter((c) => !removedConversations[c.id])
+        .map((c) => {
+          const patch = patches[c.id];
+          return patch && tick - patch.at < PATCH_TTL_MS ? { ...c, ...patch.value } : c;
+        }),
+    [initialConversations, patches, tick, removedConversations],
   );
 
   const messages = useMemo(() => {
@@ -167,6 +176,13 @@ export function Inbox({
   const active = conversations.find((c) => c.id === activeId) ?? null;
   const activeMessages = activeId ? messages[activeId] ?? [] : [];
 
+  // A conversa aberta pode deixar de existir (apagada aqui ou em outra aba): abre a próxima.
+  useEffect(() => {
+    if (activeId && !conversations.some((c) => c.id === activeId)) {
+      setActiveId(conversations[0]?.id ?? null);
+    }
+  }, [conversations, activeId]);
+
   /**
    * Carrega as mensagens da conversa escolhida. O servidor só manda a conversa aberta por
    * padrão, então sem isso qualquer outra aparecia como "Sem mensagens" (e sem os botões de
@@ -221,6 +237,19 @@ export function Inbox({
           patchConversation(c.id, c);
         },
       )
+      /**
+       * DELETE: o Realtime manda só a chave primária (`payload.old.id`) — o filtro por
+       * organização não funciona nesse evento sem `replica identity full`, então aqui não
+       * filtramos: marcar um id que não está na lista não faz diferença.
+       */
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "conversations" }, (payload) => {
+        const id = (payload.old as { id?: string } | null)?.id;
+        if (id) setRemovedConversations((prev) => ({ ...prev, [id]: true }));
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, (payload) => {
+        const id = (payload.old as { id?: string } | null)?.id;
+        if (id) setRemoved((prev) => ({ ...prev, [id]: true }));
+      })
       .subscribe();
 
     return () => {
@@ -356,33 +385,52 @@ export function Inbox({
   }
 
   /**
-   * Apaga a conversa inteira (não só as mensagens): ela sai da caixa de entrada. O contato
-   * continua em Contatos — para apagar o lead junto, o lugar é a tela de Contatos.
+   * Apaga a conversa inteira (não só as mensagens): ela sai da caixa de entrada. O diálogo
+   * oferece apagar o contato junto — útil quando o lead foi um teste ou não interessa mais.
    */
   async function handleDeleteConversation() {
     if (!active || busyMsg) return;
     const conversa = active;
     const nome = conversa.contact?.name ?? "este contato";
-    const ok = await confirmDialog({
+    const contactId = conversa.contact?.id ?? null;
+
+    const { ok, checked: apagarContato } = await confirmWithOption({
       title: `Apagar a conversa de ${nome}?`,
       description:
         `${activeMessages.length} mensagem(ns) vão junto e a conversa sai da caixa de entrada. ` +
-        "O contato continua cadastrado em Contatos, e no WhatsApp do lead nada é apagado. " +
-        "Se ele escrever de novo, a conversa volta vazia. Não dá para desfazer.",
+        "No WhatsApp do lead nada é apagado. Se ele escrever de novo, a conversa volta vazia. " +
+        "Não dá para desfazer.",
       confirmLabel: "Apagar conversa",
       tone: "danger",
+      ...(contactId
+        ? {
+            checkbox: {
+              label: "Apagar o contato também",
+              hint:
+                "O lead sai de Contatos com as oportunidades e as outras conversas dele. " +
+                "Sem marcar, o contato continua cadastrado.",
+              defaultChecked: false,
+            },
+          }
+        : {}),
     });
     if (!ok) return;
 
     setBusyMsg("__delete__");
     try {
-      const res = await deleteConversation(conversa.id);
-      notify(
-        res.messages > 0
-          ? `Conversa apagada (${res.messages} mensagem(ns) junto).`
-          : "Conversa apagada.",
-        "success",
-      );
+      if (apagarContato && contactId) {
+        await deleteContact(contactId);
+        notify(`${nome} e a conversa foram apagados.`, "success");
+        setRemovedConversations((prev) => ({ ...prev, [conversa.id]: true }));
+      } else {
+        const res = await deleteConversation(conversa.id);
+        notify(
+          res.messages > 0
+            ? `Conversa apagada (${res.messages} mensagem(ns) junto).`
+            : "Conversa apagada.",
+          "success",
+        );
+      }
       // A conversa aberta deixou de existir: abre a próxima da lista.
       const restantes = conversations.filter((c) => c.id !== conversa.id);
       setActiveId(restantes[0]?.id ?? null);
