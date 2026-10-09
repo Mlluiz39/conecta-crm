@@ -5,7 +5,7 @@ Quando o lead manda **nota de voz**, o agente responde em voz. Quatro formas de 
 | Provedor | O que é | Medido nesta VPS (4 vCPU, sem GPU) | Uso |
 |---|---|---|---|
 | `piper` | **Piper** local (MIT, CPU), uma voz por agente | **2,6 s** para 9,9 s de áudio (~4x mais rápido que o tempo real) | **recomendado** |
-| `mlvoice` | **MLVoice Engine** (Pocket TTS), endpoint próprio (`POST /v1/tts` + `X-API-Key`) | CPU da VPS (sem GPU), latência boa — sem cronômetro ainda | voz `rafael` (Pocket TTS) |
+| `mlvoice` | **MLVoice Engine** (Pocket TTS), serviço próprio (`POST /v1/tts` + `X-API-Key`) | **6,2 s** para 13,0 s de áudio (~2x mais rápido que o tempo real), 886 MB | voz `rafael` (Pocket TTS) |
 | `proxy` | endpoint OpenAI-compatible já configurado (Gemini via 9router) | poucos segundos | sem nada extra, custo por uso |
 | `chatterbox` | **Chatterbox** local (MIT, clona timbre de uma amostra de ~10 s) | **110 s** para 12 s de áudio (~9x mais lento) | só com GPU |
 
@@ -66,6 +66,16 @@ ffplay /tmp/voz.wav
 O MLVoice roda como serviço próprio (fora do CRM), preso em `127.0.0.1:8765`. Como o container do
 CRM usa `network_mode: host`, ele alcança o motor pelo mesmo endereço.
 
+Na VPS ele já está instalado como serviço systemd: `mlvoice.service` (em `/opt/mlvoice`, `uvicorn`
+na `127.0.0.1:8765`, chave em `/opt/mlvoice/pocket/mlvoice.env`). Estado e voz carregada:
+
+```bash
+curl -s http://127.0.0.1:8765/health
+# {"status":"ok","engine":"pocket-tts","voice":"rafael","language":"portuguese","loaded":true}
+```
+
+O `/health` é o único endpoint sem autenticação (útil para conferir antes de mexer no CRM).
+
 ```bash
 # 1. no .env.local (os mesmos valores vão para a VPS: o .env.local inteiro é o env do container)
 TTS_PROVIDER="mlvoice"
@@ -73,29 +83,52 @@ MLVOICE_URL="http://127.0.0.1:8765/v1/tts"
 MLVOICE_API_KEY="<a chave do motor>"
 MLVOICE_VOICE="rafael"
 
-# 2. confirme que o motor responde antes de mexer no CRM (a chave não aparece no terminal)
-curl -sS -o /tmp/voz.opus -w 'HTTP %{http_code} · %{content_type} · %{size_download} bytes\n' \
+# 2. confirme que o motor sintetiza antes de mexer no CRM (a chave não aparece no terminal)
+curl -sS -D - -o /tmp/voz.opus -w 'HTTP %{http_code} · %{content_type} · %{size_download} bytes\n' \
   -X POST "$MLVOICE_URL" -H "X-API-Key: $MLVOICE_API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"text":"Oi! Aqui é o Luiz, da MLLuiz DevTech.","format":"opus","normalize":true}'
 
-# 3. recria os containers (env novo; NÃO precisa de --build) e olha o log da primeira nota de voz
-CONECTA_ROOT="$PWD" docker compose --env-file .env.local up -d
+# 3. recria os containers e olha o log da primeira nota de voz (código novo exige --build,
+#    variável nova não: veja "Subir a mudança" abaixo)
+CONECTA_ROOT="$PWD" docker compose --env-file .env.local up -d --build
 docker logs -f --tail 100 conectacrm-web | grep -i '\[audio\]'
 ```
 
-Como cada agente fica: com `TTS_PROVIDER="mlvoice"` todos usam o Pocket TTS (`rafael`, por
-`MLVOICE_VOICE`) e caem no Piper se ele não responder. Para tratar o motor como exceção, use
-`TTS_PROVIDER="auto"` e marque só os agentes desejados com `agents.voice = "mlvoice:rafael"`.
+Como cada agente fica: com `TTS_PROVIDER="mlvoice"` todos usam o Pocket TTS (voz `rafael`, fixada
+no próprio motor) e caem no Piper se ele não responder. Para tratar o motor como exceção, use
+`TTS_PROVIDER="auto"` e marque só os agentes desejados com `agents.voice = "mlvoice:rafael"` — o
+prefixo **roteia** o agente para o motor, mas não troca o timbre (veja abaixo).
+
+**Sobre a voz ser (ou não) por agente:** o `POST /v1/tts` do MLVoice aceita só
+`text`, `format` e `normalize` — o corpo não tem campo `voice`. Quem manda o campo é ignorado, e o
+timbre é **um só**, escolhido no motor (`MLVOICE_VOICE` no `mlvoice.env`/unit, padrão `rafael`; o
+`/health` mostra qual está carregada). Ou seja: `mlvoice:<nome>` no CRM muda o *roteamento* do
+agente, não a voz. Timbre diferente por agente hoje só no Piper, ou no proxy.
+
+## Subir a mudança
+
+`docker-compose.yml` lê tudo por `env_file: .env.local` — variável nova (ou alterada) entra com
+`up -d`, sem rebuild. Já **código** novo (como o `vozPeloMLVoice`) só entra com `--build`, porque o
+Next é compilado dentro da imagem:
+
+```bash
+cd /opt/conectacrm && git pull && \
+  CONECTA_ROOT="$PWD" docker compose --env-file .env.local up -d --build
+```
+
+Cuidado com o `deploy/ship.sh`: ele **sobrescreve** o `.env.local` da VPS com o arquivo que você
+mandar (`ENV_FILE`, padrão `.env.vps`). Se o `.env.vps` não tiver as variáveis de voz, o envio
+apaga `TTS_PROVIDER`/`MLVOICE_*` e a chave junto — mantenha os dois em sincronia.
 
 ## Vozes por agente
 
-`agents.voice` decide o provedor **e** a voz:
+`agents.voice` decide o provedor **e** a voz (no MLVoice, só o provedor — o timbre é global):
 
 | Valor | Efeito |
 |---|---|
 | `piper:faber` | voz `faber` do Piper local |
-| `mlvoice:rafael` | voz `rafael` do MLVoice (Pocket TTS) |
+| `mlvoice:rafael` | manda o agente para o MLVoice (a voz é a `rafael`, do motor) |
 | `chatterbox:vendedor` | voz clonada no Chatterbox |
 | `alloy`, `shimmer`, `nova`… | voz do proxy (Gemini), como era antes |
 | vazio | `TTS_VOICE` (proxy) |
@@ -141,6 +174,20 @@ Clona timbres específicos (a voz de uma pessoa real), mas em CPU é ~10x mais l
 real — na prática só vale a pena com GPU. Se ligar, suba também `CRON_TIMEOUT_MS` (o job da
 outbox tem teto de 120 s e a síntese sozinha passa de 100 s).
 
+**MLVoice Engine** (Pocket TTS) — serviço `mlvoice.service` (systemd), em `/opt/mlvoice`, `uvicorn`
+na `127.0.0.1:8765`, medido em 08/10/2026:
+
+| Frase | Áudio gerado | Geração | Memória |
+|---|---|---|---|
+| 190 caracteres | 13,05 s | **6,21 s** | 886 MB |
+| 56 caracteres | 5,45 s | **2,46 s** | 886 MB |
+
+O tempo de geração vem no próprio cabeçalho da resposta (`X-Generation-Seconds`), então dá para
+cronometrar sem instrumentar nada. É ~2x mais rápido que o tempo real, mas ~2,4x mais lento que o
+Piper (6,21 s contra 2,62 s para um texto parecido) — a voz é bem mais natural, o custo é a espera.
+O motor carrega o modelo no boot e sintetiza **uma frase por vez** (lock interno): com várias
+conversas em voz ao mesmo tempo, os pedidos entram na fila.
+
 ## Env
 
 | Variável | Padrão | Para que serve |
@@ -148,7 +195,7 @@ outbox tem teto de 120 s e a síntese sozinha passa de 100 s).
 | `TTS_PROVIDER` | `auto` | `mlvoice` \| `piper` \| `chatterbox` \| `proxy` \| `auto` |
 | `MLVOICE_URL` | `http://127.0.0.1:8765/v1/tts` | endpoint do MLVoice (aceita também só a base) |
 | `MLVOICE_API_KEY` | (vazio) | chave do MLVoice (`X-API-Key`); vazio desliga o motor |
-| `MLVOICE_VOICE` | (vazio) | voz do MLVoice (ex.: `rafael`); vazio = a padrão do motor |
+| `MLVOICE_VOICE` | (vazio) | voz mandada no corpo, mas o motor MLVoice **ignora** — quem manda o timbre é o lado dele (`rafael`) |
 | `PIPER_URL` | `http://127.0.0.1:4124` | serviço do Piper |
 | `CHATTERBOX_URL` | `http://127.0.0.1:4123` | serviço do Chatterbox |
 | `TTS_LANGUAGE` | `pt` | idioma mandado ao motor local |
@@ -165,9 +212,12 @@ outbox tem teto de 120 s e a síntese sozinha passa de 100 s).
   (o MLVoice tem chave, mas a chave não substitui a rede fechada: `X-API-Key` vaza em log).
 * `MLVOICE_API_KEY` vive só no `.env.local`/`.env.vps` (os dois estão no `.gitignore`), nunca no
   código nem em `docker-compose.yml` — e não imprima a chave no terminal.
-* O contrato do `/v1/tts` **foi validado na VPS (08/10/2026)**: o motor aceita
-  `{text, format:"opus", normalize:true, voice:"rafael"}` com `X-API-Key` e devolve o áudio
-  corretamente, com latência boa rodando só na CPU da própria VPS. Então o caminho normal é o
-  áudio binário cru; o resto do código (JSON com base64, queda para Piper/proxy) fica só como rede
-  de segurança, sem custo quando o motor responde. Falta cronometrar a síntese para entrar na
-  tabela de medições acima.
+* O contrato do `/v1/tts` **foi conferido contra o código do motor** (`/opt/mlvoice/pocket/api.py`)
+  e medido na VPS em 08/10/2026: corpo `{text, format:"opus"|"wav", normalize}`, teto de 1500
+  caracteres no texto (o CRM corta antes, em `TTS_MAX_CHARS=600`), `401` com chave errada e
+  resposta em **binário** (`audio/ogg` no formato opus), com o tempo de geração no cabeçalho
+  `X-Generation-Seconds`. Não existe campo `voice`: o campo que o CRM manda é ignorado pelo motor,
+  e por isso o código tem função dedicada em vez de reusar `vozPeloServicoLocal`.
+* O caminho de JSON com base64 e a queda para Piper/proxy continuam no código como rede de
+  segurança. Com este motor eles não são exercitados (a resposta é binária), mas custam nada e
+  cobrem o caso de o motor trocar de versão.

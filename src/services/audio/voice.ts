@@ -213,11 +213,14 @@ function audioDeJson(bytes: Buffer): Buffer | null {
 
 /**
  * Voz pelo **MLVoice Engine** (Pocket TTS) — dialeto próprio: `POST /v1/tts` com `X-API-Key`
- * (por isso não usa `vozPeloServicoLocal`, que fala o dialeto do OpenAI).
+ * (por isso não usa `vozPeloServicoLocal`, que fala o dialeto do OpenAI). Resposta em binário
+ * (ogg/opus), com o tempo de geração no cabeçalho `X-Generation-Seconds`.
  *
- * `voz` vazio deixa o motor usar a voz padrão dele; `MLVOICE_VOICE` cobre o caso de querer
- * fixar a voz (ex.: `rafael`) sem mexer em `agents.voice`. Falha aqui devolve `null` e quem
- * chamou escolhe a reserva: o lead nunca fica sem resposta.
+ * O motor instalado (MLVoice Engine 1.0.0, em `/opt/mlvoice`) aceita só `text`, `format` e
+ * `normalize`: o `voice` que mandamos é ignorado por ele, e o timbre é o que está carregado no
+ * motor (`rafael`). O campo vai assim mesmo porque custa nada e passa a valer se o motor ganhar
+ * voz por requisição. Falha aqui devolve `null` e quem chamou escolhe a reserva: o lead nunca fica
+ * sem resposta.
  */
 async function vozPeloMLVoice(
   texto: string,

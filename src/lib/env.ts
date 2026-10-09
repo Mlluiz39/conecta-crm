@@ -127,7 +127,11 @@ export function serverEnv() {
       mlvoiceUrl: (process.env.MLVOICE_URL ?? "http://127.0.0.1:8765/v1/tts").replace(/\/+$/, ""),
       /** Chave do MLVoice. Vazio = motor desligado (cai no Piper/proxy sem quebrar nada). */
       mlvoiceApiKey: process.env.MLVOICE_API_KEY ?? "",
-      /** Voz do motor (ex.: `rafael`). Vazio = a voz padrão do próprio MLVoice. */
+      /**
+       * Voz pedida ao motor (ex.: `rafael`). O MLVoice instalado **ignora** o campo `voice` no
+       * corpo: o timbre é o carregado do lado dele (`/opt/mlvoice/pocket/mlvoice.env`). Isto fica
+       * aqui para o dia em que o motor aceitar voz por requisição.
+       */
       mlvoiceVoice: process.env.MLVOICE_VOICE ?? "",
       /** Idioma mandado ao Chatterbox (pt = português, o finetune pt-BR usa o mesmo id). */
       language: process.env.TTS_LANGUAGE ?? "pt",
