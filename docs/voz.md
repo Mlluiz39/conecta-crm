@@ -1,10 +1,11 @@
 # Voz do atendimento (TTS/STT)
 
-Quando o lead manda **nota de voz**, o agente responde em voz. Três formas de gerar essa voz:
+Quando o lead manda **nota de voz**, o agente responde em voz. Quatro formas de gerar essa voz:
 
 | Provedor | O que é | Medido nesta VPS (4 vCPU, sem GPU) | Uso |
 |---|---|---|---|
 | `piper` | **Piper** local (MIT, CPU), uma voz por agente | **2,6 s** para 9,9 s de áudio (~4x mais rápido que o tempo real) | **recomendado** |
+| `mlvoice` | **MLVoice Engine** (Pocket TTS), endpoint próprio (`POST /v1/tts` + `X-API-Key`) | CPU da VPS (sem GPU), latência boa — sem cronômetro ainda | voz `rafael` (Pocket TTS) |
 | `proxy` | endpoint OpenAI-compatible já configurado (Gemini via 9router) | poucos segundos | sem nada extra, custo por uso |
 | `chatterbox` | **Chatterbox** local (MIT, clona timbre de uma amostra de ~10 s) | **110 s** para 12 s de áudio (~9x mais lento) | só com GPU |
 
@@ -15,8 +16,9 @@ A transcrição (voz do lead → texto) continua no proxy em qualquer caso — o
 ```
 resposta do agente ─► synthesizeSpeech(texto, voice)
                           │
-                          ├─ "piper:faber"     ─► Piper local  http://127.0.0.1:4124  (container conectacrm-piper)
-                          ├─ "chatterbox:vozX" ─► Chatterbox   http://127.0.0.1:4123  (opcional, GPU)
+                          ├─ "piper:faber"     ─► Piper local      http://127.0.0.1:4124  (conectacrm-piper)
+                          ├─ "mlvoice:rafael"  ─► MLVoice Engine   http://127.0.0.1:8765/v1/tts
+                          ├─ "chatterbox:vozX" ─► Chatterbox       http://127.0.0.1:4123  (opcional, GPU)
                           └─ (qualquer outro)  ─► proxy (Gemini)
                                     │
                                     ▼
@@ -26,11 +28,15 @@ resposta do agente ─► synthesizeSpeech(texto, voice)
                      Evolution API ─► WhatsApp (nota de voz)
 ```
 
-* O serviço local fala o **mesmo dialeto do OpenAI** (`POST /v1/audio/speech`), então trocar de
-  motor não muda nada no resto do CRM.
-* **Reserva automática:** se o motor escolhido falhar ou estourar `TTS_TIMEOUT_MS`, a resposta sai
-  em voz pelo proxy — o log mostra `[audio] caindo para o proxy (...)`. Se nem isso rolar, a
-  resposta vai como **texto**: o lead nunca fica sem retorno.
+* Piper e Chatterbox falam o **mesmo dialeto do OpenAI** (`POST /v1/audio/speech`), então trocar de
+  motor não muda nada no resto do CRM. O **MLVoice** é a exceção: dialeto próprio, com autenticação
+  por `X-API-Key`, e por isso tem função dedicada (`vozPeloMLVoice`, em `src/services/audio/voice.ts`).
+  A URL pode ser a completa (`.../v1/tts`) ou só a base (`...:8765`) — o código completa o caminho.
+* **Reserva automática:** se o motor escolhido falhar ou estourar `TTS_TIMEOUT_MS`, o CRM tenta o
+  próximo (`mlvoice` → Piper → Chatterbox → proxy) e o log mostra cada queda
+  (`[audio] MLVoice indisponível; tentando o Piper`, `[audio] caindo para o proxy (...)`). Se nem
+  isso rolar, a resposta vai como **texto**: o lead nunca fica sem retorno.
+  Com `MLVOICE_API_KEY` vazio o MLVoice é simplesmente ignorado — nada quebra.
 
 ## Instalar / ligar (Piper)
 
@@ -55,6 +61,33 @@ curl -sS -X POST http://127.0.0.1:4124/v1/audio/speech \
 ffplay /tmp/voz.wav
 ```
 
+## Instalar / ligar (MLVoice / Pocket TTS)
+
+O MLVoice roda como serviço próprio (fora do CRM), preso em `127.0.0.1:8765`. Como o container do
+CRM usa `network_mode: host`, ele alcança o motor pelo mesmo endereço.
+
+```bash
+# 1. no .env.local (os mesmos valores vão para a VPS: o .env.local inteiro é o env do container)
+TTS_PROVIDER="mlvoice"
+MLVOICE_URL="http://127.0.0.1:8765/v1/tts"
+MLVOICE_API_KEY="<a chave do motor>"
+MLVOICE_VOICE="rafael"
+
+# 2. confirme que o motor responde antes de mexer no CRM (a chave não aparece no terminal)
+curl -sS -o /tmp/voz.opus -w 'HTTP %{http_code} · %{content_type} · %{size_download} bytes\n' \
+  -X POST "$MLVOICE_URL" -H "X-API-Key: $MLVOICE_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Oi! Aqui é o Luiz, da MLLuiz DevTech.","format":"opus","normalize":true}'
+
+# 3. recria os containers (env novo; NÃO precisa de --build) e olha o log da primeira nota de voz
+CONECTA_ROOT="$PWD" docker compose --env-file .env.local up -d
+docker logs -f --tail 100 conectacrm-web | grep -i '\[audio\]'
+```
+
+Como cada agente fica: com `TTS_PROVIDER="mlvoice"` todos usam o Pocket TTS (`rafael`, por
+`MLVOICE_VOICE`) e caem no Piper se ele não responder. Para tratar o motor como exceção, use
+`TTS_PROVIDER="auto"` e marque só os agentes desejados com `agents.voice = "mlvoice:rafael"`.
+
 ## Vozes por agente
 
 `agents.voice` decide o provedor **e** a voz:
@@ -62,12 +95,13 @@ ffplay /tmp/voz.wav
 | Valor | Efeito |
 |---|---|
 | `piper:faber` | voz `faber` do Piper local |
+| `mlvoice:rafael` | voz `rafael` do MLVoice (Pocket TTS) |
 | `chatterbox:vendedor` | voz clonada no Chatterbox |
 | `alloy`, `shimmer`, `nova`… | voz do proxy (Gemini), como era antes |
 | vazio | `TTS_VOICE` (proxy) |
 
-Com `TTS_PROVIDER=piper` (ou `chatterbox`), todos os agentes vão para o serviço local — inclusive
-os sem prefixo. Com `auto` (padrão do código), só quem tem o prefixo.
+Com `TTS_PROVIDER=piper` (ou `chatterbox`/`mlvoice`), todos os agentes vão para o serviço local —
+inclusive os sem prefixo. Com `auto` (padrão do código), só quem tem o prefixo.
 
 **Mapa padrão** (papel → voz), configurável com `VOZES_PAPEL="vendedor=faber,atendente=cadu"`:
 
@@ -111,7 +145,10 @@ outbox tem teto de 120 s e a síntese sozinha passa de 100 s).
 
 | Variável | Padrão | Para que serve |
 |---|---|---|
-| `TTS_PROVIDER` | `auto` | `piper` \| `chatterbox` \| `proxy` \| `auto` |
+| `TTS_PROVIDER` | `auto` | `mlvoice` \| `piper` \| `chatterbox` \| `proxy` \| `auto` |
+| `MLVOICE_URL` | `http://127.0.0.1:8765/v1/tts` | endpoint do MLVoice (aceita também só a base) |
+| `MLVOICE_API_KEY` | (vazio) | chave do MLVoice (`X-API-Key`); vazio desliga o motor |
+| `MLVOICE_VOICE` | (vazio) | voz do MLVoice (ex.: `rafael`); vazio = a padrão do motor |
 | `PIPER_URL` | `http://127.0.0.1:4124` | serviço do Piper |
 | `CHATTERBOX_URL` | `http://127.0.0.1:4123` | serviço do Chatterbox |
 | `TTS_LANGUAGE` | `pt` | idioma mandado ao motor local |
@@ -124,4 +161,13 @@ outbox tem teto de 120 s e a síntese sozinha passa de 100 s).
 
 * Piper: ~300 MB de imagem + ~60 MB por voz; teto de 1 GB de RAM (usa ~17 MB).
 * O container do CRM precisa de `ffmpeg` (a imagem já tem) para converter em OGG/OPUS.
-* O serviço fica preso em `127.0.0.1` — só o CRM alcança. Não exponha em `0.0.0.0`.
+* Os motores ficam presos em `127.0.0.1` — só o CRM alcança. Não exponha em `0.0.0.0`
+  (o MLVoice tem chave, mas a chave não substitui a rede fechada: `X-API-Key` vaza em log).
+* `MLVOICE_API_KEY` vive só no `.env.local`/`.env.vps` (os dois estão no `.gitignore`), nunca no
+  código nem em `docker-compose.yml` — e não imprima a chave no terminal.
+* O contrato do `/v1/tts` **foi validado na VPS (08/10/2026)**: o motor aceita
+  `{text, format:"opus", normalize:true, voice:"rafael"}` com `X-API-Key` e devolve o áudio
+  corretamente, com latência boa rodando só na CPU da própria VPS. Então o caminho normal é o
+  áudio binário cru; o resto do código (JSON com base64, queda para Piper/proxy) fica só como rede
+  de segurança, sem custo quando o motor responde. Falta cronometrar a síntese para entrar na
+  tabela de medições acima.

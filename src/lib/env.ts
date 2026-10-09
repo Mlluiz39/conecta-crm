@@ -108,16 +108,27 @@ export function serverEnv() {
        *  - `proxy`      → endpoint OpenAI-compatible já configurado (Gemini via proxy) — padrão;
        *  - `piper`      → serviço local leve (MIT, CPU, perto do tempo real) — recomendado;
        *  - `chatterbox` → serviço local que clona timbre (mais natural, ~10x mais lento em CPU);
+       *  - `mlvoice`    → MLVoice Engine (Pocket TTS) — endpoint próprio, fora do dialeto OpenAI;
        *  - `auto`       → decide por agente, pelo prefixo da voz.
        *
-       * Por agente: `agents.voice = "piper:faber"` ou `"chatterbox:vendedor"` usa o serviço
-       * local; qualquer outro valor continua indo para o proxy.
+       * Por agente: `agents.voice = "piper:faber"`, `"chatterbox:vendedor"` ou
+       * `"mlvoice:rafael"` usa o motor local; qualquer outro valor continua indo para o proxy.
        */
       provider: (process.env.TTS_PROVIDER ?? "auto").toLowerCase(),
       /** Base do serviço local (OpenAI-compatible: /v1/audio/speech, /voices). */
       chatterboxUrl: (process.env.CHATTERBOX_URL ?? "http://127.0.0.1:4123").replace(/\/+$/, ""),
       /** Serviço local leve (Piper, CPU) — o padrão quando se quer voz própria sem GPU. */
       piperUrl: (process.env.PIPER_URL ?? "http://127.0.0.1:4124").replace(/\/+$/, ""),
+      /**
+       * MLVoice Engine (Pocket TTS). Dialeto próprio: `POST /v1/tts` com `X-API-Key` no
+       * cabeçalho — por isso não passa por `vozPeloServicoLocal` (que fala OpenAI).
+       * Vale a URL completa (`.../v1/tts`) ou só a base (`...:8765`) — o código completa.
+       */
+      mlvoiceUrl: (process.env.MLVOICE_URL ?? "http://127.0.0.1:8765/v1/tts").replace(/\/+$/, ""),
+      /** Chave do MLVoice. Vazio = motor desligado (cai no Piper/proxy sem quebrar nada). */
+      mlvoiceApiKey: process.env.MLVOICE_API_KEY ?? "",
+      /** Voz do motor (ex.: `rafael`). Vazio = a voz padrão do próprio MLVoice. */
+      mlvoiceVoice: process.env.MLVOICE_VOICE ?? "",
       /** Idioma mandado ao Chatterbox (pt = português, o finetune pt-BR usa o mesmo id). */
       language: process.env.TTS_LANGUAGE ?? "pt",
       /** Voz do TTS quando o agente que atendeu não tem voz própria. */

@@ -14,6 +14,10 @@ import { serverEnv } from "@/lib/env";
  *     padrão e como reserva: se o serviço local falhar ou estourar o tempo, a resposta
  *     sai em voz pelo proxy em vez de virar silêncio.
  *
+ * Motores locais OpenAI-compatible: **Piper** (`piper:<voz>`, CPU, o recomendado) e o
+ * Chatterbox. O **MLVoice Engine** (Pocket TTS) tem dialeto próprio (`POST /v1/tts` com
+ * `X-API-Key`), por isso tem função dedicada — `vozPeloMLVoice`.
+ *
  * A saída vai como **OGG/OPUS** (o que o WhatsApp usa em nota de voz): o serviço local já
  * pode devolver opus, e o que vier em wav/mp3 é convertido aqui com ffmpeg (existe na imagem).
  */
@@ -27,16 +31,16 @@ function cfgAudio() {
   };
 }
 
-/** `piper:faber` / `chatterbox:vendedor` → serviço local; qualquer outro valor → proxy. */
+/** `piper:faber` / `chatterbox:vendedor` / `mlvoice:rafael` → serviço local; resto → proxy. */
 export function interpretarVoz(voice?: string | null): {
-  provedor: "piper" | "chatterbox" | "proxy";
+  provedor: "piper" | "chatterbox" | "mlvoice" | "proxy";
   nome: string;
 } {
   const bruto = String(voice ?? "").trim();
-  const casou = bruto.match(/^(piper|chatterbox):(.+)$/i);
+  const casou = bruto.match(/^(piper|chatterbox|mlvoice):(.+)$/i);
   if (casou) {
     return {
-      provedor: casou[1].toLowerCase() as "piper" | "chatterbox",
+      provedor: casou[1].toLowerCase() as "piper" | "chatterbox" | "mlvoice",
       nome: casou[2].trim(),
     };
   }
@@ -186,17 +190,99 @@ export async function transcribeAudio(input: {
 }
 
 /**
+ * Extrai o áudio de uma resposta JSON. O contrato esperado do MLVoice é o binário cru (opus),
+ * mas se algum build devolver JSON, tenta as chaves usuais em vez de mandar o JSON como se
+ * fosse áudio — lixo no ouvido do lead é pior que cair na reserva.
+ */
+function audioDeJson(bytes: Buffer): Buffer | null {
+  try {
+    const json = JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
+    for (const chave of ["audio_base64", "audio", "audioContent", "data", "b64", "base64", "result"]) {
+      const valor = json?.[chave];
+      if (typeof valor !== "string" || !valor) continue;
+      if (/^https?:\/\//i.test(valor)) continue; // URL: não é base64, não dá para adivinhar
+      const base64 = valor.startsWith("data:") ? valor.slice(valor.indexOf(",") + 1) : valor;
+      const buf = Buffer.from(base64, "base64");
+      if (buf.length > 0) return buf;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Voz pelo **MLVoice Engine** (Pocket TTS) — dialeto próprio: `POST /v1/tts` com `X-API-Key`
+ * (por isso não usa `vozPeloServicoLocal`, que fala o dialeto do OpenAI).
+ *
+ * `voz` vazio deixa o motor usar a voz padrão dele; `MLVOICE_VOICE` cobre o caso de querer
+ * fixar a voz (ex.: `rafael`) sem mexer em `agents.voice`. Falha aqui devolve `null` e quem
+ * chamou escolhe a reserva: o lead nunca fica sem resposta.
+ */
+async function vozPeloMLVoice(
+  texto: string,
+  voz = "",
+): Promise<{ base64: string; mimetype: string } | null> {
+  const { mlvoiceUrl, mlvoiceApiKey, timeoutMs } = cfgAudio();
+  if (!mlvoiceUrl || !mlvoiceApiKey) return null;
+
+  // Aceita a URL completa (`http://127.0.0.1:8765/v1/tts`) ou só a base (`http://127.0.0.1:8765`).
+  const url = /\/v1\/tts$/i.test(mlvoiceUrl) ? mlvoiceUrl : `${mlvoiceUrl}/v1/tts`;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": mlvoiceApiKey,
+      },
+      body: JSON.stringify({
+        text: texto,
+        format: "opus",
+        normalize: true,
+        ...(voz ? { voice: voz } : {}),
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+
+    if (!res.ok) {
+      console.warn(`[audio] MLVoice HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      return null;
+    }
+
+    const tipo = res.headers.get("content-type") || "audio/ogg";
+    const bytes = Buffer.from(await res.arrayBuffer());
+    const json = /json/i.test(tipo);
+    const audio = json ? audioDeJson(bytes) : bytes;
+    if (!audio) {
+      console.warn("[audio] MLVoice devolveu JSON sem áudio reconhecível");
+      return null;
+    }
+    if (audio.length < 1024) {
+      console.warn("[audio] MLVoice retornou áudio vazio");
+      return null;
+    }
+    // "audio/wav" quando veio JSON: o ffmpeg fareja o formato real do arquivo de qualquer forma.
+    return garantirOpus(audio, json ? "audio/wav" : tipo);
+  } catch (err) {
+    console.warn("[audio] MLVoice falhou:", (err as Error).message);
+    return null;
+  }
+}
+
+/**
  * Resposta do agente em voz. `null` = usar texto (TTS indisponível ou resposta longa).
  *
- * Ordem: serviço local (`piper`/`chatterbox`, quando a voz do agente tem o prefixo ou quando
- * `TTS_PROVIDER` aponta para ele); senão o proxy. Em qualquer caso, se o escolhido falhar,
- * tenta o outro antes de desistir — melhor voz diferente do que lead sem resposta.
+ * Ordem: serviço local (`piper`/`chatterbox`/`mlvoice`, quando a voz do agente tem o prefixo
+ * ou quando `TTS_PROVIDER` aponta para ele); senão o proxy. Em qualquer caso, se o escolhido
+ * falhar, tenta o outro antes de desistir — melhor voz diferente do que lead sem resposta.
  */
 export async function synthesizeSpeech(
   text: string,
   voice?: string | null,
 ): Promise<{ base64: string; mimetype: string } | null> {
-  const { provider, defaultVoice, maxChars, piperUrl, chatterboxUrl } = cfgAudio();
+  const { provider, defaultVoice, maxChars, piperUrl, chatterboxUrl, mlvoiceApiKey, mlvoiceVoice } =
+    cfgAudio();
   const limpo = String(text ?? "").trim();
   if (!limpo) return null;
   if (limpo.length > maxChars) {
@@ -206,12 +292,25 @@ export async function synthesizeSpeech(
 
   const alvo = interpretarVoz(voice);
   // Sem prefixo, o provedor configurado decide; `auto` deixa a escolha por agente.
-  const localPedido: "piper" | "chatterbox" | null =
+  const localPedido: "piper" | "chatterbox" | "mlvoice" | null =
     alvo.provedor !== "proxy"
       ? alvo.provedor
-      : provider === "piper" || provider === "chatterbox"
+      : provider === "piper" || provider === "chatterbox" || provider === "mlvoice"
         ? provider
         : null;
+
+  if (localPedido === "mlvoice") {
+    if (!mlvoiceApiKey) console.warn("[audio] MLVoice não configurado (falta MLVOICE_API_KEY)");
+    const audio = await vozPeloMLVoice(limpo, alvo.nome || mlvoiceVoice);
+    if (audio) return audio;
+    // Reserva: Pocket TTS fora do ar não pode deixar o lead sem resposta em voz.
+    console.warn("[audio] MLVoice indisponível; tentando o Piper");
+    return (
+      (await vozPeloServicoLocal(limpo, "", piperUrl)) ??
+      (await vozPeloServicoLocal(limpo, "", chatterboxUrl)) ??
+      (await vozPeloProxy(limpo, defaultVoice))
+    );
+  }
 
   if (localPedido) {
     const base = localPedido === "piper" ? piperUrl : chatterboxUrl;
@@ -227,7 +326,8 @@ export async function synthesizeSpeech(
   if (audio) return audio;
   // Sem voz pelo proxy: se algum serviço local estiver no ar, tenta antes de desistir.
   if (provider === "auto") {
-    return (await vozPeloServicoLocal(limpo, "", piperUrl)) ??
+    return (await vozPeloMLVoice(limpo, mlvoiceVoice)) ??
+      (await vozPeloServicoLocal(limpo, "", piperUrl)) ??
       (await vozPeloServicoLocal(limpo, "", chatterboxUrl));
   }
   return null;

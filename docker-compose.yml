@@ -43,6 +43,12 @@ services:
     env_file:
       - .env.local
     environment:
+      # Toda variável do app (inclusive as de voz: TTS_PROVIDER, MLVOICE_URL/API_KEY/VOICE,
+      # PIPER_URL, CHATTERBOX_URL) entra pelo `env_file: .env.local` acima — não precisa ser
+      # repetida aqui. E com `network_mode: host`, um motor de voz em 127.0.0.1 (Piper na 4124,
+      # MLVoice na 8765) é alcançado do container pelo mesmo endereço do host.
+      # Mudar o .env.local pede recriar o container (`up -d`), não `--build`.
+      #
       # Porta do CRM no host (host network). Numa VPS que já expõe o domínio por um
       # proxy/túnel apontando para outra porta, defina CRM_PORT no .env.local.
       PORT: "${CRM_PORT:-8081}"
