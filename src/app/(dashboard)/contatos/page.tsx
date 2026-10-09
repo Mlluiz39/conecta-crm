@@ -3,7 +3,6 @@ import { getContacts } from "@/lib/data/queries";
 import { PageHeader, Card, EmptyState, Badge } from "@/components/ui/primitives";
 import { NewContactButton } from "@/components/contacts/NewContactButton";
 import { DeleteContactButton } from "@/components/contacts/DeleteContactButton";
-import { formatBRL, formatDateTime } from "@/lib/utils";
 import {
   MessageCircle,
   Eye,
@@ -85,8 +84,6 @@ export default async function ContatosPage({
                     <th className="px-4 py-3">Canal & Contato</th>
                     <th className="px-4 py-3">E-mail / Cidade</th>
                     <th className="px-4 py-3">Etiquetas</th>
-                    <th className="px-4 py-3">Oportunidade</th>
-                    <th className="px-4 py-3">Responsável</th>
                     <th className="px-4 py-3">Última Interação</th>
                     <th className="px-4 py-3 text-right">Ações</th>
                   </tr>
@@ -98,10 +95,6 @@ export default async function ContatosPage({
                     const role = custom.cargo || custom.role;
                     const city = custom.cidade || custom.city;
                     const state = custom.estado || custom.state;
-
-                    // Oportunidades: somar valores abertos
-                    const opps = (c.opportunities ?? []) as Array<{ value: number }>;
-                    const totalOppValue = opps.reduce((acc, o) => acc + (Number(o.value) || 0), 0);
 
                     // Conversa e canal
                     const convs = (c.conversations ?? []) as Array<{
@@ -139,11 +132,15 @@ export default async function ContatosPage({
                               {getInitials(c.name)}
                               <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500" />
                             </div>
-                            <div className="min-w-0">
+                            <div className="min-w-0 max-w-[14rem]">
                               <div className="flex items-center gap-1.5">
+                                {/* `min-w-0` + `truncate` num elemento de bloco: nome comprido vira
+                                    "Consultório Dra. Thais Nog…" em vez de esticar a tabela, e o
+                                    nome inteiro fica no title (ao passar o mouse). */}
                                 <Link
                                   href={`/contatos/${c.id}`}
-                                  className="truncate font-semibold text-foreground hover:text-primary transition-colors"
+                                  title={c.name}
+                                  className="block min-w-0 truncate font-semibold text-foreground hover:text-primary transition-colors"
                                 >
                                   {c.name}
                                 </Link>
@@ -210,29 +207,6 @@ export default async function ContatosPage({
                             ) : (
                               <span className="text-xs text-muted-foreground">—</span>
                             )}
-                          </div>
-                        </td>
-
-                        {/* Oportunidade */}
-                        <td className="px-4 py-3.5">
-                          {totalOppValue > 0 ? (
-                            <span className="font-semibold text-primary">
-                              {formatBRL(totalOppValue)}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </td>
-
-                        {/* Responsável */}
-                        <td className="px-4 py-3.5">
-                          <div className="flex items-center gap-2">
-                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground">
-                              {c.owner_name ? getInitials(c.owner_name) : "—"}
-                            </div>
-                            <span className="truncate text-xs font-medium text-foreground max-w-[120px]">
-                              {c.owner_name || "Não atribuído"}
-                            </span>
                           </div>
                         </td>
 

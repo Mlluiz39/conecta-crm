@@ -882,6 +882,44 @@ export async function clearConversationMessages(
 
 
 /**
+ * Apaga a CONVERSA inteira (some da caixa de entrada) — o contato continua no CRM.
+ *
+ * As mensagens, notas, etiquetas e alertas ligados a ela vão junto: o banco já tem
+ * `on delete cascade` em tudo que aponta para `conversations`, então basta apagar a linha.
+ * O WhatsApp do lead **não** é tocado (para apagar lá também existe a limpeza por mensagem),
+ * e se o lead escrever de novo o webhook recria a conversa, vazia.
+ */
+export async function deleteConversation(
+  conversationId: string,
+): Promise<{ messages: number }> {
+  const { organizationId, role } = await requireProfile();
+  if (role === "atendente") throw new Error("Sem permissão");
+
+  const supabase = createClient();
+
+  // Conta antes: depois do delete as mensagens já foram embora em cascata.
+  const { count } = await supabase
+    .from("messages")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .eq("conversation_id", conversationId);
+
+  const { data, error } = await supabase
+    .from("conversations")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("id", conversationId)
+    .select("id");
+  if (error) throw new Error(error.message);
+  if ((data ?? []).length === 0) throw new Error("Conversa não encontrada");
+
+  revalidatePath("/conversas");
+  revalidatePath("/dashboard");
+  return { messages: count ?? 0 };
+}
+
+
+/**
  * Resolve a conversa de E-MAIL do lead: mesmo `external_id` que o sync do Hermes
  * usa (`<email>`), então a resposta do cliente cai na mesma thread.
  */

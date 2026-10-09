@@ -11,6 +11,7 @@ import {
   sendHumanMessage,
   deleteMessage,
   clearConversationMessages,
+  deleteConversation,
   getConversationMessages,
 } from "@/lib/data/actions";
 import { Badge } from "@/components/ui/primitives";
@@ -354,8 +355,46 @@ export function Inbox({
     }
   }
 
-  async function handleSend() {
-    if (!input.trim() || !active) return;
+  /**
+   * Apaga a conversa inteira (não só as mensagens): ela sai da caixa de entrada. O contato
+   * continua em Contatos — para apagar o lead junto, o lugar é a tela de Contatos.
+   */
+  async function handleDeleteConversation() {
+    if (!active || busyMsg) return;
+    const conversa = active;
+    const nome = conversa.contact?.name ?? "este contato";
+    const ok = await confirmDialog({
+      title: `Apagar a conversa de ${nome}?`,
+      description:
+        `${activeMessages.length} mensagem(ns) vão junto e a conversa sai da caixa de entrada. ` +
+        "O contato continua cadastrado em Contatos, e no WhatsApp do lead nada é apagado. " +
+        "Se ele escrever de novo, a conversa volta vazia. Não dá para desfazer.",
+      confirmLabel: "Apagar conversa",
+      tone: "danger",
+    });
+    if (!ok) return;
+
+    setBusyMsg("__delete__");
+    try {
+      const res = await deleteConversation(conversa.id);
+      notify(
+        res.messages > 0
+          ? `Conversa apagada (${res.messages} mensagem(ns) junto).`
+          : "Conversa apagada.",
+        "success",
+      );
+      // A conversa aberta deixou de existir: abre a próxima da lista.
+      const restantes = conversations.filter((c) => c.id !== conversa.id);
+      setActiveId(restantes[0]?.id ?? null);
+      router.refresh();
+    } catch (error) {
+      notify("Não deu para apagar a conversa: " + (error as Error).message, "error");
+    } finally {
+      setBusyMsg(null);
+    }
+  }
+
+  async function handleSend() {    if (!input.trim() || !active) return;
     const text = input.trim();
     const conversationId = active.id;
     setInput("");
@@ -535,16 +574,28 @@ export function Inbox({
             <span className="text-[11px] text-muted-foreground">
               {activeMessages.length} mensagem(ns) no histórico
             </span>
-            <button
-              type="button"
-              onClick={() => void handleClearConversation()}
-              disabled={busyMsg === "__clear__" || activeMessages.length === 0}
-              title="Apagar todas as mensagens desta conversa (o contato continua)"
-              className="inline-flex items-center gap-1 rounded-lg border border-border/60 px-2 py-1 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              {busyMsg === "__clear__" ? "Limpando…" : "Limpar histórico"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleDeleteConversation()}
+                disabled={busyMsg === "__delete__"}
+                title="Apagar a conversa inteira (o contato continua cadastrado)"
+                className="inline-flex items-center gap-1 rounded-lg border border-border/60 px-2 py-1 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {busyMsg === "__delete__" ? "Apagando…" : "Apagar conversa"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleClearConversation()}
+                disabled={busyMsg === "__clear__" || activeMessages.length === 0}
+                title="Apagar todas as mensagens desta conversa (o contato e a conversa continuam)"
+                className="inline-flex items-center gap-1 rounded-lg border border-border/60 px-2 py-1 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {busyMsg === "__clear__" ? "Limpando…" : "Limpar histórico"}
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 space-y-3 overflow-y-auto bg-muted/20 p-4">
