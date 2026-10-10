@@ -6,7 +6,7 @@ type SupabaseLike = ReturnType<typeof createClient>;
 
 /**
  * Resolve a conversa de WhatsApp do lead usando o MESMO external_id que o sync
- * do Hermes (`<fone>@s.whatsapp.net`). Sem isso a prospecção abriria uma thread
+ * do WhatsApp (`<fone>@s.whatsapp.net`). Sem isso a prospecção abriria uma thread
  * separada (`manual_<id>`) e a resposta do lead cairia em outra conversa.
  */
 export async function ensureProspectConversation(
@@ -16,7 +16,7 @@ export async function ensureProspectConversation(
   const digits = normalizePhone(params.phone ?? "");
   const canonical = digits ? `${digits}@s.whatsapp.net` : null;
 
-  // 1) conversa canônica (a que o Hermes alimenta)
+  // 1) conversa canônica (a que o provider alimenta)
   if (canonical) {
     const { data: existing } = await supabase
       .from("conversations")
@@ -73,8 +73,8 @@ export async function ensureProspectConversation(
 }
 
 /**
- * Resolve a conversa de E-MAIL do lead: mesmo `external_id` que o sync do Hermes
- * usa (`<email>`), então a resposta do cliente cai na mesma thread.
+ * Resolve a conversa de E-MAIL do lead: o `external_id` é o próprio endereço
+ * normalizado, então a resposta do cliente cai na mesma thread.
  */
 export async function ensureEmailConversation(
   supabase: SupabaseLike,
@@ -97,9 +97,9 @@ export async function ensureEmailConversation(
       .insert({
         organization_id: params.organizationId,
         type: "email",
-        name: "E-mail (Hermes)",
+        name: "E-mail",
         status: "conectado",
-        config: { provider: "hermes" },
+        config: { provider: "gmail" },
       })
       .select("id")
       .single();

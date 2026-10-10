@@ -1,20 +1,14 @@
 /**
  * Prospecção feita pelo agente: gera a primeira abordagem personalizada por lead
- * (via Hermes CLI, que roda com a persona de vendedor) e entrega no outbox.
+ * (pelo LLM nativo, com o prompt de vendedor) e entrega no outbox.
  *
  * O envio em si continua no padrão do projeto: messages.status = 'pendente'
- * → flushOutbox() → provider (Hermes/WhatsApp).
+ * → flushOutbox() → provider (WhatsApp/Evolution).
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { serverEnv } from "@/lib/env";
 import { generateText } from "@/services/agents/claude";
-import { stripLogLines } from "@/services/messaging/hermes-noise";
+import { stripLogLines } from "@/services/agents/text-noise";
 
-const execFileAsync = promisify(execFile);
-
-const GENERATION_TIMEOUT_MS = 120_000;
 
 export type LeadInput = {
   id: string;
@@ -65,7 +59,7 @@ function firstName(name: string | null | undefined): string {
 
 /** Remove ruído do CLI (session_id, avisos, logs de plugins, fences de código). */
 function cleanGenerated(raw: string): string {
-  // As regras de ruído de log vivem em um só lugar (também usado pelo hermes-sync).
+  // As regras de ruído de log vivem em um só lugar.
   let text = stripLogLines((raw ?? "").toString());
   text = text.replace(/```[a-z]*\n?/gi, "");
   text = text.replace(/^(mensagem|resposta|texto)\s*:\s*/i, "");
@@ -93,7 +87,7 @@ function fallbackMessage(lead: LeadInput, briefing: Briefing): string {
 }
 
 /**
- * Gera a primeira mensagem para o lead usando o LLM direto ou o Hermes CLI.
+ * Gera a primeira mensagem para o lead usando o LLM, com template como reserva.
  * Se falhar, cai num template seguro.
  */
 export async function generateFirstTouch(
@@ -125,31 +119,7 @@ export async function generateFirstTouch(
     const text = cleanGenerated(raw);
     if (text.length >= 20) return { text, source: "agent" };
   } catch (err: any) {
-    console.warn("[prospect/agent] falha em generateText, tentando Hermes CLI:", err.message);
-  }
-
-  const { hermes } = serverEnv();
-  if (hermes.bin) {
-    try {
-      const fullPrompt = `${SYSTEM_PROMPT}\n\n${prompt}`;
-      const { stdout } = await execFileAsync(
-        hermes.bin,
-        ["chat", "-q", fullPrompt, "--oneshot", "-Q"],
-        {
-          timeout: GENERATION_TIMEOUT_MS,
-          maxBuffer: 4 * 1024 * 1024,
-          env: {
-            ...process.env,
-            HERMES_HOME: hermes.home,
-            HERMES_GUEST_ONBOARDING: "1",
-          },
-        },
-      );
-      const text = cleanGenerated(stdout);
-      if (text.length >= 20) return { text, source: "agent" };
-    } catch (error) {
-      console.warn("[prospect/agent] falha ao gerar mensagem via Hermes CLI:", (error as Error).message);
-    }
+    console.warn("[prospect/agent] falha em generateText:", err.message);
   }
 
   return { text: fallbackMessage(lead, briefing), source: "template" };
@@ -184,18 +154,11 @@ function fallbackFollowup(lead: LeadInput, briefing: Briefing): string {
 
 /**
  * Gera a mensagem de retomada (follow-up) para lead que não respondeu.
- * `hermesConfigured=false` força o template (útil em teste/rodada rápida).
  */
 export async function generateFollowUp(
   lead: LeadInput,
   briefing: Briefing = {},
-  hermesConfigured = true,
 ): Promise<{ text: string; source: "agent" | "template" }> {
-  const { hermes } = serverEnv();
-  if (!hermes.bin || !hermesConfigured) {
-    return { text: fallbackFollowup(lead, briefing), source: "template" };
-  }
-
   const prompt = [
     FOLLOWUP_PROMPT,
     "",
@@ -214,12 +177,7 @@ export async function generateFollowUp(
     .join("\n");
 
   try {
-    const { stdout } = await execFileAsync(hermes.bin, ["chat", "-q", prompt, "--oneshot", "-Q"], {
-      timeout: GENERATION_TIMEOUT_MS,
-      maxBuffer: 4 * 1024 * 1024,
-      env: { ...process.env, HERMES_HOME: hermes.home, HERMES_GUEST_ONBOARDING: "1" },
-    });
-    const text = cleanGenerated(stdout);
+    const text = cleanGenerated(await generateText(prompt, FOLLOWUP_PROMPT));
     if (text.length >= 15) return { text, source: "agent" };
   } catch (error) {
     console.warn("[prospect/agent] falha ao gerar follow-up:", (error as Error).message);
@@ -281,9 +239,6 @@ export async function generateFirstTouchEmail(
   lead: LeadInput,
   briefing: Briefing = {},
 ): Promise<GeneratedEmail> {
-  const { hermes } = serverEnv();
-  if (!hermes.bin) return fallbackEmail(lead, briefing);
-
   const leadLines = [
     `- nome: ${lead.name ?? "(sem nome)"}`,
     lead.email ? `- e-mail: ${lead.email}` : null,
@@ -305,21 +260,7 @@ export async function generateFirstTouchEmail(
     .join("\n");
 
   try {
-    const { stdout } = await execFileAsync(
-      hermes.bin,
-      ["chat", "-q", prompt, "--oneshot", "-Q"],
-      {
-        timeout: GENERATION_TIMEOUT_MS,
-        maxBuffer: 4 * 1024 * 1024,
-        env: {
-          ...process.env,
-          HERMES_HOME: hermes.home,
-          HERMES_GUEST_ONBOARDING: "1",
-        },
-      },
-    );
-
-    const raw = cleanGenerated(stdout);
+    const raw = cleanGenerated(await generateText(prompt, EMAIL_PROMPT));
     const match = raw.match(/ASSUNTO:\s*(.+?)\s*(?:\n|$)[\s\S]*?CORPO:\s*([\s\S]+)/i);
     if (match) {
       const subject = match[1].trim().slice(0, 120);

@@ -19,7 +19,6 @@ const CRM_ENVS = [
   resolve(ROOT, ".env"),
   resolve(ROOT, ".env.vps"),
 ].filter((p) => existsSync(p));
-const HERMES_ENV = resolve(ROOT, ".hermes-home/.hermes/.env");
 
 function envVar(files, name) {
   for (const arquivo of files) {
@@ -33,15 +32,13 @@ function envVar(files, name) {
 
 const tokenCrm = process.env.TELEGRAM_BOT_TOKEN || envVar(CRM_ENVS, "TELEGRAM_BOT_TOKEN");
 const chatCrm = process.env.ALERTS_TELEGRAM_CHAT_ID || envVar(CRM_ENVS, "ALERTS_TELEGRAM_CHAT_ID");
-const legado = !tokenCrm && existsSync(HERMES_ENV);
 
-const TOKEN = tokenCrm || envVar([HERMES_ENV], "TELEGRAM_BOT_TOKEN");
-const CHAT = chatCrm || envVar([HERMES_ENV], "TELEGRAM_CHAT_ID");
+const TOKEN = tokenCrm;
+const CHAT = chatCrm;
 if (!TOKEN || !CHAT) {
   console.error("sem token/chat do CRM — preencha TELEGRAM_BOT_TOKEN e ALERTS_TELEGRAM_CHAT_ID no .env.local");
   process.exit(1);
 }
-if (legado) console.warn("⚠ usando o .env do Hermes: o CRM não tem TELEGRAM_BOT_TOKEN próprio");
 console.log(`bot: ${TOKEN.split(":")[0]} · chat: ${CHAT}`);
 
 const alertas = JSON.parse(readFileSync(resolve(ROOT, ".probe/failing-alerts.json"), "utf8"));

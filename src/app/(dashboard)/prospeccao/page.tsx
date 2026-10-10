@@ -6,7 +6,6 @@ import {
 } from "@/lib/data/queries";
 import { requireProfile } from "@/lib/auth/session";
 import { gmailStatus } from "@/services/email/gmail";
-import { hermesEmailStatus } from "@/services/email/hermes-email";
 import { ProspectPanel } from "@/components/prospecting/ProspectPanel";
 import { ImportLeadsPanel } from "@/components/prospecting/ImportLeadsPanel";
 import { CompanySearchPanel } from "@/components/prospecting/CompanySearchPanel";
@@ -69,12 +68,10 @@ export default async function ProspeccaoPage({
   } catch {
     // sem sessão/erro na conexão: segue só com WhatsApp
   }
-  // E-mail pode vir pela plataforma do Hermes (IMAP/SMTP), sem OAuth do Google
-  const hermesMail = hermesEmailStatus();
   const email = {
-    canSend: gmail.canSend || hermesMail.configured,
-    address: gmail.email ?? hermesMail.address ?? null,
-    via: gmail.canSend ? "gmail" : hermesMail.configured ? "hermes" : null,
+    canSend: gmail.canSend,
+    address: gmail.email ?? null,
+    via: gmail.canSend ? "gmail" : null,
   };
 
   return (

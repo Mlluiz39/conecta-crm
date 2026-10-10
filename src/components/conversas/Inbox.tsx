@@ -17,9 +17,7 @@ import {
 } from "@/lib/data/actions";
 import { Badge } from "@/components/ui/primitives";
 import { useConfirm, useConfirmWithOption, useNotify } from "@/components/ui/dialog-provider";
-import { pollFetch, startPolling } from "@/lib/client/poll";
 import { formatDateTime } from "@/lib/utils";
-import { useTypingConversations } from "@/components/conversas/useTyping";
 import { CHANNEL_LABEL, type ChannelType } from "@/types/domain";
 
 type Conv = {
@@ -155,24 +153,6 @@ export function Inbox({
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<"message" | "note">("message");
 
-  const typingMap = useTypingConversations();
-  const [botPaused, setBotPaused] = useState(false);
-
-  // estado global do bot (emergency stop do Hermes) — atualiza a cada 10s
-  useEffect(() => {
-    let cancelled = false;
-    const stop = startPolling(async (signal) => {
-      const res = await pollFetch("/api/hermes/bot-pause", signal);
-      if (!res.ok) return;
-      const json = (await res.json()) as { paused?: boolean };
-      if (!cancelled) setBotPaused(Boolean(json.paused));
-    }, 10_000);
-    return () => {
-      cancelled = true;
-      stop();
-    };
-  }, []);
-
   const active = conversations.find((c) => c.id === activeId) ?? null;
   const activeMessages = activeId ? messages[activeId] ?? [] : [];
 
@@ -277,16 +257,11 @@ export function Inbox({
     patchConversation(conversa.id, { bot_active: !assumindo });
 
     try {
-      // O flag nativo (`conversations.bot_active`) é a verdade: o motor respeita antes de
-      // responder. O Hermes, quando existe, é só um bônus (pausa o turno dele também).
+      // O flag `conversations.bot_active` é a verdade: o motor de agentes respeita antes
+      // de responder, então assumir aqui já basta.
       if (assumindo) {
-        const res = await takeoverConversation(conversa.id);
-        notify(
-          res.hermesPaused
-            ? "Você assumiu a conversa. A IA está pausada."
-            : "Você assumiu a conversa. A IA nativa parou de responder este lead.",
-          "success",
-        );
+        await takeoverConversation(conversa.id);
+        notify("Você assumiu a conversa. A IA parou de responder este lead.", "success");
       } else {
         await reactivateBot(conversa.id);
         notify("Bot de IA reativado. A IA voltou a responder.", "success");
@@ -539,9 +514,7 @@ export function Inbox({
                   <span className="text-sm font-bold">{c.contact?.name ?? "Contato"}</span>
                   <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                     <span className={`h-2 w-2 rounded-full ${CHANNEL_DOT[c.channel_type] ?? "bg-slate-400"}`} />
-                    {typingMap[c.id] ? (
-                      <span className="font-semibold text-emerald-600">digitando…</span>
-                    ) : c.last_message_at ? (
+                    {c.last_message_at ? (
                       formatDateTime(c.last_message_at)
                     ) : (
                       ""
@@ -569,27 +542,13 @@ export function Inbox({
       {/* Thread */}
       {active ? (
         <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border bg-card">
-          {botPaused && (
-            <div className="flex flex-wrap items-center gap-2 border-b bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
-              <span className="font-bold">⏸️ Bot pausado — você está no controle.</span>
-              <span className="text-amber-700/80">
-                A IA não responde novos turnos até você retomar. Pelo celular: mande{" "}
-                <code className="rounded bg-background px-1">/pause</code> na conversa com o bot e{" "}
-                <code className="rounded bg-background px-1">/pause off</code> para voltar.
-              </span>
-            </div>
-          )}
           <div className="flex items-center justify-between border-b p-3">
             <div>
               <p className="text-sm font-bold">{active.contact?.name ?? "Contato"}</p>
               <p className="text-xs text-muted-foreground">
-                {typingMap[active.id] ? (
-                  <span className="font-semibold text-emerald-600">digitando…</span>
-                ) : (
-                  <>
-                    {CHANNEL_LABEL[active.channel_type]} · {active.contact?.phone ?? (active.contact?.telegram_chat_id ? `chat ${active.contact.telegram_chat_id}` : "")}
-                  </>
-                )}
+                <>
+                  {CHANNEL_LABEL[active.channel_type]} · {active.contact?.phone ?? (active.contact?.telegram_chat_id ? `chat ${active.contact.telegram_chat_id}` : "")}
+                </>
               </p>
             </div>
             {botBusy ? (

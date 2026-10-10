@@ -1,6 +1,0 @@
-name: crm-output-guard
-version: 1.1.0
-description: "Trava de saída do atendimento: corta monólogo interno, log do bridge/plugin, marcadores internos e assinatura de spam antes da mensagem chegar ao cliente (hook transform_llm_output)."
-author: "MLLuiz DevTech (ConectaCRM)"
-provides_hooks:
-  - transform_llm_output

@@ -545,7 +545,7 @@ export type EnqueueOutreachResult = {
 };
 
 /**
- * Coloca os leads selecionados no ciclo de disparo: o Hermes aborda aos poucos,
+ * Coloca os leads selecionados no ciclo de disparo: os agentes abordam aos poucos,
  * dentro da janela (padrão 9h–18h), com intervalos variados e teto de 15–20/dia.
  * Telefone → WhatsApp; só e-mail → e-mail.
  */
@@ -699,16 +699,10 @@ export async function takeoverConversation(conversationId: string) {
     .eq("id", conversationId);
   if (error) throw new Error(error.message);
 
-  // Para o bot DE VERDADE: o Hermes não lê o flag do CRM, então acionamos o
-  // emergency stop dele (para novos turnos, sem derrubar o WhatsApp).
-  const { pauseHermesBot } = await import("@/services/messaging/hermes-control");
-  const paused = await pauseHermesBot(`assumido no CRM: ${quem}`);
-  if (!paused.ok) {
-    console.error("[takeover] falha ao pausar o Hermes:", paused.output);
-  }
-
+  // O flag `conversations.bot_active` é a verdade: o motor de agentes do CRM respeita
+  // antes de responder, então não existe mais processo externo para pausar.
   revalidatePath("/conversas");
-  return { ok: true, hermesPaused: paused.ok, detail: paused.ok ? null : paused.output };
+  return { ok: true };
 }
 
 export async function reactivateBot(conversationId: string) {
@@ -723,13 +717,8 @@ export async function reactivateBot(conversationId: string) {
     .eq("id", conversationId);
   if (error) throw new Error(error.message);
 
-  // Devolve o atendimento para a IA (levanta o emergency stop do Hermes)
-  const { resumeHermesBot } = await import("@/services/messaging/hermes-control");
-  const resumed = await resumeHermesBot();
-  if (!resumed.ok) console.error("[reactivate] falha ao retomar o Hermes:", resumed.output);
-
   revalidatePath("/conversas");
-  return { ok: true, hermesResumed: resumed.ok, detail: resumed.ok ? null : resumed.output };
+  return { ok: true };
 }
 
 export async function addInternalNote(conversationId: string, text: string) {
@@ -920,7 +909,7 @@ export async function deleteConversation(
 
 
 /**
- * Resolve a conversa de E-MAIL do lead: mesmo `external_id` que o sync do Hermes
+ * Resolve a conversa de E-MAIL do lead: o `external_id` é o próprio endereço
  * usa (`<email>`), então a resposta do cliente cai na mesma thread.
  */
 
@@ -1084,7 +1073,7 @@ export type AgentProspectResult = {
 
 /**
  * Prospecção conduzida pelo agente: para cada contato selecionado o agente
- * escreve a primeira abordagem (persona de vendas no Hermes) e a mensagem sai
+ * escreve a primeira abordagem (prompt de vendas nativo) e a mensagem sai
  * por WhatsApp (outbox) ou por e-mail (Gmail), conforme o dado disponível.
  */
 export async function prospectWithAgent(
@@ -1117,14 +1106,12 @@ export async function prospectWithAgent(
     "@/services/prospecting/agent-outreach"
   );
   const { sendEmail, gmailStatus } = await import("@/services/email/gmail");
-  const { sendEmailViaHermes, hermesEmailStatus } = await import("@/services/email/hermes-email");
   const gmail = await gmailStatus(organizationId);
-  const hermesEmail = hermesEmailStatus();
-  const emailReady = gmail.canSend || hermesEmail.configured;
+  const emailReady = gmail.canSend;
 
   if (!chan && !emailReady) {
     throw new Error(
-      "Conecte o WhatsApp em Conexões (ou configure o e-mail do Hermes) antes de prospectar",
+      "Conecte o WhatsApp em Conexões (ou o Google, para e-mail) antes de prospectar",
     );
   }
 
@@ -1257,12 +1244,12 @@ export async function prospectWithAgent(
     if (c.email && emailReady) {
       const { subject, body, source } = await generateFirstTouchEmail(lead, briefing);
 
-      // Hermes (IMAP/SMTP) primeiro: não exige OAuth nem tabela nova
-      if (hermesEmail.configured) {
-        const sent = await sendEmailViaHermes({ to: c.email, subject, text: body });
+      // E-mail pelo Gmail (OAuth em Conexões) — `emailReady` já garantiu que está ligado
+      {
+        const sent = await sendEmail({ organizationId, to: String(c.email), subject, text: body });
         if (sent.ok) {
           await registerEmailTouch(supabase, organizationId, String(c.id), {
-            provider: "hermes",
+            provider: "gmail",
             to: c.email,
             subject,
             source,
@@ -1283,7 +1270,7 @@ export async function prospectWithAgent(
               sender_type: "agent_ai",
               content: `Assunto: ${subject}\n\n${body}`,
               status: "entregue",
-              external_id: `hermes_email_${Date.now()}`,
+              external_id: `gmail_email_${Date.now()}`,
               media: await outreachMarks(),
             });
           }
@@ -1301,7 +1288,7 @@ export async function prospectWithAgent(
           }
           continue;
         }
-        console.error("[prospect/agent] e-mail via Hermes falhou:", sent.error);
+        console.error("[prospect/agent] e-mail via Gmail falhou:", sent.error);
       }
 
       // Gmail API (exige migration do enum + OAuth)
@@ -1530,9 +1517,9 @@ export async function prospectManualLead(input: {
   }
 
   if (!phone && email) {
-    const { sendEmailViaHermes, hermesEmailStatus } = await import("@/services/email/hermes-email");
-    const mail = hermesEmailStatus();
-    if (mail.configured) {
+    const { sendEmail, gmailStatus } = await import("@/services/email/gmail");
+    const mail = await gmailStatus(organizationId);
+    if (mail.canSend) {
       const { generateFirstTouchEmail } = await import("@/services/prospecting/agent-outreach");
       const mailContent = await generateFirstTouchEmail(
         {
@@ -1543,14 +1530,15 @@ export async function prospectManualLead(input: {
         },
         { offer: input.offer, goal: input.goal, notes: input.notes },
       );
-      const sent = await sendEmailViaHermes({
+      const sent = await sendEmail({
+        organizationId,
         to: email,
         subject: mailContent.subject,
         text: mailContent.body,
       });
       if (sent.ok) {
         await registerEmailTouch(supabase, organizationId, targetContactId, {
-          provider: "hermes",
+          provider: "gmail",
           to: email,
           subject: mailContent.subject,
           source: mailContent.source,
@@ -1569,7 +1557,7 @@ export async function prospectManualLead(input: {
             sender_type: "agent_ai",
             content: `Assunto: ${mailContent.subject}\n\n${mailContent.body}`,
             status: "entregue",
-            external_id: `hermes_email_${Date.now()}`,
+            external_id: `gmail_email_${Date.now()}`,
             media: await outreachMarks(),
           });
         }

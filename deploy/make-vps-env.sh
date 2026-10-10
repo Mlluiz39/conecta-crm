@@ -6,7 +6,6 @@
 # Uso:
 #   ./deploy/make-vps-env.sh crm.seudominio.com.br          # com domínio (HTTPS)
 #   ./deploy/make-vps-env.sh 203.0.113.10 --http            # só IP, sem proxy (HTTP puro)
-#   HERMES_UID=1000 HERMES_GID=1000 ./deploy/make-vps-env.sh crm.seudominio.com.br
 #
 # Não sobrescreve um .env.vps existente sem --force.
 
@@ -69,8 +68,6 @@ for chave, valor in (
     ("GOOGLE_REDIRECT_URI", f"{url}/api/integrations/google/callback"),
     ("CRM_BIND", bind),
     ("CRM_DOMAIN", dominio),
-    ("HERMES_UID", "1000"),
-    ("HERMES_GID", "1000"),
 ):
     texto = definir(texto, chave, valor)
 

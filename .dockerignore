@@ -1,8 +1,6 @@
-# Contexto de build do CRM — sem isso a imagem carrega 4 GB de lixo:
-#  - .hermes-home (3,4 GB: Hermes, sessão do WhatsApp, modelos) nunca entra na imagem
+# Contexto de build do CRM — sem isso a imagem carrega lixo:
 #  - node_modules é reinstalado dentro do container
 #  - .next é gerado no build
-.hermes-home/
 .next/
 node_modules/
 .probe/

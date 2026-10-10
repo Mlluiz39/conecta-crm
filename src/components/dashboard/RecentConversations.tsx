@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Card } from "@/components/ui/primitives";
-import { useTypingConversations } from "@/components/conversas/useTyping";
 
 export type RecentConversation = {
   id: string;
@@ -15,7 +14,6 @@ export type RecentConversation = {
 
 /** Lista as conversas recentes e mostra "digitando…" quando o contato escreve. */
 export function RecentConversations({ conversations }: { conversations: RecentConversation[] }) {
-  const typingMap = useTypingConversations();
 
   return (
     <Card>
@@ -36,7 +34,6 @@ export function RecentConversations({ conversations }: { conversations: RecentCo
       ) : (
         <ul className="divide-y">
           {conversations.map((c) => {
-            const typing = Boolean(typingMap[c.id]);
             return (
               <li key={c.id}>
                 <Link
@@ -48,11 +45,6 @@ export function RecentConversations({ conversations }: { conversations: RecentCo
                       <span className="truncate font-semibold">
                         {c.contact?.name ?? c.contact?.phone ?? "Conversa"}
                       </span>
-                      {typing && (
-                        <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600">
-                          digitando…
-                        </span>
-                      )}
                     </span>
                     <span className="block text-xs text-muted-foreground">
                       {c.channel_type}

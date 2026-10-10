@@ -597,7 +597,7 @@ export function ProspectPanel({
             <button
               onClick={enqueueSelected}
               disabled={queuePending || selected.size === 0}
-              title="O Hermes aborda aos poucos, dentro da janela 9–18h, com intervalos variados"
+              title="Os agentes abordam aos poucos, dentro da janela 9–18h, com intervalos variados"
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
             >
               <CalendarClock size={16} />
@@ -613,11 +613,8 @@ export function ProspectPanel({
             </p>
           ) : (
             <p className="text-xs text-amber-600">
-              E-mail desligado: leads sem telefone serão pulados. Preencha{" "}
-              <code className="rounded bg-muted px-1">EMAIL_ADDRESS</code> e{" "}
-              <code className="rounded bg-muted px-1">EMAIL_PASSWORD</code> no{" "}
-              <code className="rounded bg-muted px-1">.env</code> do Hermes (ou conecte o Google em{" "}
-              <Link className="underline" href="/conexoes">Conexões</Link>).
+              E-mail desligado: leads sem telefone serão pulados. Conecte o Google em{" "}
+              <Link className="underline" href="/conexoes">Conexões</Link> para enviar por e-mail.
             </p>
           )}
         </div>

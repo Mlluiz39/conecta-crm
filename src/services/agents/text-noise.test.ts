@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isLogLine, isOnlyLogLines, stripLogLines } from "./hermes-noise.ts";
+import { isLogLine, isOnlyLogLines, stripLogLines } from "./text-noise.ts";
 
 /**
  * Caso real: mensagem entregue a um lead em 06/10/2026, espelhada no CRM.

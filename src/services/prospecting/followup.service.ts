@@ -1,6 +1,5 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { serverEnv } from "@/lib/env";
 import { generateFollowUp } from "@/services/prospecting/agent-outreach";
 import { isFollowupEligible, readFollowupCount } from "@/services/prospecting/followup-rules";
 
@@ -150,7 +149,6 @@ export async function runFollowups(params: {
 
   const supabase = createAdminClient();
   const { flushOutbox } = await import("@/services/messaging/inbound.service");
-  const hermesConfigured = Boolean(serverEnv().hermes.bin);
 
   for (const candidate of candidates) {
     if (!candidate.phone) {
@@ -162,7 +160,6 @@ export async function runFollowups(params: {
     const { text, source } = await generateFollowUp(
       { id: candidate.contactId, name: candidate.name, phone: candidate.phone, email: candidate.email },
       params.briefing ?? {},
-      hermesConfigured,
     );
 
     const { error: msgErr } = await supabase.from("messages").insert({

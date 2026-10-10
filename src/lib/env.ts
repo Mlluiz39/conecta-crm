@@ -53,10 +53,6 @@ export function serverEnv() {
       // legítimo é recusado com 401.
       instanceToken: process.env.EVOLUTION_INSTANCE_TOKEN ?? "",
     },
-    hermes: {
-      bin: process.env.HERMES_BIN ?? "",
-      home: process.env.HERMES_HOME ?? "",
-    },
     handoff: {
       /**
        * Minutos de silêncio (sem resposta humana) até a IA retomar sozinha uma conversa que

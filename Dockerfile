@@ -1,22 +1,15 @@
 # ConectaCRM em container.
 #
-# Por que derivar da imagem oficial do Hermes (`nousresearch/hermes-agent`):
-#   o CRM chama o CLI do Hermes para (1) enviar WhatsApp/e-mail, (2) pausar/retomar o bot
-#   e (3) gerar o texto da prospecção. Se o CRM usasse outra imagem, o CLI ficaria em
-#   versão diferente do gateway — e os dois escrevem no mesmo `state.db`. Derivando da
-#   mesma imagem, CLI e gateway são sempre a MESMA versão.
+# Base: imagem oficial do Node + ffmpeg. O CRM **não** depende de runtime de agente externo:
+#   1. as mensagens saem pelo Evolution API (src/services/messaging/evolution.adapter.ts);
+#   2. o texto é gerado pelos agentes nativos (src/services/agents).
+# O ffmpeg é o único binário de sistema que o app chama, na conversão da nota de voz
+# (src/services/audio/voice.ts) — sem ele o áudio sai no formato que veio.
 #
-# Estrutura: builder (Node + build do Next) -> runtime (imagem do Hermes + app standalone).
-# O app roda como usuário comum (não root) e o home do Hermes fica em /opt/data (volume).
+# Estrutura: builder (build do Next) -> runtime (Node + app standalone).
 
 # ---------- 1) build do Next ----------
-FROM nousresearch/hermes-agent:latest AS builder
-
-USER root
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends nodejs npm ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-RUN node --version && npm --version
+FROM node:24-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -43,29 +36,18 @@ RUN if [ -d public ]; then cp -r public .next/standalone/public; fi \
     && cp -r .next/static .next/standalone/.next/static
 
 # ---------- 2) runtime ----------
-FROM nousresearch/hermes-agent:latest AS runtime
+FROM node:24-bookworm-slim AS runtime
 
-USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends nodejs ca-certificates \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-
-# A ponte do WhatsApp (`/opt/hermes/scripts/whatsapp-bridge`) NÃO traz node_modules na imagem
-# base: quem instala é o CLI (`hermes whatsapp`) em runtime. Só que ele roda como o usuário
-# `hermes` do container (uid 10000) e o diretório vem root:root — o `npm install` morre com
-# EACCES e o pareamento por QR nunca acontece. No build somos root, então deixamos o
-# diretório gravável pelo usuário do container (e o node_modules pronto, quando existir).
-RUN HB_UID="$(id -u hermes 2>/dev/null || echo 10000)" \
-    && mkdir -p /opt/hermes/scripts/whatsapp-bridge/node_modules \
-    && chown -R "$HB_UID" /opt/hermes/scripts/whatsapp-bridge
 
 WORKDIR /app
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/scripts ./scripts
 
-# O Compose roda estes containers com `user: <uid do host>` (para os arquivos do volume
-# do Hermes ficarem com o dono certo). Sem isso, os scripts ficam root-only e o node
-# morre com EACCES ao carregar `scripts/*.mjs`.
+# O Compose roda estes containers com `user: <uid do host>`. Sem o chown, os scripts ficam
+# root-only e o node morre com EACCES ao carregar `scripts/*.mjs`.
 ARG APP_UID=1000
 ARG APP_GID=1000
 RUN chown -R ${APP_UID}:${APP_GID} /app
@@ -74,18 +56,10 @@ ENV NODE_ENV=production \
     PORT=8081 \
     HOSTNAME=0.0.0.0 \
     NEXT_TELEMETRY_DISABLED=1 \
-    TZ=America/Sao_Paulo \
-    HERMES_HOME=/opt/data
+    TZ=America/Sao_Paulo
 
-# O CLI do Hermes já existe nesta imagem (mesma versão do gateway).
-# Pode ser sobrescrito por env (HERMES_BIN) se o layout da imagem mudar.
-ENV HERMES_BIN=/opt/hermes/bin/hermes
-
-# ATENÇÃO: nesta imagem `/usr/bin/tini` é um shim que sobe o s6-overlay do Hermes — e o s6
-# recusa iniciar com `--user <uid>` (exige root + HERMES_UID/GID). Como aqui quem manda é o Next,
-# usamos o node direto como entrypoint: sem s6, e o Compose aplica `user: 1000:1000` normalmente.
-# (O gateway do Hermes roda no serviço `hermes`, que usa o s6 como manda a doc.)
-ENTRYPOINT ["/usr/local/bin/node"]
+# `init: true` no compose dá o processo init; aqui quem manda é o Next.
+ENTRYPOINT ["node"]
 CMD ["server.js"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

@@ -1,5 +1,5 @@
 /**
- * Ruído de log do Hermes/bridge que **não é conversa**.
+ * Ruído de log de CLI/bridge que **não é conversa**.
  *
  * Problema real (06/10/2026): o `whatsapp_manager.py` (template `whatsappkit`) imprime
  * o log do boot dele no stdout, e esse texto acabou **dentro da própria resposta** que o
@@ -11,12 +11,8 @@
  *     Olá, Clínica São Paulo Dental Studio! A MLLuiz DevTech cria sites, ...
  *
  * Além de poluir a conversa no CRM, isso vaza caminho interno, URL de repositório e nome
- * de skill para o cliente. Este módulo é a fonte única dessas regras no lado do CRM:
- * `hermes-sync` usa para não espelhar lixo e `agent-outreach` usa para limpar o texto do CLI.
- *
- * O mesmo conjunto de regras existe em Python em
- * `deploy/hermes/plugins/crm-output-guard/__init__.py` (que corta antes de entregar).
- * **Mexeu aqui? Mexa lá também.**
+ * de skill para o cliente. Este módulo é a fonte única dessas regras no lado do CRM: `agent-outreach` usa
+ * para limpar o texto que vem do CLI.
  *
  * Módulo puro (sem `server-only`, sem I/O) para poder ser testado e usado por scripts.
  */

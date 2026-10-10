@@ -13,14 +13,14 @@ O CRM usa **um bot do Telegram** com dois papéis:
 
 | Variável | Para que serve |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` | token do bot (só do CRM — **não** reuse o bot do Hermes) |
+| `TELEGRAM_BOT_TOKEN` | token do bot (só do CRM — **não** reuse o bot de outro serviço) |
 | `ALERTS_TELEGRAM_CHAT_ID` | chat que recebe os alertas (fale `/start` com o bot antes) |
 | `TELEGRAM_WEBHOOK_SECRET` | `secret_token` do `setWebhook`; sem ele o webhook recusa tudo (`openssl rand -hex 24`) |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | chat ids que podem conversar com o bot; **vazio = qualquer pessoa** que achar o @ do bot |
 | `TELEGRAM_OWNER_CHAT_IDS` | chat do dono (CEO) — cai para `ALERTS_TELEGRAM_CHAT_ID` se vazio. Ver "modo dono" abaixo |
 
 O alerta passou a ler **só** essas variáveis do CRM: antes havia um fallback para o `.env` do
-Hermes (`$HERMES_HOME/.env`), o que fazia o alerta sair do bot errado sem ninguém perceber.
+de um gateway externo, o que fazia o alerta sair do bot errado sem ninguém perceber.
 
 ## Modo dono (CEO falando com o Gerente)
 

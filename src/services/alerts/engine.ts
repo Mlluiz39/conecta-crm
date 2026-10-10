@@ -48,11 +48,10 @@ export type AlertConfig = {
  * Config do Telegram dos alertas.
  *
  * O CRM tem o **próprio bot** (criado no @BotFather só para ele): a credencial vem das
- * variáveis do CRM (`TELEGRAM_BOT_TOKEN` + `ALERTS_TELEGRAM_CHAT_ID`), nunca do `.env` do
- * Hermes — que vive em `HERMES_HOME`. Antes havia esse fallback; ele fazia o alerta sair do
- * bot do Hermes sem ninguém perceber (o container tem `HERMES_HOME=/opt/data` apontando para
- * um `.env` com outro token). Um alias no `.env` do Hermes (`TELEGRAM_BOT_TOKEN=…` sem
- * `TELEGRAM_CHAT_ID`) bastava para o alerta sumir em silêncio.
+ * variáveis do CRM (`TELEGRAM_BOT_TOKEN` + `ALERTS_TELEGRAM_CHAT_ID`), e de mais nenhum
+ * lugar. Já existiu um fallback para o `.env` de um gateway externo; ele fazia o alerta
+ * sair pelo bot errado sem ninguém perceber — bastava um alias sem `TELEGRAM_CHAT_ID`
+ * para o alerta sumir em silêncio.
  */
 export function alertConfig(): AlertConfig {
   const token = (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();

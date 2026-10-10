@@ -1,6 +1,5 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { serverEnv } from "@/lib/env";
 import { generateFirstTouch, generateFirstTouchEmail } from "@/services/prospecting/agent-outreach";
 import { holidayName } from "./holidays";
 import { mergeContext } from "./enrichment";
@@ -14,7 +13,7 @@ import {
  *  - janela de envio (padrão 9h–18h, seg–sáb);
  *  - teto diário de 15 a 20 leads (varia por dia, mas é estável no dia);
  *  - intervalos variados entre envios (não é rajada);
- *  - lead com telefone → WhatsApp; sem telefone e com e-mail → e-mail (Hermes).
+ *  - lead com telefone → WhatsApp; sem telefone e com e-mail → e-mail (Gmail).
  *
  * A fila fica em `outreach_queue` e é a memória do ciclo (quem já foi, quando,
  * por qual canal e com qual mensagem).
@@ -268,13 +267,14 @@ async function sendOne(
 
   // 2) E-mail quando só tem e-mail
   if (contact.email) {
-    const { sendEmailViaHermes, hermesEmailStatus } = await import("@/services/email/hermes-email");
-    if (!hermesEmailStatus().configured) {
-      return { ok: false, channel: "email", error: "e-mail do Hermes não configurado" };
+    const { sendEmail, gmailStatus } = await import("@/services/email/gmail");
+    const mail = await gmailStatus(organizationId);
+    if (!mail.canSend) {
+      return { ok: false, channel: "email", error: "e-mail não configurado (conecte o Google em Conexões)" };
     }
 
     const { subject, body } = await generateFirstTouchEmail(lead, briefing);
-    const result = await sendEmailViaHermes({ to: contact.email, subject, text: body });
+    const result = await sendEmail({ organizationId, to: contact.email, subject, text: body });
     if (!result.ok) return { ok: false, channel: "email", error: result.error };
 
     const mailConv = await ensureEmailConversation(supabase, {
@@ -293,7 +293,7 @@ async function sendOne(
           sender_type: "agent_ai",
           content: `Assunto: ${subject}\n\n${body}`,
           status: "entregue",
-          external_id: `hermes_email_${Date.now()}`,
+          external_id: `gmail_email_${Date.now()}`,
         })
         .select("id")
         .single();
@@ -469,6 +469,5 @@ export function outreachConfig() {
     windowEnd: windowEnd(),
     dailyTarget: dailyTarget(),
     minGap: minGapMinutes(),
-    hermesReady: Boolean(serverEnv().hermes.bin),
   };
 }
