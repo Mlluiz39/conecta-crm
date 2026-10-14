@@ -1,7 +1,19 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Flame, Snowflake, Sun } from "lucide-react";
+import {
+  Flame,
+  Snowflake,
+  Sun,
+  Globe,
+  MapPin,
+  ExternalLink,
+  Target,
+  Sparkles,
+  TrendingUp,
+  AlertTriangle,
+  CheckCircle,
+} from "lucide-react";
 import { updateContact, setLeadTemperature, saveLeadOpportunity } from "@/lib/data/actions";
 import { useNotify } from "@/components/ui/dialog-provider";
 import { TEMPERATURE_TAGS, type LeadTemperature } from "@/lib/data/lead-temperature";
@@ -227,6 +239,178 @@ export function ContactTabs({
               </p>
             </div>
           </div>
+
+          {/* Dossiê de Prospecção & Auditoria (Planilha 29 colunas / Apify / AISA) */}
+          {(custom.origem || custom.pontuacao !== undefined || custom.servico_recomendado || custom.anuncios_ativos) && (
+            <div className="mt-6 rounded-xl border border-primary/20 bg-muted/20 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+                <div className="flex items-center gap-2">
+                  <Target size={16} className="text-primary" />
+                  <h4 className="text-sm font-bold text-foreground">Dossiê de Prospecção & Auditoria</h4>
+                  {custom.origem && (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                      {custom.origem === "planilha_prospeccao"
+                        ? "Planilha 29 colunas"
+                        : custom.origem === "apify"
+                        ? "Apify (Google Maps)"
+                        : custom.origem === "aisa"
+                        ? "AISA (Apollo B2B)"
+                        : String(custom.origem)}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {custom.pontuacao !== null && custom.pontuacao !== undefined && (
+                    <span className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                      Pontuação: {custom.pontuacao} pts
+                    </span>
+                  )}
+                  {custom.prioridade && (
+                    <span
+                      className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
+                        String(custom.prioridade).toLowerCase().includes("alta")
+                          ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                          : String(custom.prioridade).toLowerCase().includes("media") ||
+                            String(custom.prioridade).toLowerCase().includes("média")
+                          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                          : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                      }`}
+                    >
+                      Prioridade: {custom.prioridade}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Informações Estruturadas */}
+              <div className="mt-4 grid grid-cols-1 gap-4 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                {custom.nicho && (
+                  <div>
+                    <span className="font-semibold text-muted-foreground block">Nicho / Categoria:</span>
+                    <span className="text-foreground">{custom.nicho}</span>
+                  </div>
+                )}
+                {custom.bairro && (
+                  <div>
+                    <span className="font-semibold text-muted-foreground block">Bairro:</span>
+                    <span className="text-foreground">{custom.bairro}</span>
+                  </div>
+                )}
+                {custom.site && (
+                  <div>
+                    <span className="font-semibold text-muted-foreground block">Website:</span>
+                    <a
+                      href={custom.site.startsWith("http") ? custom.site : `https://${custom.site}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-primary underline"
+                    >
+                      {custom.site}
+                      <ExternalLink size={12} />
+                    </a>
+                  </div>
+                )}
+                {custom.maps && (
+                  <div>
+                    <span className="font-semibold text-muted-foreground block">Perfil Google Maps:</span>
+                    <a
+                      href={custom.maps}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-primary underline"
+                    >
+                      Ver no Maps
+                      <ExternalLink size={12} />
+                    </a>
+                  </div>
+                )}
+                {(custom.nota !== undefined || custom.avaliacoes !== undefined) && (
+                  <div>
+                    <span className="font-semibold text-muted-foreground block">Avaliações Google:</span>
+                    <span className="text-foreground">
+                      ⭐ {custom.nota ?? "—"} ({custom.avaliacoes ?? 0} avaliações)
+                    </span>
+                  </div>
+                )}
+                {custom.anuncios_ativos && (
+                  <div>
+                    <span className="font-semibold text-muted-foreground block">Anúncios Ativos:</span>
+                    <span className="font-semibold text-foreground">{custom.anuncios_ativos}</span>
+                  </div>
+                )}
+                {custom.meta_ads && (
+                  <div>
+                    <span className="font-semibold text-muted-foreground block">Meta Ads:</span>
+                    <span className="text-foreground">{custom.meta_ads}</span>
+                    {custom.evidencia_meta && (
+                      <span className="text-muted-foreground block text-[11px]">{custom.evidencia_meta}</span>
+                    )}
+                  </div>
+                )}
+                {custom.google_ads && (
+                  <div>
+                    <span className="font-semibold text-muted-foreground block">Google Ads:</span>
+                    <span className="text-foreground">{custom.google_ads}</span>
+                    {custom.evidencia_google && (
+                      <span className="text-muted-foreground block text-[11px]">{custom.evidencia_google}</span>
+                    )}
+                  </div>
+                )}
+                {custom.performance_mobile && (
+                  <div>
+                    <span className="font-semibold text-muted-foreground block">Performance Mobile:</span>
+                    <span className="text-foreground">{custom.performance_mobile}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Diagnóstico & Proposta */}
+              {(custom.problemas_identificados || custom.servico_recomendado) && (
+                <div className="mt-4 space-y-2 border-t pt-3 text-xs">
+                  {custom.problemas_identificados && (
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle size={14} className="mt-0.5 text-amber-500 shrink-0" />
+                      <div>
+                        <span className="font-semibold text-foreground">Problemas Identificados:</span>
+                        <p className="text-muted-foreground">{custom.problemas_identificados}</p>
+                      </div>
+                    </div>
+                  )}
+                  {custom.servico_recomendado && (
+                    <div className="flex items-start gap-2">
+                      <Sparkles size={14} className="mt-0.5 text-primary shrink-0" />
+                      <div>
+                        <span className="font-semibold text-foreground">Serviço Recomendado:</span>
+                        <p className="font-medium text-primary">{custom.servico_recomendado}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Detalhamento de Pontos */}
+              {(custom.pts_anuncios !== undefined ||
+                custom.pts_site !== undefined ||
+                custom.pts_seo !== undefined ||
+                custom.pts_conversao !== undefined) && (
+                <div className="mt-3 flex flex-wrap gap-2 border-t pt-2 text-[11px] text-muted-foreground">
+                  {custom.pts_anuncios !== undefined && <span>Pts Anúncios: <b>{custom.pts_anuncios}</b></span>}
+                  {custom.pts_site !== undefined && <span>· Pts Site: <b>{custom.pts_site}</b></span>}
+                  {custom.pts_seo !== undefined && <span>· Pts SEO: <b>{custom.pts_seo}</b></span>}
+                  {custom.pts_conversao !== undefined && <span>· Pts Conversão: <b>{custom.pts_conversao}</b></span>}
+                  {custom.pts_contato !== undefined && <span>· Pts Contato: <b>{custom.pts_contato}</b></span>}
+                  {custom.pts_fit !== undefined && <span>· Pts Fit: <b>{custom.pts_fit}</b></span>}
+                </div>
+              )}
+
+              {custom.data_verificacao && (
+                <p className="mt-2 text-right text-[10px] text-muted-foreground">
+                  Data de verificação: {custom.data_verificacao} {custom.fontes ? `· Fontes: ${custom.fontes}` : ""}
+                </p>
+              )}
+            </div>
+          )}
         </Card>
       )}
 

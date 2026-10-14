@@ -3,7 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth/session";
-import { normalizePhone, parseLeadLine, stripHeader } from "@/lib/data/lead-parser";
+import {
+  normalizePhone,
+  parseLeadLine,
+  stripHeader,
+  parseUniversalLeads,
+  LEAD_SOURCE_LABELS,
+  type LeadSourceKind,
+} from "@/lib/data/lead-parser";
 import { mergeContext } from "@/services/prospecting/enrichment";
 import {
   ensureEmailConversation,
@@ -90,6 +97,8 @@ export type ImportLeadsResult = {
   imported: number;
   duplicates: number;
   invalid: number;
+  detectedSource: LeadSourceKind;
+  detectedLabel: string;
   errors: string[];
 };
 
@@ -97,36 +106,50 @@ function onlyDigits(value: string): string {
   return value.replace(/\D/g, "");
 }
 
-/** Importa leads colados/CSV para o banco — depois aparecem em Contatos/Prospecção. */
+/** Importa leads (CSV, Excel ou JSON: Planilha 29 colunas, Apify, AISA ou simples) para o banco. */
 export async function importLeads(
-  rawText: string,
+  input: string | FormData,
 ): Promise<ImportLeadsResult> {
   const { organizationId, id: userId } = await requireProfile();
   const supabase = createClient();
 
-  const text = String(rawText ?? "");
-  const allLines = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (allLines.length === 0) throw new Error("Cole ao menos uma linha de leads");
+  let text = "";
+  let fileBuffer: Buffer | null = null;
+  let fileName = "";
 
-  const lines = stripHeader(allLines).slice(0, MAX_IMPORT_LINES);
-
-  const parsed = lines
-    .map(parseLeadLine)
-    .filter((p): p is NonNullable<typeof p> => Boolean(p));
-
-  const invalid = lines.length - parsed.length;
-  if (parsed.length === 0) {
-    throw new Error("Nenhuma linha válida. Use: nome; telefone; email; empresa; cidade");
+  if (typeof input === "object" && input !== null && "get" in input) {
+    const file = input.get("file");
+    if (file && typeof file === "object" && "arrayBuffer" in file && (file as File).size > 0) {
+      fileName = (file as File).name;
+      fileBuffer = Buffer.from(await (file as File).arrayBuffer());
+    }
+    text = String(input.get("text") ?? "");
+  } else {
+    text = String(input ?? "");
   }
 
-  // Deduplica contra o que já existe (telefone ou e-mail)
+  if (!fileBuffer && !text.trim()) {
+    throw new Error("Cole os dados dos leads ou envie um arquivo (CSV, Excel ou JSON).");
+  }
+
+  const { detectedSource, leads, invalidCount, errors } = parseUniversalLeads({
+    text,
+    buffer: fileBuffer || undefined,
+    fileName,
+  });
+
+  const parsed = leads.slice(0, MAX_IMPORT_LINES);
+
+  if (parsed.length === 0) {
+    throw new Error("Nenhum lead válido encontrado nos dados fornecidos.");
+  }
+
+  // Deduplica contra o que já existe (telefone, e-mail ou nome quando sem telefone/email)
   const phones = parsed.map((p) => p.phone).filter(Boolean) as string[];
   const emails = parsed.map((p) => p.email).filter(Boolean) as string[];
   const existingPhones = new Set<string>();
   const existingEmails = new Set<string>();
+  const existingNames = new Set<string>();
 
   if (phones.length > 0) {
     const { data } = await supabase
@@ -147,24 +170,26 @@ export async function importLeads(
 
   const seenPhones = new Set<string>();
   const seenEmails = new Set<string>();
+  const seenNames = new Set<string>();
   const toInsert: Record<string, unknown>[] = [];
   let duplicates = 0;
-  const errors: string[] = [];
 
   for (const lead of parsed) {
     const dupPhone = lead.phone && (existingPhones.has(lead.phone) || seenPhones.has(lead.phone));
-    const dupEmail =
-      lead.email && (existingEmails.has(lead.email) || seenEmails.has(lead.email));
-    if (dupPhone || dupEmail) {
+    const dupEmail = lead.email && (existingEmails.has(lead.email) || seenEmails.has(lead.email));
+    const dupName =
+      !lead.phone &&
+      !lead.email &&
+      lead.name &&
+      (existingNames.has(lead.name.toLowerCase()) || seenNames.has(lead.name.toLowerCase()));
+
+    if (dupPhone || dupEmail || dupName) {
       duplicates++;
       continue;
     }
     if (lead.phone) seenPhones.add(lead.phone);
     if (lead.email) seenEmails.add(lead.email);
-
-    const customFields: Record<string, unknown> = {};
-    if (lead.company) customFields.empresa = lead.company;
-    if (lead.city) customFields.cidade = lead.city;
+    if (lead.name) seenNames.add(lead.name.toLowerCase());
 
     toInsert.push({
       organization_id: organizationId,
@@ -172,7 +197,8 @@ export async function importLeads(
       name: lead.name,
       phone: lead.phone,
       email: lead.email,
-      custom_fields: customFields,
+      instagram_handle: lead.instagram_handle ?? null,
+      custom_fields: lead.custom_fields,
     });
   }
 
@@ -191,7 +217,14 @@ export async function importLeads(
 
   revalidatePath("/prospeccao");
   revalidatePath("/contatos");
-  return { imported, duplicates, invalid, errors };
+  return {
+    imported,
+    duplicates,
+    invalid: invalidCount,
+    detectedSource,
+    detectedLabel: LEAD_SOURCE_LABELS[detectedSource],
+    errors,
+  };
 }
 
 export async function updateContact(formData: FormData) {
