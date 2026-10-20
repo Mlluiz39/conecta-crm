@@ -317,6 +317,18 @@ type OutboxMeta = { attempts?: number; lastError?: string; lastAttemptAt?: strin
 export async function flushOutbox(limit = 50): Promise<number> {
   const supabase = createAdminClient();
 
+  /**
+   * Claim órfão: o processo pode cair entre a reserva da mensagem e o envio. A reserva usa
+   * `external_id = 'claim:<uuid>'`; passados 10 min sem envio ela é liberada para o próximo
+   * flush (nenhuma mensagem legítima fica pendente 10 min, então nulificar aqui é seguro).
+   */
+  await supabase
+    .from("messages")
+    .update({ external_id: null })
+    .eq("status", "pendente")
+    .like("external_id", "claim:%")
+    .lt("created_at", new Date(Date.now() - 10 * 60_000).toISOString());
+
   const { data: rows, error } = await supabase
     .from("messages")
     .select(
@@ -329,6 +341,7 @@ export async function flushOutbox(limit = 50): Promise<number> {
     )
     .eq("direction", "out")
     .eq("status", "pendente")
+    .is("external_id", null)
     .order("created_at", { ascending: true })
     .limit(limit);
 
@@ -363,6 +376,22 @@ export async function flushOutbox(limit = 50): Promise<number> {
   for (const [i, row] of (rows ?? []).entries()) {
     // Delay anti-flood: rajada derruba a conexão Baileys
     if (i > 0) await new Promise((r) => setTimeout(r, 1500));
+
+    /**
+     * Reserva atômica da mensagem. O webhook dispara um flush e o cron dispara outro; sem
+     * isso, os dois leem a mesma linha 'pendente' e o lead recebe a mensagem duplicada.
+     * O UPDATE condicional garante que só um processo "ganha" a linha.
+     */
+    const claimId = `claim:${crypto.randomUUID()}`;
+    const { data: claimed } = await supabase
+      .from("messages")
+      .update({ external_id: claimId })
+      .eq("id", row.id)
+      .eq("status", "pendente")
+      .is("external_id", null)
+      .select("id");
+    if (!claimed?.length) continue; // outra execução pegou esta mensagem
+
     const conv: any = row.conversation;
     const provider = providerFor(row.organization_id, (conv?.channel as any)?.config);
     /**
@@ -381,6 +410,7 @@ export async function flushOutbox(limit = 50): Promise<number> {
         .from("messages")
         .update({
           status: "falhou",
+          external_id: null,
           media: {
             ...((row.media as any) ?? {}),
             outbox: {
@@ -441,13 +471,14 @@ export async function flushOutbox(limit = 50): Promise<number> {
     } else if (attempts >= MAX_ATTEMPTS) {
       await supabase
         .from("messages")
-        .update({ status: "falhou", media: keepMedia({ ...base, lastError: result.error }) })
+        .update({ status: "falhou", external_id: null, media: keepMedia({ ...base, lastError: result.error }) })
         .eq("id", row.id);
       console.error(`[outbox] mensagem ${row.id} falhou após ${attempts} tentativas:`, result.error);
     } else {
+      // Libera a reserva para a próxima tentativa (cron ou webhook) poder pegá-la.
       await supabase
         .from("messages")
-        .update({ media: keepMedia({ ...base, lastError: result.error }) })
+        .update({ external_id: null, media: keepMedia({ ...base, lastError: result.error }) })
         .eq("id", row.id);
       console.warn(`[outbox] tentativa ${attempts}/${MAX_ATTEMPTS} falhou:`, result.error);
     }
