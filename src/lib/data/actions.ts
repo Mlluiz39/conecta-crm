@@ -21,6 +21,11 @@ import {
   TEMPERATURE_TAGS,
   type LeadTemperature,
 } from "@/lib/data/lead-temperature";
+import {
+  isContactSuppressed,
+  suppressContact,
+  unsuppressContact,
+} from "@/lib/data/suppressions";
 import type { AgentToolKey, AgentRole, AgentTone, ChannelType, HandoffRuleKey } from "@/types/domain";
 import { VOICE_CATALOG } from "@/types/domain";
 
@@ -304,6 +309,54 @@ export async function deleteContacts(ids: string[]): Promise<{ deleted: number }
   revalidatePath("/contatos");
   revalidatePath("/conversas");
   return { deleted: data?.length ?? 0 };
+}
+
+/**
+ * Liga/desliga o bloqueio de contato (opt-out).
+ *
+ * Desligar é ato explícito de quem atende: a pessoa pediu para voltar a
+ * receber, ou foi um engano. O bloqueio em si também nasce automático quando
+ * o lead escreve "pare de me mandar" (ver inbound.service).
+ */
+export async function setContactSuppression(input: {
+  contactId: string;
+  suppressed: boolean;
+  reason?: string;
+}): Promise<{ suppressed: boolean }> {
+  const { organizationId, id: userId } = await requireProfile();
+  const supabase = createClient();
+
+  const { data: contact } = await supabase
+    .from("contacts")
+    .select("id, phone, email")
+    .eq("organization_id", organizationId)
+    .eq("id", input.contactId)
+    .maybeSingle();
+  if (!contact) throw new Error("Contato não encontrado");
+
+  if (input.suppressed) {
+    await suppressContact(supabase, {
+      organizationId,
+      contactId: String(contact.id),
+      phone: contact.phone,
+      email: contact.email,
+      reason: input.reason?.trim() || "pedido_do_lead",
+      source: "manual",
+      createdBy: userId,
+    });
+  } else {
+    await unsuppressContact(supabase, {
+      organizationId,
+      contactId: String(contact.id),
+      phone: contact.phone,
+      email: contact.email,
+    });
+  }
+
+  revalidatePath(`/contatos/${input.contactId}`);
+  revalidatePath("/contatos");
+  revalidatePath("/prospeccao");
+  return { suppressed: input.suppressed };
 }
 
 export type BulkDeleteFilter =
@@ -1475,6 +1528,14 @@ export async function prospectManualLead(input: {
   const email = String(input.email ?? "").trim().toLowerCase() || null;
   if (!phone && !email) throw new Error("Informe telefone ou e-mail");
 
+  // Opt-out é bloqueio, não sugestão: nem a prospecção manual fura.
+  const bloqueado = await isContactSuppressed(supabase, { organizationId, phone, email });
+  if (bloqueado) {
+    throw new Error(
+      "Este contato pediu para não receber mensagens (opt-out). Remova o bloqueio no contato antes de prospectar.",
+    );
+  }
+
   const { data: chan } = await supabase
     .from("channels")
     .select("id")
@@ -1508,6 +1569,18 @@ export async function prospectManualLead(input: {
   }
 
   let created = false;
+  if (contactId) {
+    // Supressão por contato (ex.: Telegram sem telefone/e-mail) também bloqueia.
+    const bloqueadoPorContato = await isContactSuppressed(supabase, {
+      organizationId,
+      contactId,
+    });
+    if (bloqueadoPorContato) {
+      throw new Error(
+        "Este contato pediu para não receber mensagens (opt-out). Remova o bloqueio no contato antes de prospectar.",
+      );
+    }
+  }
   if (!contactId) {
     const { data, error } = await supabase
       .from("contacts")

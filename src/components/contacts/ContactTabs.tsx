@@ -13,8 +13,9 @@ import {
   TrendingUp,
   AlertTriangle,
   CheckCircle,
+  Ban,
 } from "lucide-react";
-import { updateContact, setLeadTemperature, saveLeadOpportunity } from "@/lib/data/actions";
+import { updateContact, setLeadTemperature, saveLeadOpportunity, setContactSuppression } from "@/lib/data/actions";
 import { useNotify } from "@/components/ui/dialog-provider";
 import { TEMPERATURE_TAGS, type LeadTemperature } from "@/lib/data/lead-temperature";
 import { Card, Badge, EmptyState } from "@/components/ui/primitives";
@@ -33,6 +34,7 @@ export function ContactTabs({
   conversations,
   temperature = null,
   tags = [],
+  suppressed = false,
 }: {
   contact: any;
   customFields: FieldDef[];
@@ -44,10 +46,14 @@ export function ContactTabs({
   temperature?: LeadTemperature | null;
   /** Todas as etiquetas do contato */
   tags?: { name: string; color: string }[];
+  /** Opt-out ativo: bloqueia prospecção, follow-up e disparos em massa */
+  suppressed?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("dados");
   const [saving, setSaving] = useState(false);
   const [temp, setTemp] = useState<LeadTemperature | null>(temperature);
+  const [isSuppressed, setIsSuppressed] = useState(suppressed);
+  const [suppressPending, startSuppressTransition] = useTransition();
   const [dealValue, setDealValue] = useState(
     opportunities[0]?.value ? String(opportunities[0].value) : "",
   );
@@ -64,6 +70,23 @@ export function ContactTabs({
         notify(target ? `Etiqueta: ${TEMPERATURE_TAGS[target].name}` : "Etiqueta de temperatura removida");
       } catch (e) {
         setTemp(previous);
+        notify((e as Error).message.replace(/^Error:\s*/, ""), "error");
+      }
+    });
+  }
+
+  function toggleSuppression() {
+    const next = !isSuppressed;
+    startSuppressTransition(async () => {
+      try {
+        await setContactSuppression({ contactId: contact.id, suppressed: next });
+        setIsSuppressed(next);
+        notify(
+          next
+            ? "Contato bloqueado: não entra em prospecção nem follow-up"
+            : "Bloqueio removido: o contato pode voltar a receber mensagens",
+        );
+      } catch (e) {
         notify((e as Error).message.replace(/^Error:\s*/, ""), "error");
       }
     });
@@ -240,6 +263,42 @@ export function ContactTabs({
             </div>
           </div>
 
+          <div className="mt-5 rounded-xl border border-border bg-muted/20 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-start gap-2">
+                <Ban size={16} className={isSuppressed ? "mt-0.5 text-red-500" : "mt-0.5 text-muted-foreground"} />
+                <div>
+                  <p className="text-sm font-bold">Não contatar (opt-out)</p>
+                  <p className="max-w-xl text-xs text-muted-foreground">
+                    Bloqueia prospecção, follow-up e disparos em massa por telefone e e-mail.
+                    O histórico e as conversas continuam intactos.
+                  </p>
+                  {isSuppressed && (
+                    <Badge className="mt-2 bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300">
+                      Opt-out ativo
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={toggleSuppression}
+                disabled={suppressPending}
+                className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                  isSuppressed
+                    ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
+                    : "border-red-300 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+                }`}
+              >
+                {suppressPending
+                  ? "Salvando..."
+                  : isSuppressed
+                    ? "Remover bloqueio"
+                    : "Bloquear contato"}
+              </button>
+            </div>
+          </div>
+
           {/* Dossiê de Prospecção & Auditoria (Planilha 29 colunas / Apify / AISA) */}
           {(custom.origem || custom.pontuacao !== undefined || custom.servico_recomendado || custom.anuncios_ativos) && (
             <div className="mt-6 rounded-xl border border-primary/20 bg-muted/20 p-4">
@@ -255,6 +314,8 @@ export function ContactTabs({
                         ? "Apify (Google Maps)"
                         : custom.origem === "aisa"
                         ? "AISA (Apollo B2B)"
+                        : custom.origem === "captacao"
+                        ? "Captação (formulário/landing)"
                         : String(custom.origem)}
                     </span>
                   )}

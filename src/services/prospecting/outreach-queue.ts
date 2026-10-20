@@ -1,5 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isSuppressed } from "@/lib/data/suppression-index";
+import { loadSuppressionIndex } from "@/lib/data/suppressions";
 import { generateFirstTouch, generateFirstTouchEmail } from "@/services/prospecting/agent-outreach";
 import { holidayName } from "./holidays";
 import { mergeContext } from "./enrichment";
@@ -129,8 +131,16 @@ export async function enqueueOutreach(params: {
     .eq("organization_id", params.organizationId)
     .in("id", ids);
 
+  // Opt-out vale já no enfileiramento: quem pediu para não receber não entra
+  // na fila nem por seleção manual em massa.
+  const suppressed = await loadSuppressionIndex(supabase, params.organizationId);
+
   const rows = (contacts ?? [])
-    .filter((c) => c.phone || c.email)
+    .filter(
+      (c) =>
+        (c.phone || c.email) &&
+        !isSuppressed(suppressed, { contactId: c.id, phone: c.phone, email: c.email }),
+    )
     .map((c) => ({
       organization_id: params.organizationId,
       contact_id: c.id,
@@ -332,14 +342,46 @@ export async function runOutreachCycle(params: {
 
   const { data: all } = await supabase
     .from("outreach_queue")
-    .select("id, status, scheduled_at, sent_at")
+    .select("id, status, scheduled_at, sent_at, contact_id, contact:contacts(phone, email)")
     .eq("organization_id", params.organizationId);
 
   const rows = all ?? [];
   const sentToday = rows.filter(
     (r) => r.status === "enviado" && r.sent_at && new Date(r.sent_at) >= startOfDay,
   ).length;
-  const pending = rows.filter((r) => r.status === "pendente");
+
+  // Quem entrou na lista depois de um opt-out não pode ser disparado: cancela
+  // o que estava pendente antes de agendar qualquer coisa.
+  const suppressed = await loadSuppressionIndex(supabase, params.organizationId);
+  const suppressedIds = new Set(
+    rows
+      .filter((r) => {
+        if (r.status !== "pendente") return false;
+        const contato = (
+          r as unknown as {
+            contact?: { phone?: string | null; email?: string | null } | null;
+          }
+        ).contact;
+        return isSuppressed(suppressed, {
+          contactId: r.contact_id,
+          phone: contato?.phone,
+          email: contato?.email,
+        });
+      })
+      .map((r) => String(r.id)),
+  );
+  for (const id of suppressedIds) {
+    await supabase
+      .from("outreach_queue")
+      .update({
+        status: "cancelado",
+        last_error: "opt-out do lead",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+  }
+
+  const pending = rows.filter((r) => r.status === "pendente" && !suppressedIds.has(String(r.id)));
 
   if (pending.length === 0) {
     result.reason = "fila vazia";
@@ -403,8 +445,30 @@ export async function runOutreachCycle(params: {
       custom_fields?: Record<string, unknown> | null;
     } | null;
     };
-    const outcome = await sendOne(params.organizationId, typed);
     const name = typed.contact?.name ?? "(sem nome)";
+
+    // Defesa em profundidade: a supressão pode ter entrado depois do
+    // agendamento (o lead respondeu "pare" e o cron rodou em seguida).
+    if (
+      isSuppressed(suppressed, {
+        contactId: typed.contact_id,
+        phone: typed.contact?.phone,
+        email: typed.contact?.email,
+      })
+    ) {
+      await supabase
+        .from("outreach_queue")
+        .update({
+          status: "cancelado",
+          last_error: "opt-out do lead",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", typed.id);
+      result.details.push({ name, channel: "?", ok: false, error: "opt-out do lead" });
+      continue;
+    }
+
+    const outcome = await sendOne(params.organizationId, typed);
 
     if (outcome.ok) {
       result.sent++;
