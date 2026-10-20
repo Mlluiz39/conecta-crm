@@ -86,3 +86,4 @@ Estimativa inicial de operação: **< US$30/mês** até tração.
 
 - [Guia de integração — Cernio](docs/integracao-cernio.md)
 - [Manual do cliente final](docs/manual-do-cliente.md)
+- [Captação de leads e opt-out](docs/captacao-e-optout.md)

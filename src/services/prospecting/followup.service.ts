@@ -1,5 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isSuppressed } from "@/lib/data/suppression-index";
+import { loadSuppressionIndex } from "@/lib/data/suppressions";
 import { generateFollowUp } from "@/services/prospecting/agent-outreach";
 import { isFollowupEligible, readFollowupCount } from "@/services/prospecting/followup-rules";
 
@@ -80,12 +82,25 @@ export async function findFollowupCandidates(params: {
   }
 
   const now = Date.now();
+  const suppressed = await loadSuppressionIndex(supabase, params.organizationId);
   const candidates: FollowupCandidate[] = [];
   const seenContacts = new Set<string>();
 
   for (const conv of conversations) {
     const contact = contacts.find((c) => c.id === conv.contact_id);
     if (!contact || seenContacts.has(contact.id)) continue;
+
+    // Follow-up é disparo ativo: opt-out bloqueia igual à primeira abordagem.
+    if (
+      isSuppressed(suppressed, {
+        contactId: contact.id,
+        phone: contact.phone,
+        email: contact.email,
+      })
+    ) {
+      continue;
+    }
+
     const stats = byConversation.get(String(conv.id));
     if (!stats?.firstOut) continue;
 

@@ -1,7 +1,11 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ensureOpenOpportunity } from "@/lib/data/opportunity";
+import { phoneSuffixForLookup } from "@/lib/data/phone-match";
+import { suppressContact } from "@/lib/data/suppressions";
 import { runAgentForConversation } from "@/services/agents/engine";
 import { transcribeAudio, synthesizeSpeech } from "@/services/audio/voice";
+import { isOptOutMessage } from "@/services/prospecting/opt-out";
 import { getMessageProvider, providerFromConfig } from "./index";
 import type { MessageProvider } from "./types";
 
@@ -130,19 +134,19 @@ export async function handleInboundWebhook(params: {
     //    "5511977869073" vs "11977869073") 3) nome/pushName (caso @lid)
     let { data: contact } = await supabase
       .from("contacts")
-      .select("id")
+      .select("id, name, phone, email")
       .eq("organization_id", organizationId)
       .eq(colunaHandle, handle)
       .limit(1)
       .maybeSingle();
 
-    const digits = handle.replace(/\D/g, "");
-    if (!contact && colunaHandle === "phone" && digits.length >= 9 && !handle.endsWith("@lid")) {
+    const suffix = phoneSuffixForLookup(handle);
+    if (!contact && colunaHandle === "phone" && suffix && !handle.endsWith("@lid")) {
       const { data: bySuffix } = await supabase
         .from("contacts")
-        .select("id")
+        .select("id, name, phone, email")
         .eq("organization_id", organizationId)
-        .like("phone", `%${digits.slice(-9)}`)
+        .like("phone", `%${suffix}`)
         .limit(1)
         .maybeSingle();
       contact = bySuffix;
@@ -151,7 +155,7 @@ export async function handleInboundWebhook(params: {
     if (!contact && colunaHandle === "phone" && msg.fromName) {
       const { data: byName } = await supabase
         .from("contacts")
-        .select("id")
+        .select("id, name, phone, email")
         .eq("organization_id", organizationId)
         .ilike("name", `%${msg.fromName}%`)
         .limit(1)
@@ -169,7 +173,7 @@ export async function handleInboundWebhook(params: {
             ? { telegram_chat_id: handle }
             : { phone: handle || null }),
         })
-        .select("id")
+        .select("id, name, phone, email")
         .single();
       if (inserted.error && inserted.error.code !== "23505") {
         console.error("[webhook] erro ao criar contato:", inserted.error.message);
@@ -179,7 +183,7 @@ export async function handleInboundWebhook(params: {
         // corrida: outro evento criou o mesmo telefone agora
         const again = await supabase
           .from("contacts")
-          .select("id")
+          .select("id, name, phone, email")
           .eq("organization_id", organizationId)
           .eq(colunaHandle, handle)
           .maybeSingle();
@@ -255,6 +259,32 @@ export async function handleInboundWebhook(params: {
       .update({ processed_at: new Date().toISOString() })
       .eq("provider", provider.name)
       .eq("event_id", msg.externalEventId);
+
+    // 5a. A conversa vira lead: todo contato que escreve tem card no funil.
+    // Determinístico e idempotente — não depende de o modelo lembrar da tool.
+    // Chat do dono (`is_internal`) fica de fora: não é lead.
+    if (!msg.internal) {
+      await ensureOpenOpportunity(supabase, {
+        organizationId,
+        contactId: String(contact.id),
+        contactName: contact.name,
+      }).catch((e) => console.error("[webhook] card do lead:", (e as Error).message));
+    }
+
+    // 5a-bis. Opt-out explícito ("pare de me mandar"): marca a supressão e
+    // tira o que estava na fila. A IA ainda responde esta mensagem normalmente;
+    // o bloqueio vale para os próximos disparos e follow-ups.
+    if (!msg.internal && msg.text && isOptOutMessage(msg.text)) {
+      await suppressContact(supabase, {
+        organizationId,
+        contactId: String(contact.id),
+        phone:
+          colunaHandle === "phone" && !handle.endsWith("@lid") ? handle : null,
+        email: contact.email ?? null,
+        reason: "pedido_do_lead",
+        source: "whatsapp",
+      }).catch((e) => console.error("[webhook] opt-out:", (e as Error).message));
+    }
 
     // 5b. Tick azul: o lead vê que a mensagem dele foi lida (best-effort, não bloqueia)
     if (msg.externalMessageId) {

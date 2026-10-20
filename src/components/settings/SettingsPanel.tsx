@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { applyPreset, createCustomField, createKnowledgeItem, deleteCustomField, deleteKnowledgeItem, inviteUser, setUserRole, updateOrganizationName } from "@/lib/data/presets";
 import { Badge, Card } from "@/components/ui/primitives";
+import { CaptureSourcesPanel } from "@/components/settings/CaptureSourcesPanel";
+import type { CaptureSource, PipelineStageOption } from "@/lib/data/capture";
 import { cn } from "@/lib/utils";
 import type { BusinessType, UserRole } from "@/types/domain";
 
@@ -21,6 +23,9 @@ export function SettingsPanel({
   team,
   knowledge,
   myRole,
+  captureSources,
+  stages,
+  appUrl,
 }: {
   org: { name: string; business_type: BusinessType; timezone?: string; out_of_hours_message?: string };
   presets: Preset[];
@@ -28,9 +33,14 @@ export function SettingsPanel({
   team: Member[];
   knowledge: KnowledgeItem[];
   myRole: string;
+  captureSources: CaptureSource[];
+  stages: PipelineStageOption[];
+  appUrl: string;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"negocio" | "conhecimento" | "campos" | "equipe" | "atendimento">("negocio");
+  const [tab, setTab] = useState<
+    "negocio" | "conhecimento" | "campos" | "equipe" | "captacao" | "atendimento"
+  >("negocio");
   const [orgName, setOrgName] = useState(org.name);
   const [nameNote, setNameNote] = useState("");
   const [savingName, setSavingName] = useState(false);
@@ -62,6 +72,7 @@ export function SettingsPanel({
             ["conhecimento", "Base de conhecimento"],
             ["campos", "Campos personalizados"],
             ["equipe", "Equipe"],
+            ["captacao", "Captação de leads"],
             ["atendimento", "Atendimento"],
           ] as const
         ).map(([id, label]) => (
@@ -310,6 +321,15 @@ export function SettingsPanel({
             </Card>
           )}
         </div>
+      )}
+
+      {tab === "captacao" && (
+        <CaptureSourcesPanel
+          sources={captureSources}
+          stages={stages}
+          appUrl={appUrl}
+          canManage={myRole === "admin" || myRole === "gerente"}
+        />
       )}
 
       {tab === "atendimento" && (
