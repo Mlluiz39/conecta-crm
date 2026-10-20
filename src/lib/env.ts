@@ -136,6 +136,12 @@ export function serverEnv() {
       /** `auto` deixa o proxy escolher o provedor de TTS/STT. */
       speechModel: process.env.TTS_MODEL ?? "auto",
       transcribeModel: process.env.TRANSCRIBE_MODEL ?? "auto",
+      /**
+       * Vocabulário enviado como dica ao STT (campo `prompt` do Whisper). Nomes de produto e
+       * termos da empresa evitam grafias fonéticas erradas ("landing page" sem isso pode sair
+       * como "lã de beijo"). Vazio = nenhuma dica.
+       */
+      transcribePrompt: process.env.TRANSCRIBE_PROMPT ?? "",
       /** Resposta maior que isso vira texto: nota de voz longa é ruim de ouvir. */
       maxChars: Number(process.env.TTS_MAX_CHARS ?? 600),
       /**

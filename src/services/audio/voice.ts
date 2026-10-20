@@ -159,7 +159,7 @@ export async function transcribeAudio(input: {
   base64: string;
   mimetype?: string;
 }): Promise<string> {
-  const { base, key, transcribeModel } = cfgAudio();
+  const { base, key, transcribeModel, transcribePrompt } = cfgAudio();
   if (!base || !key || !input?.base64) return "";
 
   try {
@@ -170,6 +170,8 @@ export async function transcribeAudio(input: {
     form.append("file", new Blob([new Uint8Array(bytes)], { type: mimetype }), `audio.${extensao(mimetype)}`);
     form.append("model", transcribeModel);
     form.append("language", "pt");
+    // Dica de vocabulário (Whisper `prompt`): evita grafias fonéticas de termos do domínio.
+    if (transcribePrompt.trim()) form.append("prompt", transcribePrompt.trim());
 
     const res = await fetch(`${base}/audio/transcriptions`, {
       method: "POST",
