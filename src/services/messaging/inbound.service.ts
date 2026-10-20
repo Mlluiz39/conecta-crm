@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureOpenOpportunity } from "@/lib/data/opportunity";
+import { phoneSuffixForLookup } from "@/lib/data/phone-match";
 import { suppressContact } from "@/lib/data/suppressions";
 import { runAgentForConversation } from "@/services/agents/engine";
 import { transcribeAudio, synthesizeSpeech } from "@/services/audio/voice";
@@ -139,13 +140,13 @@ export async function handleInboundWebhook(params: {
       .limit(1)
       .maybeSingle();
 
-    const digits = handle.replace(/\D/g, "");
-    if (!contact && colunaHandle === "phone" && digits.length >= 9 && !handle.endsWith("@lid")) {
+    const suffix = phoneSuffixForLookup(handle);
+    if (!contact && colunaHandle === "phone" && suffix && !handle.endsWith("@lid")) {
       const { data: bySuffix } = await supabase
         .from("contacts")
         .select("id, name, phone, email")
         .eq("organization_id", organizationId)
-        .like("phone", `%${digits.slice(-9)}`)
+        .like("phone", `%${suffix}`)
         .limit(1)
         .maybeSingle();
       contact = bySuffix;

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseCapturePayload } from "@/lib/data/capture-payload";
 import { ensureOpenOpportunity } from "@/lib/data/opportunity";
+import { phoneSuffixForLookup } from "@/lib/data/phone-match";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -174,14 +175,15 @@ export async function POST(
       .maybeSingle();
     contact = (data as Contato | null) ?? null;
   }
-  if (!contact && fields.phone) {
-    // Contatos antigos podem ter o telefone sem DDI; o sufixo de 9 dígitos
-    // evita duplicar o mesmo lead em formatos diferentes.
+  const phoneSuffix = phoneSuffixForLookup(fields.phone);
+  if (!contact && phoneSuffix) {
+    // Contatos antigos podem ter o telefone sem DDI; o sufixo preserva o DDD
+    // (9 dígitos sozinhos fariam "11 97777-6666" casar com "21 97777-6666").
     const { data } = await admin
       .from("contacts")
       .select("id, name, phone, email, custom_fields")
       .eq("organization_id", organizationId)
-      .like("phone", `%${fields.phone.slice(-9)}`)
+      .like("phone", `%${phoneSuffix}`)
       .limit(1)
       .maybeSingle();
     contact = (data as Contato | null) ?? null;

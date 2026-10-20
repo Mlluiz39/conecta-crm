@@ -26,6 +26,7 @@ import {
   suppressContact,
   unsuppressContact,
 } from "@/lib/data/suppressions";
+import { phoneSuffixForLookup } from "@/lib/data/phone-match";
 import type { AgentToolKey, AgentRole, AgentTone, ChannelType, HandoffRuleKey } from "@/types/domain";
 import { VOICE_CATALOG } from "@/types/domain";
 
@@ -1545,14 +1546,15 @@ export async function prospectManualLead(input: {
     .limit(1)
     .maybeSingle();
 
-  // Contato existente? (telefone por sufixo de 9 dígitos ou e-mail)
+  // Contato existente? (telefone por sufixo com DDD ou e-mail)
   let contactId: string | null = null;
-  if (phone) {
+  const phoneSuffix = phoneSuffixForLookup(phone);
+  if (phoneSuffix) {
     const { data } = await supabase
       .from("contacts")
       .select("id")
       .eq("organization_id", organizationId)
-      .like("phone", `%${phone.slice(-9)}`)
+      .like("phone", `%${phoneSuffix}`)
       .limit(1)
       .maybeSingle();
     contactId = data?.id ?? null;
