@@ -1,0 +1,36 @@
+# Serviço local de voz (Pocket TTS) do ConectaCRM.
+#
+#   ./deploy/tts/pocket/setup.sh          # constrói e sobe
+#   ./deploy/tts/pocket/setup.sh --logs   # acompanha
+#
+# Roda em network_mode: host, mas o adaptador e o pocket-tts escutam SÓ em 127.0.0.1 —
+# ninguém de fora alcança a porta. O modelo fica em ./cache (montado em /cache).
+name: conectacrm-pocket
+
+services:
+  pocket:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: conectacrm-pocket
+    container_name: conectacrm-pocket
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      ADAPTER_HOST: "127.0.0.1"
+      ADAPTER_PORT: "8765"
+      POCKET_URL: "http://127.0.0.1:8000"
+      POCKET_LANGUAGE: "${POCKET_LANGUAGE:-portuguese}"
+      # Voz pt-BR do catálogo do pocket-tts (a mesma `mlvoice:rafael` do painel).
+      POCKET_VOICE: "${POCKET_VOICE:-rafael}"
+      POCKET_QUANTIZE: "${POCKET_QUANTIZE:-1}"
+      POCKET_TIMEOUT: "${POCKET_TIMEOUT:-180}"
+      # Chave que o CRM manda no header X-API-Key. Obrigatória: o serviço não sobe sem.
+      MLVOICE_API_KEY: "${MLVOICE_API_KEY:?defina MLVOICE_API_KEY}"
+      HF_HOME: "/cache/huggingface"
+    volumes:
+      - ./cache:/cache
+    # O modelo usa ~1 GB; o teto evita competir com o CRM/Postgres pela RAM.
+    mem_limit: 3g
+    # VPS de 2 vCPU: metade para o CRM (voz local gera um de cada vez — mlvoice → piper).
+    cpus: "1.5"

@@ -25,4 +25,5 @@ services:
       - ./voices:/voices:ro
     # Piper usa ~300 MB; o teto existe para nunca competir com Postgres/Evolution pela RAM.
     mem_limit: 1g
-    cpus: "3.0"
+    # VPS de 2 vCPU: deixar folga para o CRM (o pocket-tts usa o resto quando gera voz).
+    cpus: "1.5"

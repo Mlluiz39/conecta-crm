@@ -27,6 +27,9 @@ __pycache__/
 # Vozes do Piper (~60 MB cada) — baixadas por deploy/tts/piper/setup.sh
 deploy/tts/piper/voices/
 
+# Modelo do Pocket TTS (~1 GB) — baixado na 1ª subida por deploy/tts/pocket/setup.sh
+deploy/tts/pocket/cache/
+
 # Material protegido por direitos autorais (livros de referência lidos só localmente).
 # A destilação fica na memória dos agentes (banco) e em .backups/livro-*/ — nunca o PDF.
 docs/*.pdf
