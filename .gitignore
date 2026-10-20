@@ -26,3 +26,7 @@ __pycache__/
 
 # Vozes do Piper (~60 MB cada) — baixadas por deploy/tts/piper/setup.sh
 deploy/tts/piper/voices/
+
+# Material protegido por direitos autorais (livros de referência lidos só localmente).
+# A destilação fica na memória dos agentes (banco) e em .backups/livro-*/ — nunca o PDF.
+docs/*.pdf
