@@ -143,7 +143,7 @@ export function serverEnv() {
        */
       transcribePrompt: process.env.TRANSCRIBE_PROMPT ?? "",
       /** Resposta maior que isso vira texto: nota de voz longa é ruim de ouvir. */
-      maxChars: Number(process.env.TTS_MAX_CHARS ?? 600),
+      maxChars: Number(process.env.TTS_MAX_CHARS ?? 1200),
       /**
        * Teto de espera da geração. No proxy (Gemini) 60s bastam; no Chatterbox em CPU a
        * síntese é lenta, então o padrão é maior — quem tem GPU pode baixar.

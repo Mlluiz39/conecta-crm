@@ -81,7 +81,7 @@ Telegram ──POST──► /api/webhooks/telegram        (valida x-telegram-bo
 Detalhes que valem saber:
 
 * **Sem telefone.** O identificador é o `chat.id`, guardado em `contacts.telegram_chat_id`.
-  Se fosse para `contacts.phone`, o match por sufixo de 9 dígitos do CRM poderia casar um chat
+  Se fosse para `contacts.phone`, o match por sufixo de telefone do CRM poderia casar um chat
   id com um número de WhatsApp e fundir dois leads.
 * **Destino do envio** é resolvido no `flushOutbox`: `phone` nos canais de WhatsApp,
   `telegram_chat_id` no Telegram.

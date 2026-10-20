@@ -77,7 +77,9 @@ fonte em `custom_fields.formulario`.
 
 ### O que a rota garante
 
-- **Sem duplicar contato**: procura por telefone exato, sufixo de 9 dígitos e e-mail.
+- **Sem duplicar contato**: procura por telefone exato, sufixo com DDD e e-mail. O sufixo
+  preserva o DDD (`11 97777-6666` não casa com `21 97777-6666`); `src/lib/data/phone-match.ts`
+  concentra a regra.
 - **Sem duplicar card**: se o contato já tem oportunidade aberta, devolve a existente
   (`card_created: false`).
 - **Primeiro toque vence**: uma segunda captura não sobrescreve `origem`/`utm`.

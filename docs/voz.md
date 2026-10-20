@@ -212,7 +212,7 @@ conversas em voz ao mesmo tempo, os pedidos entram na fila.
 | `TTS_LANGUAGE` | `pt` | idioma mandado ao motor local |
 | `TTS_TIMEOUT_MS` | `180000` | teto de espera da síntese |
 | `TTS_VOICE` | `alloy` | voz do proxy quando o agente não tem voz própria |
-| `TTS_MAX_CHARS` | `600` | acima disso a resposta vai como texto |
+| `TTS_MAX_CHARS` | `1200` | acima disso a resposta vai como texto |
 | `VOZES_PAPEL` | (mapa padrão) | usado só pelo `scripts/setup-voices.mjs` |
 
 ## Requisitos e cuidados
@@ -225,7 +225,7 @@ conversas em voz ao mesmo tempo, os pedidos entram na fila.
   código nem em `docker-compose.yml` — e não imprima a chave no terminal.
 * O contrato do `/v1/tts` **foi conferido contra o código do motor** (`/opt/mlvoice/pocket/api.py`,
   v2.0.0) e medido na VPS em 08/10/2026: corpo `{text, voice?, format:"opus"|"wav", normalize}`, teto
-  de 1500 caracteres no texto (o CRM corta antes, em `TTS_MAX_CHARS=600`), `401` com chave errada,
+  de 1500 caracteres no texto (o CRM corta antes, em `TTS_MAX_CHARS=1200`), `401` com chave errada,
   `422` com voz fora da lista, e resposta em **binário** (`audio/ogg` no formato opus), com o tempo
   de geração no cabeçalho `X-Generation-Seconds`. O `voice` por requisição é o que permite timbre
   por agente; a função dedicada (`vozPeloMLVoice`) existe porque o dialeto não é o do OpenAI.

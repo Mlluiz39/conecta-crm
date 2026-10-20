@@ -124,14 +124,15 @@ export async function handleInboundWebhook(params: {
     /**
      * Telegram não tem telefone: o identificador do lead é o chat id e ele mora em coluna
      * própria (`telegram_chat_id`), como `instagram_handle`/`messenger_psid`. Se fosse para
-     * `phone`, o match por sufixo de 9 dígitos poderia casar um chat id com um número de
+     * `phone`, o match por sufixo de telefone poderia casar um chat id com um número de
      * WhatsApp — dois leads diferentes virando um.
      */
     const colunaHandle = msg.channel === "telegram" ? "telegram_chat_id" : "phone";
 
     // 3. Localiza/cria contato — matching hierárquico (índice org+phone é PARCIAL,
-    //    não dá upsert onConflict): 1) phone exato 2) sufixo 9 dígitos (DDI varia:
-    //    "5511977869073" vs "11977869073") 3) nome/pushName (caso @lid)
+    //    não dá upsert onConflict): 1) phone exato 2) sufixo com DDD (DDI varia:
+    //    "5511977869073" vs "11977869073", e o DDD entra no sufixo para não colidir)
+    //    3) nome/pushName (caso @lid)
     let { data: contact } = await supabase
       .from("contacts")
       .select("id, name, phone, email")
