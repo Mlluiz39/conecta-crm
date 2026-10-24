@@ -27,6 +27,9 @@ export async function POST(request: NextRequest) {
     local?: string;
     max?: number;
     apenasSemSite?: boolean;
+    lat?: number;
+    lng?: number;
+    raioKm?: number;
   };
   try {
     payload = await request.json();
@@ -41,13 +44,24 @@ export async function POST(request: NextRequest) {
   // Padrão ligado: prospecção só de quem não tem site nem sistema.
   const apenasSemSite = payload.apenasSemSite !== false;
 
+  // "Perto de mim": raio a partir da posição do celular (nicho ainda é obrigatório).
+  const lat = Number(payload.lat);
+  const lng = Number(payload.lng);
+  const geo =
+    Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+      ? { lat, lng, raioKm: Number(payload.raioKm) || 5 }
+      : undefined;
+
   if (!nicho && !local) {
-    return NextResponse.json({ error: "Informe o nicho e o local" }, { status: 400 });
+    return NextResponse.json(
+      { error: geo ? "Informe o nicho (ex.: pizzaria)" : "Informe o nicho e o local" },
+      { status: 400 },
+    );
   }
 
   const result = provider === "aisa"
     ? await searchCompaniesAisa({ nicho, local, max })
-    : await searchCompaniesApify({ nicho, local, max, apenasSemSite });
+    : await searchCompaniesApify({ nicho, local, max, apenasSemSite, geo });
 
   if (result.error) {
     return NextResponse.json(
@@ -153,7 +167,8 @@ export async function POST(request: NextRequest) {
     scanned: result.scanned ?? result.found,
     discarded: result.discarded ?? null,
     apenasSemSite,
+    raioKm: geo?.raioKm ?? null,
     domainSample: leads.slice(0, 1).map((l) => domainOf(l.website)),
-    query: { nicho, local, max },
+    query: { nicho, local: geo ? `raio ${geo.raioKm} km` : local, max },
   });
 }

@@ -2,6 +2,7 @@ import "server-only";
 import { serverEnv } from "@/lib/env";
 import { buildLead, type CompanyLead, type CompanySearchResult } from "@/services/prospecting/company-search";
 import { filterStrongProspects } from "@/services/prospecting/presence";
+import { buildApifyInput } from "@/services/prospecting/apify-input";
 
 /**
  * Busca de empresas no Google Maps via Apify (actor configurável em
@@ -20,6 +21,11 @@ export async function searchCompaniesApify(params: {
   local: string;
   max?: number;
   apenasSemSite?: boolean;
+  /**
+   * Busca por raio a partir de um ponto (prospecção "perto de mim").
+   * O ator espera GeoJSON com a ordem [longitude, latitude] e `radiusKm`.
+   */
+  geo?: { lat: number; lng: number; raioKm: number };
 }): Promise<CompanySearchResult> {
   const { apify } = serverEnv();
   if (!apify.apiKey) {
@@ -32,7 +38,15 @@ export async function searchCompaniesApify(params: {
   const apenasSemSite = params.apenasSemSite !== false;
   // Sem o filtro, pede exatamente o que o usuário quer; com o filtro, sobra margem.
   const varredura = apenasSemSite ? Math.min(100, Math.max(max, max * 3)) : max;
-  const query = [nicho, local].filter(Boolean).join(" ");
+  // Com coordenada, a área é o raio: mandar cidade junto brigaria com ela.
+  const geo = params.geo && Number.isFinite(params.geo.lat) && Number.isFinite(params.geo.lng)
+    ? {
+        lat: params.geo.lat,
+        lng: params.geo.lng,
+        raioKm: Math.min(50, Math.max(0.5, Number(params.geo.raioKm) || 5)),
+      }
+    : null;
+  const query = geo ? nicho : [nicho, local].filter(Boolean).join(" ");
 
   const url = `https://api.apify.com/v2/acts/${apify.actor}/run-sync-get-dataset-items`;
 
@@ -40,16 +54,7 @@ export async function searchCompaniesApify(params: {
     const res = await fetch(`${url}?token=${encodeURIComponent(apify.apiKey)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        searchStringsArray: [query],
-        maxCrawledPlacesPerSearch: varredura,
-        language: "pt-BR",
-        skipClosedPlaces: true,
-        // 0 = não traz textos de avaliação (mais barato/rápido).
-        // APIFY_MAX_REVIEWS=5 traz os comentários, ótimos para personalizar a abordagem.
-        maxReviews: Number(process.env.APIFY_MAX_REVIEWS ?? 0) || 0,
-        maxImages: 0,
-      }),
+      body: JSON.stringify(buildApifyInput({ query, varredura, geo })),
       // Google Maps com poucos itens leva ~40s; damos folga para lotes maiores.
       signal: AbortSignal.timeout(280_000),
     });

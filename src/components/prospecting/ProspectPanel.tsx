@@ -1,9 +1,16 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { Search, Sparkles, Trash2, Clock, CalendarClock } from "lucide-react";
+import { Search, Sparkles, Trash2, Clock, CalendarClock, X } from "lucide-react";
 import { useConfirm, useNotify } from "@/components/ui/dialog-provider";
+import {
+  enfileirar,
+  listarFila,
+  observarFila,
+  sincronizarFila,
+  tamanhoFila,
+} from "@/lib/offline-queue";
 import { TEMPERATURE_EMOJI, type LeadTemperature } from "@/lib/data/lead-temperature";
 import {
   saveLeadOpportunity,
@@ -77,6 +84,40 @@ export function ProspectPanel({
   const [agentResult, setAgentResult] = useState<AgentProspectResult | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
 
+  // Ações feitas sem conexão (ficam guardadas no aparelho até voltar o sinal)
+  const [filaOffline, setFilaOffline] = useState(0);
+  const [sincronizando, setSincronizando] = useState(false);
+
+  useEffect(() => {
+    const atualizar = () => setFilaOffline(tamanhoFila());
+    atualizar();
+    const parar = observarFila(atualizar);
+    // quando a conexão volta, manda sozinho o que estava guardado
+    const aoVoltar = () => {
+      void sincronizar();
+    };
+    window.addEventListener("online", aoVoltar);
+    if (navigator.onLine && tamanhoFila() > 0) void sincronizar();
+    return () => {
+      parar();
+      window.removeEventListener("online", aoVoltar);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function sincronizar() {
+    if (sincronizando || tamanhoFila() === 0) return;
+    setSincronizando(true);
+    try {
+      const r = await sincronizarFila();
+      setFilaOffline(r.restantes);
+      if (r.enviadas > 0) notify(`${r.enviadas} ação(ões) sincronizada(s).`);
+      if (r.falharam > 0) notify(`${r.falharam} ação(ões) não puderam ser enviadas.`, "error");
+    } finally {
+      setSincronizando(false);
+    }
+  }
+
   // Seletor de leads dentro do painel do agente
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
@@ -111,6 +152,15 @@ export function ProspectPanel({
     const current = temps[id] ?? null;
     const target = current === next ? null : next;
     setTemps((prev) => ({ ...prev, [id]: target }));
+
+    // Sem conexão: guarda no aparelho em vez de perder o toque.
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      enfileirar({ tipo: "temperatura", contatoId: id, temperatura: target });
+      setFilaOffline(tamanhoFila());
+      notify("Sem conexão: temperatura guardada no aparelho e enviada quando o sinal voltar.");
+      return;
+    }
+
     startTransition(async () => {
       try {
         await setLeadTemperature(id, target);
@@ -128,6 +178,15 @@ export function ProspectPanel({
       notify("Informe o valor do serviço", "error");
       return;
     }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      enfileirar({ tipo: "valor", contatoId: id, valor: value });
+      setFilaOffline(tamanhoFila());
+      notify(
+        `Sem conexão: ${value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} guardado no aparelho.`,
+      );
+      return;
+    }
+
     startTransition(async () => {
       try {
         await saveLeadOpportunity({ contactId: id, value });
@@ -274,7 +333,46 @@ export function ProspectPanel({
   const q = search ? `&search=${encodeURIComponent(search)}` : "";
 
   return (
-    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
+    <div
+      className={`grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px] ${
+        selected.size > 0 ? "pb-24 lg:pb-0" : ""
+      }`}
+    >
+      {/* Barra fixa no celular: com leads marcados, a ação principal fica sempre
+          ao alcance do dedo, sem precisar rolar até o painel do agente. */}
+      {selected.size > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 p-2 pb-[calc(0.5rem+var(--safe-bottom))] backdrop-blur lg:hidden">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              aria-label="Limpar seleção"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-muted-foreground"
+            >
+              <X size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={enqueueSelected}
+              disabled={queuePending}
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-3 text-xs font-bold text-primary-foreground disabled:opacity-60"
+            >
+              <CalendarClock size={14} />
+              {queuePending ? "Colocando…" : `Ciclo de disparo (${selected.size})`}
+            </button>
+            <button
+              type="button"
+              onClick={runAgent}
+              disabled={agentPending}
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border-2 border-primary/40 px-3 text-xs font-bold disabled:opacity-60"
+            >
+              <Sparkles size={14} />
+              {agentPending ? "Enviando…" : `Enviar agora (${selected.size})`}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Lista de leads */}
       <div className="rounded-2xl border bg-card">
         <form className="flex items-center gap-2 border-b p-3" action="/prospeccao" method="get">
@@ -289,6 +387,23 @@ export function ProspectPanel({
           </div>
           <button className="rounded-xl border px-3 py-2 text-sm font-semibold hover:bg-accent">Buscar</button>
         </form>
+
+        {filaOffline > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-amber-500/10 px-3 py-2 text-xs">
+            <span className="inline-flex items-center gap-1.5 font-semibold text-amber-700">
+              📴 {filaOffline} ação(ões) guardada(s) no aparelho
+              {listarFila().length > 0 ? ` · ${listarFila()[0].tipo}` : ""}
+            </span>
+            <button
+              type="button"
+              onClick={() => void sincronizar()}
+              disabled={sincronizando}
+              className="min-h-9 rounded-lg border border-amber-600/40 px-3 font-bold text-amber-700 disabled:opacity-50"
+            >
+              {sincronizando ? "Enviando…" : "Sincronizar"}
+            </button>
+          </div>
+        )}
 
         {tools && <div className="space-y-2 border-b bg-muted/20 p-3">{tools}</div>}
 

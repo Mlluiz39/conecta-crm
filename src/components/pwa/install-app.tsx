@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Download, Share, X } from "lucide-react";
 
 /**
@@ -131,6 +132,7 @@ export function InstallAppCard() {
  * Aparece uma vez; dispensada, não volta a incomodar no mesmo aparelho.
  */
 export function InstallBanner() {
+  const caminho = usePathname();
   const [visivel, setVisivel] = useState(false);
   const [prompt, setPrompt] = useState<PromptInstalacao | null>(null);
   const [ios, setIos] = useState(false);
@@ -158,6 +160,9 @@ export function InstallBanner() {
     };
   }, []);
 
+  // A caixa de entrada precisa da altura toda no celular: a faixa sairia da
+  // conta e empurraria o campo de mensagem para fora da tela.
+  if (caminho?.startsWith("/conversas")) return null;
   if (!visivel) return null;
 
   const dispensar = () => {

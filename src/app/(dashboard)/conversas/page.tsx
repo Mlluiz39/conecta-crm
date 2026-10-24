@@ -43,13 +43,20 @@ export default async function ConversasPage({
 
   return (
     <div>
-      <PageHeader title="Conversas" subtitle="Caixa de entrada unificada — WhatsApp, Telegram, Instagram e Messenger" />
+      {/* No celular o cabeçalho sai: a lista/conversa precisa da altura toda */}
+      <div className="hidden lg:block">
+        <PageHeader
+          title="Conversas"
+          subtitle="Caixa de entrada unificada — WhatsApp, Telegram, Instagram e Messenger"
+        />
+      </div>
       <Inbox
         organizationId={organizationId}
         initialConversations={conversations as any}
         initialMessages={firstId ? { [firstId]: (messagesRes.data ?? []) as any } : {}}
         initialNotes={firstId ? { [firstId]: (notesRes.data ?? []) as any } : {}}
         initialActiveId={firstId}
+        linkRequested={Boolean(requested)}
       />
     </div>
   );

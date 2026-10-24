@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2 } from "lucide-react";
+import { ArrowLeft, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
   takeoverConversation,
@@ -72,12 +72,15 @@ export function Inbox({
   initialNotes,
   organizationId,
   initialActiveId,
+  linkRequested = false,
 }: {
   initialConversations: Conv[];
   initialMessages: Record<string, Msg[]>;
   initialNotes: Record<string, Note[]>;
   organizationId: string;
   initialActiveId?: string;
+  /** true quando a conversa foi pedida por link (?c=): aí sim abre direto no celular. */
+  linkRequested?: boolean;
 }) {
   const router = useRouter();
   const notify = useNotify();
@@ -148,6 +151,15 @@ export function Inbox({
   }
 
   const [activeId, setActiveId] = useState<string | null>(initialActiveId ?? initialConversations[0]?.id ?? null);
+
+  /* No celular a caixa de entrada abre na LISTA, como no WhatsApp: renderizar a
+     conversa mais recente de cara esconde a lista inteira e não deixa escolher
+     quem atender. Link direto (?c=) continua abrindo a conversa. */
+  useEffect(() => {
+    if (linkRequested) return;
+    if (typeof window === "undefined") return;
+    if (window.matchMedia("(max-width: 1023px)").matches) setActiveId(null);
+  }, [linkRequested]);
   const [channelFilter, setChannelFilter] = useState<"all" | ChannelType>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "bot" | "humano">("all");
   const [input, setInput] = useState("");
@@ -466,9 +478,13 @@ export function Inbox({
   }
 
   return (
-    <div className="grid h-[calc(100vh-9rem)] grid-cols-1 gap-4 lg:grid-cols-[20rem_1fr_18rem]">
-      {/* Lista */}
-      <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border bg-card">
+    <div className="grid h-[calc(100dvh-5rem)] grid-cols-1 gap-2 lg:h-[calc(100vh-9rem)] lg:grid-cols-[20rem_1fr_18rem] lg:gap-4">
+      {/* Lista — no celular ocupa a tela toda e some quando a conversa abre */}
+      <div
+        className={`min-h-0 flex-col overflow-hidden rounded-2xl border bg-card ${
+          activeId ? "hidden lg:flex" : "flex"
+        }`}
+      >
         <div className="space-y-2 border-b p-3">
           <div className="flex gap-1 text-xs">
             {(["all", "whatsapp", "telegram", "instagram", "messenger"] as const).map((ch) => (
@@ -542,39 +558,47 @@ export function Inbox({
       {/* Thread */}
       {active ? (
         <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border bg-card">
-          <div className="flex items-center justify-between border-b p-3">
-            <div>
-              <p className="text-sm font-bold">{active.contact?.name ?? "Contato"}</p>
-              <p className="text-xs text-muted-foreground">
-                <>
-                  {CHANNEL_LABEL[active.channel_type]} · {active.contact?.phone ?? (active.contact?.telegram_chat_id ? `chat ${active.contact.telegram_chat_id}` : "")}
-                </>
+          <div className="flex items-center justify-between gap-2 border-b p-3">
+            <button
+              type="button"
+              onClick={() => setActiveId(null)}
+              aria-label="Voltar para a lista de conversas"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-muted-foreground lg:hidden"
+            >
+              <ArrowLeft size={18} />
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold">{active.contact?.name ?? "Contato"}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {CHANNEL_LABEL[active.channel_type]} · {active.contact?.phone ?? (active.contact?.telegram_chat_id ? `chat ${active.contact.telegram_chat_id}` : "")}
               </p>
             </div>
-            {botBusy ? (
-              <button
-                disabled
-                className={`rounded-lg px-3 py-1.5 text-xs font-bold text-white opacity-60 ${
-                  botBusy === "assumir" ? "bg-primary" : "bg-emerald-600"
-                }`}
-              >
-                {botBusy === "assumir" ? "Assumindo…" : "Reativando…"}
-              </button>
-            ) : active.bot_active ? (
-              <button
-                onClick={() => void handleBotAction()}
-                className="rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground"
-              >
-                Assumir conversa
-              </button>
-            ) : (
-              <button
-                onClick={() => void handleBotAction()}
-                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"
-              >
-                Reativar bot (IA)
-              </button>
-            )}
+            <div className="hidden shrink-0 lg:block">
+              {botBusy ? (
+                <button
+                  disabled
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold text-white opacity-60 ${
+                    botBusy === "assumir" ? "bg-primary" : "bg-emerald-600"
+                  }`}
+                >
+                  {botBusy === "assumir" ? "Assumindo…" : "Reativando…"}
+                </button>
+              ) : active.bot_active ? (
+                <button
+                  onClick={() => void handleBotAction()}
+                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground"
+                >
+                  Assumir conversa
+                </button>
+              ) : (
+                <button
+                  onClick={() => void handleBotAction()}
+                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"
+                >
+                  Reativar bot (IA)
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-between gap-2 border-b bg-muted/30 px-3 py-1.5">
@@ -656,6 +680,40 @@ export function Inbox({
             })}
           </div>
 
+          {/* Ação principal no celular: com o agente respondendo, assumir precisa
+              estar sempre à mão, não escondido no topo. */}
+          <div className="border-t bg-muted/40 p-2 lg:hidden">
+            {botBusy ? (
+              <button
+                disabled
+                className={`min-h-12 w-full rounded-xl text-sm font-bold text-white opacity-60 ${
+                  botBusy === "assumir" ? "bg-primary" : "bg-emerald-600"
+                }`}
+              >
+                {botBusy === "assumir" ? "Assumindo a conversa…" : "Devolvendo para a IA…"}
+              </button>
+            ) : active.bot_active ? (
+              <button
+                onClick={() => void handleBotAction()}
+                className="min-h-12 w-full rounded-xl bg-primary text-sm font-bold text-primary-foreground"
+              >
+                ✋ Assumir conversa — parar a IA
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <span className="flex min-h-12 flex-1 items-center justify-center rounded-xl border bg-background text-xs font-semibold text-muted-foreground">
+                  👤 Você está atendendo
+                </span>
+                <button
+                  onClick={() => void handleBotAction()}
+                  className="min-h-12 rounded-xl bg-emerald-600 px-3 text-xs font-bold text-white"
+                >
+                  Devolver para a IA
+                </button>
+              </div>
+            )}
+          </div>
+
           <div className="border-t p-3">
             <div className="mb-2 flex gap-1 text-xs">
               <button
@@ -697,7 +755,7 @@ export function Inbox({
           </div>
         </div>
       ) : (
-        <div className="flex items-center justify-center rounded-2xl border bg-card text-sm text-muted-foreground">
+        <div className="hidden items-center justify-center rounded-2xl border bg-card text-sm text-muted-foreground lg:flex">
           Selecione uma conversa
         </div>
       )}

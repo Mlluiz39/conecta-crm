@@ -72,6 +72,10 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
   const [local, setLocal] = useState("");
   const [max, setMax] = useState(20);
   const [apenasSemSite, setApenasSemSite] = useState(true);
+  // "Perto de mim": guarda as coordenadas do celular e o raio escolhido.
+  const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null);
+  const [raioKm, setRaioKm] = useState(5);
+  const [geoBusy, setGeoBusy] = useState(false);
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,12 +89,17 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
       local: overrides?.local ?? local,
       max: overrides?.max ?? max,
       apenasSemSite,
+      ...(geo ? { lat: geo.lat, lng: geo.lng, raioKm } : {}),
     };
     setError(null);
     setResult(null);
 
     if (!params.nicho.trim() && !params.local.trim()) {
-      setError("Informe o nicho e o local (ex.: clínica odontológica em Vila Velha ES)");
+      setError(
+        geo
+          ? "Com a localização ativa, informe o nicho (ex.: pizzaria)"
+          : "Informe o nicho e o local (ex.: clínica odontológica em Vila Velha ES)",
+      );
       return;
     }
 
@@ -176,9 +185,13 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
           className="rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring sm:col-span-5"
         />
         <input
-          value={local}
-          onChange={(e) => setLocal(e.target.value)}
+          value={geo ? `Perto de mim (raio ${raioKm} km)` : local}
+          onChange={(e) => {
+            setLocal(e.target.value);
+            if (geo) setGeo(null); // digitou cidade: o raio deixa de valer
+          }}
           placeholder="Local: Vila Velha ES"
+          readOnly={Boolean(geo)}
           className="rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring sm:col-span-4"
         />
         <input
@@ -190,6 +203,67 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
           title="Quantos resultados buscar"
           className="rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring sm:col-span-3"
         />
+      </div>
+
+      {/* Prospecção na rua: em vez de digitar cidade, usa o raio de onde a pessoa está */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            if (geo) {
+              setGeo(null);
+              return;
+            }
+            if (!navigator.geolocation) {
+              setError("Este aparelho não expõe localização ao navegador.");
+              return;
+            }
+            setGeoBusy(true);
+            setError(null);
+            navigator.geolocation.getCurrentPosition(
+              (pos) => {
+                setGeo({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                setGeoBusy(false);
+              },
+              (err) => {
+                setGeoBusy(false);
+                setError(
+                  err.code === err.PERMISSION_DENIED
+                    ? "Permissão de localização negada. Libere no navegador (cadeado → Localização) ou digite a cidade."
+                    : err.code === err.TIMEOUT
+                      ? "A localização demorou a responder. Tente de novo ou digite a cidade."
+                      : "Não consegui obter sua localização. Digite a cidade.",
+                );
+              },
+              { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
+            );
+          }}
+          className={`inline-flex min-h-10 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold ${
+            geo ? "border-primary bg-primary/10 text-primary" : "hover:bg-accent"
+          }`}
+        >
+          <MapPin size={14} />
+          {geoBusy ? "Localizando…" : geo ? "Usando minha localização ✕" : "Usar minha localização"}
+        </button>
+
+        {geo && (
+          <div className="flex items-center gap-1">
+            {[2, 5, 10, 25].map((km) => (
+              <button
+                key={km}
+                type="button"
+                onClick={() => setRaioKm(km)}
+                className={`min-h-10 rounded-lg px-2.5 text-xs font-bold ${
+                  raioKm === km
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {km} km
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <button
