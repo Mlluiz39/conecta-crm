@@ -5,6 +5,7 @@ import { Building2, Search, RotateCcw, Phone, Globe, Star, CheckCircle2, Trash2,
 import { deleteContactsByFilter } from "@/lib/data/actions";
 import { useConfirm, useNotify } from "@/components/ui/dialog-provider";
 import type { RecentSearch } from "@/lib/data/queries";
+import { classifyWebsite } from "@/services/prospecting/presence";
 
 type Lead = {
   name: string;
@@ -43,6 +44,8 @@ type SearchResponse = {
   saved: number;
   duplicates: number;
   leads: Lead[];
+  scanned?: number;
+  discarded?: { comSite: number; comSistema: number } | null;
   error?: string;
 };
 
@@ -51,7 +54,7 @@ type Provider = "apify" | "aisa";
 const PROVIDER_INFO: Record<Provider, { label: string; hint: string }> = {
   apify: {
     label: "Apify",
-    hint: "Google Maps — traz telefone, site, endereço e nota. Leva 1–3 min.",
+    hint: "Google Maps — traz telefone, site, endereço e nota. Leva 1–3 min. Varre 3x e descarta quem já tem site ou sistema.",
   },
   aisa: {
     label: "AISA",
@@ -68,6 +71,7 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
   const [nicho, setNicho] = useState("");
   const [local, setLocal] = useState("");
   const [max, setMax] = useState(20);
+  const [apenasSemSite, setApenasSemSite] = useState(true);
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +84,7 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
       nicho: overrides?.nicho ?? nicho,
       local: overrides?.local ?? local,
       max: overrides?.max ?? max,
+      apenasSemSite,
     };
     setError(null);
     setResult(null);
@@ -145,6 +150,24 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
       </div>
       <p className="text-xs text-muted-foreground">{PROVIDER_INFO[provider].hint}</p>
 
+      {provider === "apify" && (
+        <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-blue-500/30 bg-blue-500/5 p-2.5">
+          <input
+            type="checkbox"
+            checked={apenasSemSite}
+            onChange={(e) => setApenasSemSite(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span className="text-xs">
+            <strong>Só empresas sem site ou sistema</strong>
+            <span className="block text-muted-foreground">
+              Descarta quem tem domínio próprio ou já usa plataforma (Doctoralia, Booksy, Goomer, iFood,
+              Wix…). Instagram, Facebook e linktree continuam valendo. Busca 3x e corta no número pedido.
+            </span>
+          </span>
+        </label>
+      )}
+
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-12">
         <input
           value={nicho}
@@ -200,6 +223,15 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
             ) : null}
           </p>
 
+          {result.discarded && (result.discarded.comSite > 0 || result.discarded.comSistema > 0) ? (
+            <p className="text-xs text-muted-foreground">
+              {result.scanned ?? "?"} varridas no Maps ·{" "}
+              <strong>{result.discarded.comSite + result.discarded.comSistema} descartada(s)</strong> por já
+              ter presença digital ({result.discarded.comSite} com site
+              {result.discarded.comSistema ? `, ${result.discarded.comSistema} com sistema` : ""})
+            </p>
+          ) : null}
+
           <div className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
             {result.leads.map((lead, i) => (
               <div
@@ -230,6 +262,14 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
                           title="Não tem site no Google Maps — é o perfil que mais precisa do seu serviço"
                         >
                           sem site
+                        </span>
+                      )}
+                      {lead.website && classifyWebsite(lead.website).kind !== "plataforma" && (
+                        <span
+                          className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-bold text-sky-700"
+                          title={`O perfil aponta para ${classifyWebsite(lead.website).host} — não é site próprio`}
+                        >
+                          só {classifyWebsite(lead.website).label}
                         </span>
                       )}
                       {lead.unclaimed && (

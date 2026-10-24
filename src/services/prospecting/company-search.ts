@@ -59,6 +59,10 @@ export type CompanySearchResult = {
   provider: CompanyProvider;
   found: number;
   leads: CompanyLead[];
+  /** Quantos itens o provedor devolveu antes do filtro de presença digital. */
+  scanned?: number;
+  /** Descartes do filtro "só sem site/sistema" (quantos foram e por quê). */
+  discarded?: { comSite: number; comSistema: number };
   error?: string;
 };
 

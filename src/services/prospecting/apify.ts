@@ -1,6 +1,7 @@
 import "server-only";
 import { serverEnv } from "@/lib/env";
 import { buildLead, type CompanyLead, type CompanySearchResult } from "@/services/prospecting/company-search";
+import { filterStrongProspects } from "@/services/prospecting/presence";
 
 /**
  * Busca de empresas no Google Maps via Apify (actor configurável em
@@ -8,11 +9,17 @@ import { buildLead, type CompanyLead, type CompanySearchResult } from "@/service
  *
  * Devolve nome, telefone, site, endereço, categoria e nota — o telefone é o que
  * permite a abordagem por WhatsApp depois.
+ *
+ * `apenasSemSite` (padrão ligado) mantém só empresas sem site próprio e sem
+ * sistema: rede social e link solto continuam valendo (ver presence.ts). Como
+ * uma boa parte do que o Maps devolve é descartada, a varredura pede 3x o
+ * número desejado (máx. 100) e depois corta no limite pedido.
  */
 export async function searchCompaniesApify(params: {
   nicho: string;
   local: string;
   max?: number;
+  apenasSemSite?: boolean;
 }): Promise<CompanySearchResult> {
   const { apify } = serverEnv();
   if (!apify.apiKey) {
@@ -22,6 +29,9 @@ export async function searchCompaniesApify(params: {
   const nicho = params.nicho.trim();
   const local = params.local.trim();
   const max = Math.min(100, Math.max(1, params.max ?? 20));
+  const apenasSemSite = params.apenasSemSite !== false;
+  // Sem o filtro, pede exatamente o que o usuário quer; com o filtro, sobra margem.
+  const varredura = apenasSemSite ? Math.min(100, Math.max(max, max * 3)) : max;
   const query = [nicho, local].filter(Boolean).join(" ");
 
   const url = `https://api.apify.com/v2/acts/${apify.actor}/run-sync-get-dataset-items`;
@@ -32,7 +42,7 @@ export async function searchCompaniesApify(params: {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         searchStringsArray: [query],
-        maxCrawledPlacesPerSearch: max,
+        maxCrawledPlacesPerSearch: varredura,
         language: "pt-BR",
         skipClosedPlaces: true,
         // 0 = não traz textos de avaliação (mais barato/rápido).
@@ -90,7 +100,20 @@ export async function searchCompaniesApify(params: {
       });
       if (lead) leads.push(lead);
     }
-    return { provider: "apify", found: leads.length, leads };
+
+    // Filtro estrito: só fica quem não tem site próprio nem sistema.
+    if (apenasSemSite) {
+      const filtrado = filterStrongProspects(leads, max);
+      return {
+        provider: "apify",
+        found: filtrado.kept.length,
+        leads: filtrado.kept,
+        scanned: leads.length,
+        discarded: filtrado.counts,
+      };
+    }
+
+    return { provider: "apify", found: leads.length, leads: leads.slice(0, max), scanned: leads.length };
   } catch (error) {
     const message = (error as Error).name === "TimeoutError"
       ? "Apify demorou demais (limite ~4min) — tente menos resultados"

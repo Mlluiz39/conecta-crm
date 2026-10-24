@@ -21,7 +21,13 @@ export async function POST(request: NextRequest) {
   const { organizationId, id: userId } = await requireProfile();
   const supabase = createClient();
 
-  let payload: { provider?: string; nicho?: string; local?: string; max?: number };
+  let payload: {
+    provider?: string;
+    nicho?: string;
+    local?: string;
+    max?: number;
+    apenasSemSite?: boolean;
+  };
   try {
     payload = await request.json();
   } catch {
@@ -32,6 +38,8 @@ export async function POST(request: NextRequest) {
   const nicho = String(payload.nicho ?? "").trim();
   const local = String(payload.local ?? "").trim();
   const max = Number(payload.max ?? 20) || 20;
+  // Padrão ligado: prospecção só de quem não tem site nem sistema.
+  const apenasSemSite = payload.apenasSemSite !== false;
 
   if (!nicho && !local) {
     return NextResponse.json({ error: "Informe o nicho e o local" }, { status: 400 });
@@ -39,7 +47,7 @@ export async function POST(request: NextRequest) {
 
   const result = provider === "aisa"
     ? await searchCompaniesAisa({ nicho, local, max })
-    : await searchCompaniesApify({ nicho, local, max });
+    : await searchCompaniesApify({ nicho, local, max, apenasSemSite });
 
   if (result.error) {
     return NextResponse.json(
@@ -141,6 +149,10 @@ export async function POST(request: NextRequest) {
     duplicates,
     leads,
     errors,
+    // Transparência do filtro: quantos foram varridos e quantos caíram fora.
+    scanned: result.scanned ?? result.found,
+    discarded: result.discarded ?? null,
+    apenasSemSite,
     domainSample: leads.slice(0, 1).map((l) => domainOf(l.website)),
     query: { nicho, local, max },
   });
