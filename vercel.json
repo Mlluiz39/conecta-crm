@@ -9,6 +9,10 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/cron/lembretes?horas=24",
+      "schedule": "*/30 * * * *"
+    },
+    {
       "path": "/api/cron/prospect-followup?hours=24&limit=5",
       "schedule": "0 */6 * * *"
     },

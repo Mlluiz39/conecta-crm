@@ -17,6 +17,7 @@
  *   CRON_OUTREACH_SEC   (default 300)
  *   CRON_REMINDERS_SEC  (default 600)
  *   CRON_FOLLOWUP_SEC   (default 21600)
+ *   CRON_LEMBRETES_SEC  (default 1800)
  */
 
 const BASE = (process.env.CRM_BASE_URL ?? "http://127.0.0.1:8081").replace(/\/$/, "");
@@ -34,6 +35,13 @@ const JOBS = [
   { nome: "alerts", caminho: "/api/cron/alerts", segundos: num("CRON_ALERTS_SEC", 60) },
   { nome: "outreach", caminho: "/api/cron/outreach", segundos: num("CRON_OUTREACH_SEC", 300) },
   { nome: "reminders", caminho: "/api/cron/reminders", segundos: num("CRON_REMINDERS_SEC", 600) },
+  {
+    // Avisa no celular quais leads estão sem resposta. Roda de meia em meia
+    // hora; o próprio serviço espaça os lembretes da mesma conversa em 12h.
+    nome: "lembretes",
+    caminho: "/api/cron/lembretes?horas=24",
+    segundos: num("CRON_LEMBRETES_SEC", 1800),
+  },
   {
     nome: "prospect-followup",
     caminho: "/api/cron/prospect-followup?hours=24&limit=5",
