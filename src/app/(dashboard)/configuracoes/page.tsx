@@ -10,6 +10,7 @@ import {
 import { listCaptureSources, listPipelineStages } from "@/lib/data/capture";
 import { PageHeader } from "@/components/ui/primitives";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
+import { InstallAppCard } from "@/components/pwa/install-app";
 
 export const revalidate = 60;
 
@@ -31,6 +32,9 @@ export default async function ConfiguracoesPage() {
         title="Configurações"
         subtitle="Tipo de negócio, base de conhecimento, campos personalizados, equipe, captação e regras de atendimento"
       />
+      <div className="mb-4">
+        <InstallAppCard />
+      </div>
       <SettingsPanel
         org={(org as any) ?? { name: "", business_type: "outro", settings: {} }}
         presets={presets as any}

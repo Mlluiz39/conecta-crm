@@ -102,3 +102,96 @@ body {
     flex: initial;
   }
 }
+
+/* ── Uso no celular ────────────────────────────────────────────────────
+   Regras que valem no app inteiro. Cada uma resolve um problema concreto
+   de uso na rua, não estética. */
+
+/* 1. iOS dá zoom automático ao focar campo com fonte < 16px, e o zoom não
+      desfaz sozinho — a pessoa fica com a tela ampliada e o layout cortado.
+      Forçar 16px no campo é o jeito padrão de impedir esse pulo. */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* 2. Notch e barra de gestos: header desce, rodapé sobe. */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+body {
+  /* o app não deve "puxar" a página inteira ao rolar no fim (parece bug) */
+  overscroll-behavior-y: none;
+}
+
+.app-safe-x {
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+.app-safe-top {
+  padding-top: var(--safe-top);
+}
+
+.app-safe-bottom {
+  padding-bottom: var(--safe-bottom);
+}
+
+/* 3. Toque: sem realce cinza do Android, sem atraso de 300ms no duplo toque. */
+button,
+a,
+[role="button"],
+input[type="checkbox"],
+input[type="radio"],
+label {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 4. Área de toque mínima confortável (Apple recomenda 44px) para os
+      controles pequenos — checkbox e botão de ícone. O padding é invisível,
+      então o desenho continua compacto. */
+.touch-hit {
+  position: relative;
+}
+
+.touch-hit::after {
+  content: "";
+  position: absolute;
+  inset: 50% 50% 50% 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+
+/* 5. Caixa de seleção maior no celular: é o controle que mais se usa em
+      prospecção (marcar leads) e 13px não dá para acertar com o dedo. */
+@media (max-width: 640px) {
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+/* 6. Rede de segurança contra rolagem horizontal na página.
+      Faixas de abas e filtros rolam dentro de si mesmas (overflow-x-auto);
+      o que sobrar de largura não deve arrastar o layout inteiro para o lado,
+      que é o que faz o app "balançar" no dedo. `clip` (e não `hidden`)
+      porque `hidden` criaria contexto de rolagem e quebraria o sticky. */
+main {
+  overflow-x: clip;
+}
+
+@media (max-width: 640px) {
+  .overflow-x-auto {
+    max-width: 100%;
+  }
+}

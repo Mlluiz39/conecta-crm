@@ -177,11 +177,11 @@ export function LiveProspectingPanel() {
         )}
 
         {data && data.items.length > 0 && (
-          <ul className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-2 lg:grid-cols-2 xl:grid-cols-3">
             {data.items.map((item) => {
               const st = statusLabel(item);
               return (
-                <li key={item.messageId}>
+                <li key={item.messageId} className="min-w-0">
                   <button
                     type="button"
                     onClick={() => setSelected(item)}

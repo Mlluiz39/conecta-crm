@@ -34,7 +34,7 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-label={dark ? "Mudar para tema claro" : "Mudar para tema escuro"}
       title={dark ? "Tema claro" : "Tema escuro"}
-      className="rounded-lg border px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="inline-flex h-11 w-11 items-center justify-center rounded-lg border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >
       {dark === null ? (
         <span className="block h-[15px] w-[15px]" />

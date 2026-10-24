@@ -274,7 +274,7 @@ export function ProspectPanel({
   const q = search ? `&search=${encodeURIComponent(search)}` : "";
 
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-[1fr,380px]">
+    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
       {/* Lista de leads */}
       <div className="rounded-2xl border bg-card">
         <form className="flex items-center gap-2 border-b p-3" action="/prospeccao" method="get">
@@ -294,7 +294,7 @@ export function ProspectPanel({
 
         <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-primary" />
+            <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-5 w-5 accent-primary" />
             Selecionar todos com telefone ({selectable.length})
           </label>
           <button
@@ -324,7 +324,7 @@ export function ProspectPanel({
                   checked={selected.has(c.id)}
                   onChange={() => toggle(c.id)}
                   disabled={!c.phone}
-                  className="h-4 w-4 accent-primary"
+                  className="h-5 w-5 accent-primary"
                 />
                 <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
 
@@ -342,7 +342,7 @@ export function ProspectPanel({
                       type="button"
                       title={label}
                       onClick={() => changeTemperature(c.id, key)}
-                      className={`rounded-md px-1.5 py-0.5 text-xs transition-colors ${
+                      className={`inline-flex min-h-9 min-w-9 items-center justify-center rounded-md px-1.5 py-0.5 text-xs transition-colors ${
                         temp === key ? "bg-primary/15 ring-1 ring-primary/40" : "opacity-40 hover:opacity-100"
                       }`}
                     >
@@ -585,7 +585,7 @@ export function ProspectPanel({
             </div>
           )}
 
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               onClick={runAgent}
               disabled={agentPending || selected.size === 0}

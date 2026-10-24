@@ -140,7 +140,7 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
             key={p}
             type="button"
             onClick={() => setProvider(p)}
-            className={`px-4 py-2 text-xs font-bold transition-colors ${
+            className={`min-h-11 px-4 py-2 text-xs font-bold transition-colors ${
               provider === p ? "bg-primary text-primary-foreground" : "hover:bg-accent"
             }`}
           >
@@ -196,7 +196,7 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
         type="button"
         onClick={() => search()}
         disabled={pending}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+        className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
       >
         <Search size={15} />
         {pending
@@ -383,7 +383,7 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
                   type="button"
                   onClick={() => rerun(s)}
                   disabled={pending}
-                  className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 font-semibold hover:bg-accent disabled:opacity-50"
+                  className="inline-flex min-h-11 items-center gap-1 rounded-lg border px-3 py-1 font-semibold hover:bg-accent disabled:opacity-50"
                 >
                   <RotateCcw size={11} /> buscar de novo
                 </button>
@@ -406,7 +406,7 @@ export function CompanySearchPanel({ recentSearches }: { recentSearches: RecentS
                       notify((e as Error).message.replace(/^Error:\s*/, ""), "error");
                     }
                   }}
-                  className="inline-flex items-center gap-1 rounded-lg border border-destructive/40 px-2 py-1 font-semibold text-destructive hover:bg-destructive/10"
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-lg border border-destructive/40 px-3 py-1 font-semibold text-destructive hover:bg-destructive/10"
                 >
                   <Trash2 size={11} />
                 </button>

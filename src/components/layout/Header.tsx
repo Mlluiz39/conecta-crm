@@ -13,7 +13,7 @@ export async function Header() {
   const profile = await requireProfile();
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b bg-card/80 px-4 backdrop-blur sm:px-6">
+    <header className="app-safe-top sticky top-0 z-30 flex min-h-16 items-center justify-between gap-2 border-b bg-card/80 px-3 backdrop-blur sm:gap-3 sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
         <MobileNav />
         <div className="truncate text-sm text-muted-foreground">
@@ -29,7 +29,7 @@ export async function Header() {
         <form action={logout}>
           <button
             type="submit"
-            className="rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="inline-flex min-h-10 items-center rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             Sair
           </button>

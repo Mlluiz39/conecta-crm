@@ -18,8 +18,19 @@ const nextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          // geolocalização liberada para o próprio app: a ideia é prospectar
+          // perto de onde a pessoa está. Câmera e microfone continuam bloqueados.
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
           { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+        ],
+      },
+      {
+        // O service worker precisa ser revalidado sempre: se o navegador
+        // guardar o sw.js antigo, a atualização do app fica presa.
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
         ],
       },
     ];

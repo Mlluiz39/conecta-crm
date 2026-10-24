@@ -60,7 +60,7 @@ export function MobileNav() {
         aria-label="Abrir menu de navegação"
         aria-expanded={open}
         aria-controls="mobile-nav"
-        className="shrink-0 rounded-lg border p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:hidden"
+        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:hidden"
       >
         <Menu size={18} />
       </button>
@@ -91,7 +91,7 @@ export function MobileNav() {
                   type="button"
                   onClick={() => setOpen(false)}
                   aria-label="Fechar menu"
-                  className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
                   <X size={18} />
                 </button>
