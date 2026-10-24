@@ -33,3 +33,8 @@ deploy/tts/pocket/cache/
 # Material protegido por direitos autorais (livros de referência lidos só localmente).
 # A destilação fica na memória dos agentes (banco) e em .backups/livro-*/ — nunca o PDF.
 docs/*.pdf
+
+# Home de agentes CLI (Cline/Hermes): guarda auth.json com tokens de sessão.
+# Um checkpoint do Cline já commitou essa pasta uma vez (commit bfac880) — não repetir.
+.hermes-home/
+.cline/
