@@ -36,6 +36,16 @@ export function serverEnv() {
 
   return {
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    /**
+     * Chaves do Web Push (notificação no celular com o app instalado).
+     * Gere uma vez com: node -e 'console.log(require("web-push").generateVAPIDKeys())'
+     * VAPID_SUBJECT precisa ser um mailto: ou https: válido — o serviço de push exige.
+     */
+    vapid: {
+      publicKey: process.env.VAPID_PUBLIC_KEY ?? "",
+      privateKey: process.env.VAPID_PRIVATE_KEY ?? "",
+      subject: process.env.VAPID_SUBJECT ?? "mailto:contato@mlluizdevtech.com.br",
+    },
     anthropicApiKey: apiKey,
     aiBaseUrl: baseUrl,
     defaultModel,

@@ -11,6 +11,7 @@ import { listCaptureSources, listPipelineStages } from "@/lib/data/capture";
 import { PageHeader } from "@/components/ui/primitives";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { InstallAppCard } from "@/components/pwa/install-app";
+import { PushToggle } from "@/components/pwa/push-toggle";
 
 export const revalidate = 60;
 
@@ -32,8 +33,9 @@ export default async function ConfiguracoesPage() {
         title="Configurações"
         subtitle="Tipo de negócio, base de conhecimento, campos personalizados, equipe, captação e regras de atendimento"
       />
-      <div className="mb-4">
+      <div className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
         <InstallAppCard />
+        <PushToggle />
       </div>
       <SettingsPanel
         org={(org as any) ?? { name: "", business_type: "outro", settings: {} }}

@@ -6,6 +6,7 @@ import { suppressContact } from "@/lib/data/suppressions";
 import { runAgentForConversation } from "@/services/agents/engine";
 import { transcribeAudio, synthesizeSpeech } from "@/services/audio/voice";
 import { isOptOutMessage } from "@/services/prospecting/opt-out";
+import { notificarEquipe, resumirMensagem } from "@/services/push/push";
 import { getMessageProvider, providerFromConfig } from "./index";
 import type { MessageProvider } from "./types";
 
@@ -260,6 +261,20 @@ export async function handleInboundWebhook(params: {
       .update({ processed_at: new Date().toISOString() })
       .eq("provider", provider.name)
       .eq("event_id", msg.externalEventId);
+
+    // 5-notifica: avisa o celular do time que o lead respondeu.
+    // Fire-and-forget de propósito: notificação não pode atrasar nem derrubar o
+    // atendimento (o webhook precisa responder rápido para o provedor).
+    if (!msg.internal && inserida) {
+      void notificarEquipe(organizationId, {
+        titulo: `💬 ${contact.name} respondeu`,
+        corpo: resumirMensagem(msg.text || "Mensagem recebida"),
+        url: `/conversas?c=${conv.id}`,
+        // Uma tag por conversa: várias mensagens seguidas do mesmo lead
+        // atualizam a mesma notificação em vez de empilhar.
+        tag: `conversa-${conv.id}`,
+      }).catch((e) => console.error("[push] falhou:", (e as Error).message));
+    }
 
     // 5a. A conversa vira lead: todo contato que escreve tem card no funil.
     // Determinístico e idempotente — não depende de o modelo lembrar da tool.

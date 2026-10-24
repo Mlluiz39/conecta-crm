@@ -98,3 +98,52 @@ self.addEventListener("fetch", (event) => {
     })(),
   );
 });
+
+/* ── Notificações push ──────────────────────────────────────────────────
+   O servidor manda { titulo, corpo, url, tag }. A notificação aparece mesmo
+   com o app fechado, porque quem a exibe é o sistema a partir deste worker. */
+self.addEventListener("push", (event) => {
+  let dados = {};
+  try {
+    dados = event.data ? event.data.json() : {};
+  } catch {
+    dados = { corpo: event.data ? event.data.text() : "" };
+  }
+
+  const titulo = dados.titulo || "ConectaCRM";
+  const opcoes = {
+    body: dados.corpo || "Você tem uma novidade no CRM.",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    tag: dados.tag || "conecta-crm",
+    renotify: Boolean(dados.tag),
+    data: { url: dados.url || "/conversas" },
+    vibrate: [80, 40, 80],
+  };
+
+  event.waitUntil(self.registration.showNotification(titulo, opcoes));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const destino = new URL(event.notification.data?.url || "/conversas", self.location.origin).href;
+
+  event.waitUntil(
+    (async () => {
+      const janelas = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      // Já tem o app aberto? Foca a janela e manda ela navegar.
+      for (const janela of janelas) {
+        if (new URL(janela.url).origin !== self.location.origin) continue;
+        if ("navigate" in janela) {
+          try {
+            await janela.navigate(destino);
+          } catch {
+            /* alguns navegadores não deixam navegar daqui: foca e segue */
+          }
+        }
+        return janela.focus();
+      }
+      return self.clients.openWindow(destino);
+    })(),
+  );
+});
