@@ -124,7 +124,7 @@ export function ManualProspectPanel() {
                 type="button"
                 title={key}
                 onClick={() => setTemperature(key)}
-                className={`rounded-lg px-1.5 py-0.5 text-sm transition-colors ${
+                className={`inline-flex h-9 w-9 items-center justify-center rounded-lg px-1.5 py-0.5 text-sm transition-colors ${
                   temperature === key ? "bg-primary/15 ring-1 ring-primary/40" : "opacity-45 hover:opacity-100"
                 }`}
               >
