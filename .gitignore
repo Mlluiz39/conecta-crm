@@ -38,3 +38,7 @@ docs/*.pdf
 # Um checkpoint do Cline já commitou essa pasta uma vez (commit bfac880) — não repetir.
 .hermes-home/
 .cline/
+
+# Ferramentas locais do harness + material de retomada com dados de cliente.
+# Não versionar: contém PII de leads e scripts de trabalho.
+.dsh-tools/
