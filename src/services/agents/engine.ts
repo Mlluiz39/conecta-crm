@@ -12,6 +12,10 @@ import { AGENT_ROLE_LABEL, CHANNEL_LABEL } from "@/types/domain";
 import { serverEnv } from "@/lib/env";
 import { runAgentLoop } from "./claude";
 import {
+  MOTIVO_ATENDIMENTO_AUTOMATICO,
+  detectarAtendimentoAutomatico,
+} from "./auto-attendant";
+import {
   avaliarRetomadaAutomatica,
   avisoRetomada,
   evaluateHandoff,
@@ -120,6 +124,10 @@ async function retomarConversaAbandonada(params: {
     botDisabledAt: conversation.bot_disabled_at,
     ultimaHumanaEm,
     assumidaPorHumano: Boolean(conversation.assigned_to),
+    // Depois de bater no atendimento automático a IA NÃO volta sozinha: quem reabre a
+    // conversa é um humano, por outro canal. Sem isto, o relógio de retomada ressuscitava
+    // o bot na mesma conversa e ele falava com o robô outra vez.
+    motivoTransbordo: conversation.handoff_reason ?? null,
     minutos,
   });
   if (!decisao.retomar) return { retomou: false, minutosParados: decisao.minutosParados };
@@ -290,13 +298,13 @@ export async function runAgentForConversation(params: {
   const enabledTools = (toolRows ?? []).map((r: any) => r.tool_key as AgentToolKey);
   const enabledRules = (ruleRows ?? []).map((r: any) => r.rule_key as HandoffRuleKey);
 
-  // Regra de handoff antes de chamar a IA — nunca numa conversa interna: "transbordar para
-  // humano" não faz sentido quando quem escreve É o dono.
-  let rule: HandoffRuleKey | null = null;
+  // Histórico do lead nesta conversa (mais antigo primeiro, sem a mensagem atual — ela entra
+  // como `inboundText`). Serve para duas decisões diferentes: detectar template repetido de
+  // atendimento automático e contar pedidos de humano.
+  let historicoInbound: string[] = [];
   if (!interno) {
-    // O pedido de humano é contado junto com o histórico: uma menção isolada ("vocês têm
-    // atendente?") não desliga mais o atendimento — a IA responde e tenta resolver.
-    // A mensagem atual é excluída da consulta (`neq id`): ela entra na conta como `message`.
+    // A mensagem atual é excluída da consulta (`neq id`): senão um único pedido de humano
+    // virava dois e a IA saía da conversa na primeira menção.
     let consultaHistorico = supabase
       .from("messages")
       .select("content")
@@ -306,16 +314,58 @@ export async function runAgentForConversation(params: {
       .limit(5);
     if (inboundMessageId) consultaHistorico = consultaHistorico.neq("id", inboundMessageId);
     const { data: anteriores } = await consultaHistorico;
+    historicoInbound = (anteriores ?? [])
+      .reverse()
+      .map((m: any) => String(m.content ?? ""))
+      .filter(Boolean);
+  }
 
+  /**
+   * Atendimento automático do OUTRO lado — a IA não fala com robô.
+   *
+   * Vem antes das regras de handoff porque a mensagem nem é do lead: ler um menu numerado
+   * como "pediu humano" ou "sentimento negativo" daria o motivo errado e, pior, faria a IA
+   * responder ao menu (foi o que aconteceu com 8 das 10 "respostas" de 20–24/10). Aqui a IA
+   * simplesmente se cala, marca o motivo e avisa o humano para trocar de canal.
+   */
+  if (!interno) {
+    const auto = detectarAtendimentoAutomatico({ mensagem: inboundText, historicoInbound });
+    if (auto.detectado) {
+      await supabase
+        .from("conversations")
+        .update({
+          bot_active: false,
+          handoff_reason: MOTIVO_ATENDIMENTO_AUTOMATICO,
+          bot_disabled_at: new Date().toISOString(),
+        })
+        .eq("id", conversationId)
+        .eq("organization_id", organizationId);
+
+      await supabase.from("conversation_notes").insert({
+        organization_id: organizationId,
+        conversation_id: conversationId,
+        content:
+          `IA saiu em silêncio: a mensagem recebida é de atendimento automático ` +
+          `(${auto.sinais.join(", ")}). O dono do negócio não viu a abordagem — ` +
+          `chame o responsável por outro canal (Instagram ou e-mail) em vez de insistir no WhatsApp.`,
+      });
+      console.log(
+        `[agents] atendimento automático detectado na conversa ${conversationId} (${auto.sinais.join(", ")}) — nada enviado`,
+      );
+      return { handled: true, reason: MOTIVO_ATENDIMENTO_AUTOMATICO };
+    }
+  }
+
+  // Regra de handoff antes de chamar a IA — nunca numa conversa interna: "transbordar para
+  // humano" não faz sentido quando quem escreve É o dono.
+  let rule: HandoffRuleKey | null = null;
+  if (!interno) {
     rule = evaluateHandoff({
       enabledRules,
       message: inboundText,
       consecutiveFailures: 0,
       withinBusinessHours: isWithinBusinessHours(org?.business_hours, org?.timezone || "America/Sao_Paulo"),
-      historicoInbound: (anteriores ?? [])
-        .reverse()
-        .map((m: any) => String(m.content ?? ""))
-        .filter(Boolean),
+      historicoInbound,
       pedidosNecessarios: serverEnv().handoff.pedidosAteTransbordar,
     });
   }

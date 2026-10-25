@@ -2,6 +2,7 @@ import type { HandoffRuleKey } from "@/types/domain";
 // Extensão explícita: os testes rodam com `node --test` (strip de tipos), que não resolve
 // import sem extensão. `allowImportingTsExtensions` já está no tsconfig e o Next resolve igual.
 import { clienteInsatisfeito } from "./sentiment.ts";
+import { MOTIVO_ATENDIMENTO_AUTOMATICO } from "./auto-attendant.ts";
 
 /**
  * Quando a IA sai da conversa.
@@ -131,11 +132,19 @@ export function avaliarRetomadaAutomatica(params: {
   ultimaHumanaEm?: string | null;
   /** Alguém assumiu a conversa? Então não retomamos. */
   assumidaPorHumano: boolean;
+  /**
+   * Por que a IA saiu (`conversations.handoff_reason`). O atendimento automático é o único
+   * motivo que não expira: retomar ali só faria a IA conversar com o robô do negócio.
+   */
+  motivoTransbordo?: string | null;
   agora?: Date;
   minutos: number;
 }): { retomar: boolean; minutosParados: number | null; motivo?: string } {
-  const { botDisabledAt, ultimaHumanaEm, assumidaPorHumano, minutos } = params;
+  const { botDisabledAt, ultimaHumanaEm, assumidaPorHumano, motivoTransbordo, minutos } = params;
 
+  if (motivoTransbordo === MOTIVO_ATENDIMENTO_AUTOMATICO) {
+    return { retomar: false, minutosParados: null, motivo: "atendimento_automatico" };
+  }
   if (!Number.isFinite(minutos) || minutos <= 0) {
     return { retomar: false, minutosParados: null, motivo: "retomada_automatica_desligada" };
   }

@@ -19,6 +19,8 @@ import { applyContactTemperature } from "@/services/prospecting/temperature";
  * envia o que ainda não foi avisado.
  */
 
+import { MOTIVO_ATENDIMENTO_AUTOMATICO } from "@/services/agents/auto-attendant";
+
 export type AlertType =
   | "lead_contatado"
   | "lead_respondeu"
@@ -28,6 +30,7 @@ export type AlertType =
   | "lead_quente"
   | "risco_comercial"
   | "pediu_humano"
+  | "atendimento_automatico"
   | "call_marcada";
 
 const LOOKBACK_DAYS = 3;
@@ -327,13 +330,21 @@ export async function detectAlerts(organizationId: string): Promise<DetectResult
     if (new Date(c.bot_disabled_at) < new Date(since)) continue;
 
     const nome = c.contact?.name ?? c.contact?.phone ?? c.contact?.email ?? "Contato";
+    const automatico = c.handoff_reason === MOTIVO_ATENDIMENTO_AUTOMATICO;
     pending.push({
-      type: "pediu_humano",
+      // "Atendimento automático" não é o lead pedindo humano: é a IA batendo no robô do
+      // outro negócio. O tipo muda porque a ação é outra — trocar de canal (Instagram ou
+      // e-mail) para alcançar o dono, em vez de responder no WhatsApp.
+      type: automatico ? "atendimento_automatico" : "pediu_humano",
       conversationId: c.id,
       contactId: c.contact?.id ?? null,
       dedupeKey: `handoff:${c.id}:${c.bot_disabled_at}`,
-      title: `🙋 Pediu atendimento humano — ${nome}`,
-      body: "A IA saiu da conversa e ninguém assumiu ainda. Abra Conversas e responda o lead.",
+      title: automatico
+        ? `🤖 Atendimento automático do outro lado — ${nome}`
+        : `🙋 Pediu atendimento humano — ${nome}`,
+      body: automatico
+        ? "O robô do próprio negócio respondeu: a IA se calou e nada foi enviado. O dono não viu — fale com o responsável por Instagram ou e-mail."
+        : "A IA saiu da conversa e ninguém assumiu ainda. Abra Conversas e responda o lead.",
       payload: { canal: c.channel_type ?? "whatsapp", contacto: nome, motivo: c.handoff_reason },
       eventAt: c.bot_disabled_at,
     });

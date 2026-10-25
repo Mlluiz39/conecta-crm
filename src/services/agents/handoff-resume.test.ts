@@ -81,3 +81,30 @@ test("o aviso da retomada diz os minutos e proíbe prometer humano de novo", () 
   assert.match(texto, /45 min/);
   assert.match(texto, /sem prometer de novo/i);
 });
+
+/**
+ * Caso real (25/10/2026): 8 das 10 conversas que "responderam" na prospecção eram o
+ * atendimento automático do próprio negócio. Depois que a IA se cala diante do robô, a
+ * retomada automática NÃO pode reabrir a conversa — senão o bot volta a falar com a máquina
+ * meia hora depois, sem ninguém saber.
+ */
+test("não retoma a conversa que parou no atendimento automático", () => {
+  const r = avaliarRetomadaAutomatica({
+    ...base,
+    botDisabledAt: minutosAtras(480),
+    motivoTransbordo: "atendimento_automatico",
+  });
+  assert.equal(r.retomar, false);
+  assert.equal(r.motivo, "atendimento_automatico");
+});
+
+test("os outros motivos continuam retomando normalmente", () => {
+  for (const motivo of ["cliente_pede_humano", "sentimento_negativo", "falhas_seguidas", null]) {
+    const r = avaliarRetomadaAutomatica({
+      ...base,
+      botDisabledAt: minutosAtras(480),
+      motivoTransbordo: motivo,
+    });
+    assert.equal(r.retomar, true, `deveria retomar com motivo ${motivo}`);
+  }
+});
